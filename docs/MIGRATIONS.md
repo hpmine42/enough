@@ -28,6 +28,22 @@ no unread badges, no per-user deletion, no request decline).
 | 8 | Grants to `authenticated` | PostgREST Data API access for the new objects (RLS remains the authority) |
 | 9 | Realtime publication for the new tables | Live sync of deletions/read state across devices |
 
+## Migrations 0003 + 0004
+
+- `0003_allow_self_connections.sql` — drops a legacy `CHECK (user_a <> user_b)`
+  constraint on `connections` (if present) so the My Notes self-chat
+  (`user_a = user_b`) can be created.
+- `0004_delete_account.sql` — self-service account deletion:
+  - adds the `ended` connection status,
+  - drops legacy foreign keys from `connections`/`messages` to `auth.users`
+    and `profiles` so chat history survives user deletion,
+  - creates `public.delete_own_account()` (`security definer`), which writes a
+    `@username deleted their account` system message into each accepted chat,
+    marks those chats `ended` (blocking further messages), then removes the
+    profile (freeing the username) and the auth user.
+
+Run these after `0001`/`0002` in the Supabase SQL editor; both are idempotent.
+
 ## Design decisions
 
 - **Nothing is dropped or reset.** Existing tables, policies, triggers and users

@@ -32,6 +32,30 @@ const APP_VERSION = '0.1.0';
 const GITHUB_URL = 'https://github.com/hpmine42/enough';
 
 /* ------------------------------------------------------------------ */
+/* collapse helper: keep a toggled form mounted just long enough to    */
+/* animate out, instead of disappearing instantly (which felt janky).  */
+/* ------------------------------------------------------------------ */
+
+function useCollapse(open: boolean, duration = 200) {
+  const [render, setRender] = useState(open);
+  const [closing, setClosing] = useState(false);
+  useEffect(() => {
+    if (open) {
+      setRender(true);
+      setClosing(false);
+    } else if (render) {
+      setClosing(true);
+      const t = window.setTimeout(() => {
+        setRender(false);
+        setClosing(false);
+      }, duration);
+      return () => window.clearTimeout(t);
+    }
+  }, [open, render, duration]);
+  return { render, closing };
+}
+
+/* ------------------------------------------------------------------ */
 /* section primitives                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -88,6 +112,7 @@ export default function Settings() {
     updateDisplayName,
     updateEmail,
     updatePassword,
+    deleteAccount,
     refreshProfile,
   } = useAuth();
   const {
@@ -135,6 +160,10 @@ export default function Settings() {
   // account
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [signOutBusy, setSignOutBusy] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState('');
 
   // my notes
   const [notesBusy, setNotesBusy] = useState(false);
@@ -149,23 +178,25 @@ export default function Settings() {
   // appearance (local state so the outline updates immediately)
   const [appearanceMode, setAppearanceMode] = useState<ThemeMode>(() => getStoredMode());
 
+  // Form collapse animation state (smooth open + close).
+  const emailCollapse = useCollapse(emailEditing);
+  const pwCollapse = useCollapse(pwEditing);
+
   function openEmailChange() {
-    setEmailEditing((prev) => {
-      if (prev) {
-        // Toggle off: close the form
-        setNewEmail('');
-        setEmailError(null);
-        setEmailNotice(null);
-        return false;
-      }
-      // Toggle on: open the form
-      setEmailNotice(null);
+    if (emailEditing) {
+      // Toggle off: animate the form closed.
+      setEmailEditing(false);
       setEmailError(null);
-      setTimeout(() => {
-        accountRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 50);
-      return true;
-    });
+      setEmailNotice(null);
+      return;
+    }
+    // Toggle on: open the form.
+    setEmailNotice(null);
+    setEmailError(null);
+    setEmailEditing(true);
+    setTimeout(() => {
+      accountRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
   }
 
   useEffect(() => {
@@ -242,6 +273,18 @@ export default function Settings() {
   async function handleSignOut() {
     setSignOutBusy(true);
     await signOut();
+    navigate('#/');
+  }
+
+  async function handleDeleteAccount() {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    const err = await deleteAccount();
+    setDeleteBusy(false);
+    if (err) {
+      setDeleteError(err);
+      return;
+    }
     navigate('#/');
   }
 
@@ -640,8 +683,11 @@ export default function Settings() {
                 <div className="settings-row-label">{t('settingsScreen.editEmail')}</div>
               </div>
             </button>
-            {emailEditing && (
-              <form className="settings-inline-form" onSubmit={handleEmailChange}>
+            {emailCollapse.render && (
+              <form
+                className={`settings-inline-form${emailCollapse.closing ? ' closing' : ''}`}
+                onSubmit={handleEmailChange}
+              >
                 <input
                   className="input"
                   type="email"
@@ -660,9 +706,9 @@ export default function Settings() {
                     {emailError}
                   </p>
                 )}
-                {emailNotice && <p className="field-hint ok">{emailNotice}</p>}
               </form>
             )}
+            {emailNotice && <p className="field-hint ok">{emailNotice}</p>}
             <button
               type="button"
               className="settings-row clickable"
@@ -676,8 +722,11 @@ export default function Settings() {
                 <div className="settings-row-label">{t('settingsScreen.changePassword')}</div>
               </div>
             </button>
-          {pwEditing && (
-            <form className="settings-inline-form" onSubmit={handlePasswordChange}>
+          {pwCollapse.render && (
+            <form
+              className={`settings-inline-form${pwCollapse.closing ? ' closing' : ''}`}
+              onSubmit={handlePasswordChange}
+            >
               <input
                 className="input"
                 type="password"
@@ -714,12 +763,12 @@ export default function Settings() {
                   {pwError}
                 </p>
               )}
-              {pwNotice && <p className="field-hint ok">{pwNotice}</p>}
               <button className="btn-small" type="submit" disabled={pwBusy}>
                 {pwBusy ? t('loading') : t('settingsScreen.changePasswordSubmit')}
               </button>
             </form>
           )}
+          {pwNotice && <p className="field-hint ok">{pwNotice}</p>}
           <button
             type="button"
             className="settings-row clickable danger-text"
@@ -727,6 +776,20 @@ export default function Settings() {
           >
             <div className="settings-row-main">
               <div className="settings-row-label">{t('settingsScreen.signOut')}</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            className="settings-row clickable danger-text"
+            onClick={() => {
+              setDeleteError(null);
+              setDeleteConfirm('');
+              setDeleteOpen(true);
+            }}
+          >
+            <div className="settings-row-main">
+              <div className="settings-row-label">{t('settingsScreen.deleteAccount')}</div>
+              <div className="settings-row-sub">{t('settingsScreen.deleteAccountHint')}</div>
             </div>
           </button>
           </Section>
@@ -763,6 +826,46 @@ export default function Settings() {
           onConfirm={handleSignOut}
           onCancel={() => setSignOutOpen(false)}
         />
+      )}
+
+      {deleteOpen && (
+        <Dialog
+          title={t('settingsScreen.deleteAccountTitle')}
+          confirmLabel={t('settingsScreen.deleteAccountConfirm')}
+          cancelLabel={t('cancel')}
+          danger
+          busy={deleteBusy}
+          confirmDisabled={normalizeUsername(deleteConfirm) !== (profile?.username ?? '')}
+          onConfirm={handleDeleteAccount}
+          onCancel={() => setDeleteOpen(false)}
+        >
+          <p className="dialog-text">{t('settingsScreen.deleteAccountText')}</p>
+          <label className="settings-field-label" htmlFor="delete-account-confirm">
+            {t('settingsScreen.deleteAccountTypeHint', {
+              username: `@${profile?.username ?? ''}`,
+            })}
+          </label>
+          <input
+            id="delete-account-confirm"
+            className="input delete-confirm-input"
+            type="text"
+            value={deleteConfirm}
+            onChange={(e) => setDeleteConfirm(e.target.value)}
+            placeholder={`@${profile?.username ?? ''}`}
+            autoComplete="off"
+            spellCheck={false}
+            autoCapitalize="none"
+            autoFocus
+            aria-label={t('settingsScreen.deleteAccountTypeHint', {
+              username: `@${profile?.username ?? ''}`,
+            })}
+          />
+          {deleteError && (
+            <p className="error" role="alert">
+              {deleteError}
+            </p>
+          )}
+        </Dialog>
       )}
     </aside>
   );

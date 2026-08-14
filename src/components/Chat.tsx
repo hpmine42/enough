@@ -498,6 +498,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const isIncoming = status === 'pending' && conn?.user_b === me;
   const isOutgoing = status === 'pending' && conn?.user_a === me;
   const canChat = status === 'accepted';
+  const ended = status === 'ended';
   const self = conn ? isSelfConnection(conn) : false;
   const peerUsername = peer?.username ?? '';
 
@@ -599,9 +600,15 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         </button>
         <div className="chat-peer">
           <div className="chat-peer-name">
-            {self ? t('settingsScreen.myNotes') : displayName(peer)}
+            {self
+              ? t('settingsScreen.myNotes')
+              : ended
+                ? t('chat.deletedAccount')
+                : displayName(peer)}
           </div>
-          <div className="chat-peer-username">@{peerUsername || '…'}</div>
+          <div className="chat-peer-username">
+            {ended ? '' : `@${peerUsername || '…'}`}
+          </div>
         </div>
         <button
           type="button"
@@ -613,7 +620,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         </button>
       </header>
 
-      {!canChat && !loading && valid && (
+      {!canChat && !ended && !loading && valid && (
         <div className={`request-banner ${status}`}>
           {isIncoming && (
             <>
@@ -744,13 +751,15 @@ export default function Chat({ connectionId }: { connectionId: string }) {
 
           {!canChat && (
             <div className="composer-disabled" role="note">
-              {isIncoming
-                ? t('connection.requestInfo')
-                : declined
-                  ? t('connection.requestDeclined')
-                  : status === 'expired'
-                    ? t('connection.requestExpired')
-                    : t('connection.requestSent')}
+              {ended
+                ? t('chat.deletedAccountNote')
+                : isIncoming
+                  ? t('connection.requestInfo')
+                  : declined
+                    ? t('connection.requestDeclined')
+                    : status === 'expired'
+                      ? t('connection.requestExpired')
+                      : t('connection.requestSent')}
             </div>
           )}
 

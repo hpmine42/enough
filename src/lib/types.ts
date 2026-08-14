@@ -9,7 +9,8 @@ export type ConnectionStatus =
   | 'pending'
   | 'accepted'
   | 'declined'
-  | 'expired';
+  | 'expired'
+  | 'ended';
 
 export interface Connection {
   id: string;
@@ -19,7 +20,7 @@ export interface Connection {
   created_at?: string;
 }
 
-export type MessageKind = 'text' | 'name_change' | 'connection_event';
+export type MessageKind = 'text' | 'name_change' | 'connection_event' | 'deleted_account';
 
 export interface MessageMeta {
   old_name?: string | null;

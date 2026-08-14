@@ -86,11 +86,15 @@ export async function updateMyDisplayName(
   displayName: string,
 ): Promise<string | null> {
   if (!supabase) return t('errors.network');
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('profiles')
     .update({ display_name: displayName })
-    .eq('id', me);
+    .eq('id', me)
+    .select('id');
   if (error) return errorMessage(error, 'profile display_name update');
+  // A 0-row result means RLS silently rejected the update (PostgREST does not
+  // error on RLS-filtered writes) — surface it instead of pretending it saved.
+  if (!data || data.length === 0) return t('errors.displayNameFailed');
   return null;
 }
 
@@ -616,5 +620,25 @@ export async function removeMyNotes(connectionId: string): Promise<string | null
     .delete()
     .eq('id', connectionId);
   if (error) return errorMessage(error, 'my notes remove');
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* account deletion                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Permanently delete the current user's account. Runs a `security definer`
+ * database function (see supabase/migrations/0004_delete_account.sql) that:
+ *   - writes a "@username deleted their account" system message into every
+ *     accepted conversation,
+ *   - marks those conversations `ended` (blocking further messages),
+ *   - deletes the profile (freeing the username) and the auth user.
+ * Chat history is preserved for the other participants.
+ */
+export async function deleteOwnAccount(): Promise<string | null> {
+  if (!supabase) return t('errors.network');
+  const { error } = await supabase.rpc('delete_own_account');
+  if (error) return errorMessage(error, 'account deletion');
   return null;
 }

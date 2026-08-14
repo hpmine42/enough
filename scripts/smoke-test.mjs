@@ -356,6 +356,14 @@ globalThis.fetch = async (input, init = {}) => {
         if (method === 'GET') return jsonResponse(db.connection_unread);
         break;
       }
+      case 'rpc/delete_own_account': {
+        // Self-service account deletion: drop the current user's rows.
+        db.profiles = db.profiles.filter((p) => p.id !== 'user-1');
+        db.connections = db.connections.filter(
+          (c) => c.user_a !== 'user-1' && c.user_b !== 'user-1',
+        );
+        return new Response(null, { status: 204 });
+      }
     }
     return jsonResponse({ error: `unhandled: ${table}` }, 404);
   }
@@ -707,7 +715,38 @@ await waitFor(
   'deleted chat hidden on home',
 );
 
+/* account deletion (type-to-confirm) */
+setHash('#/settings');
+await waitFor(() => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'), 'settings open for delete account');
+const deleteAccountBtn = [...dom.window.document.querySelectorAll('.settings-row')].find((r) =>
+  r.textContent.includes('Delete account'),
+);
+deleteAccountBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(() => text('.dialog-title') === 'Delete account?', 'delete account confirmation dialog');
+{
+  const confirmBtn = dom.window.document.querySelector('.dialog .btn-primary');
+  assert(confirmBtn?.disabled === true, 'delete confirm disabled until username typed');
+}
+const deleteInput = dom.window.document.querySelector('#delete-account-confirm');
+setInputValue(deleteInput, '@anna');
+await waitFor(
+  () => dom.window.document.querySelector('.dialog .btn-primary')?.disabled === false,
+  'delete confirm enabled after typing username',
+);
+dom.window.document.querySelector('.dialog .btn-primary').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(() => text('.button') === 'Log in', 'deleting account returns to login screen');
+
 /* sign out with confirmation */
+// Re-authenticate first (the previous test deleted the account).
+window.localStorage.setItem('enough-lang', 'en');
+setHash('#/login');
+await waitFor(() => text('.button') === 'Log in', 'login screen before re-sign-in');
+setInputValue(dom.window.document.querySelector('.form input[type="email"]'), 'anna@example.com');
+setInputValue(dom.window.document.querySelector('.form input[type="password"]'), 'secret123');
+dom.window.document.querySelector('.form').dispatchEvent(
+  new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+);
+await waitFor(() => text('.home-screen .empty-title') === 'Nothing here yet.', 're-sign-in → home empty state');
 setHash('#/settings');
 await waitFor(() => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'), 'settings open again');
 const signOutBtn = [...dom.window.document.querySelectorAll('.settings-row')].find((r) => r.textContent.includes('Sign out'));
