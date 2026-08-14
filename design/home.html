@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ENOUGH. — Home</title>
+
+<style>
+:root {
+    --bg: #F2F1EC;
+    --text: #252522;
+    --muted: #77766F;
+    --border: #D6D4CC;
+    --button: #292925;
+    --button-text: #F2F1EC;
+}
+
+:root.dark {
+    --bg: #191917;
+    --text: #E7E6DF;
+    --muted: #929189;
+    --border: #33332F;
+    --button: #E4E3DC;
+    --button-text: #191917;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    width: 100%;
+    min-height: 100%;
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+
+    font-family:
+        Inter,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+
+    transition:
+        background 0.25s ease,
+        color 0.25s ease;
+}
+
+.app {
+    width: 100%;
+    max-width: 430px;
+    min-height: 100dvh;
+
+    margin: auto;
+
+    padding:
+        calc(env(safe-area-inset-top) + 28px)
+        22px
+        calc(env(safe-area-inset-bottom) + 24px);
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    margin-bottom: 34px;
+}
+
+.logo {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+.add {
+    width: 42px;
+    height: 42px;
+
+    border: 1px solid var(--border);
+    border-radius: 50%;
+
+    background: transparent;
+    color: var(--text);
+
+    font-size: 24px;
+    font-weight: 300;
+}
+
+.search {
+    width: 100%;
+    height: 52px;
+
+    border: 1px solid var(--border);
+    border-radius: 13px;
+
+    background: transparent;
+    color: var(--text);
+
+    padding: 0 16px;
+
+    font-size: 16px;
+    outline: none;
+
+    margin-bottom: 28px;
+}
+
+.search::placeholder {
+    color: var(--muted);
+}
+
+.section-title {
+    margin: 0 0 12px;
+
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+
+    color: var(--muted);
+}
+
+.chat {
+    width: 100%;
+
+    display: flex;
+    align-items: center;
+
+    padding: 16px 4px;
+
+    border: 0;
+    border-bottom: 1px solid var(--border);
+
+    background: transparent;
+
+    color: var(--text);
+
+    text-align: left;
+}
+
+.chat-name {
+    font-size: 16px;
+    font-weight: 500;
+}
+
+.chat-preview {
+    margin-top: 4px;
+
+    font-size: 14px;
+    color: var(--muted);
+}
+
+.empty {
+    margin-top: 80px;
+
+    text-align: center;
+
+    color: var(--muted);
+}
+
+.empty-title {
+    font-size: 15px;
+    color: var(--text);
+
+    margin-bottom: 7px;
+}
+
+.empty-text {
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.theme {
+    position: fixed;
+
+    right: 20px;
+    bottom: calc(env(safe-area-inset-bottom) + 20px);
+
+    width: 40px;
+    height: 40px;
+
+    border: 1px solid var(--border);
+    border-radius: 50%;
+
+    background: transparent;
+    color: var(--muted);
+
+    font-size: 15px;
+
+    cursor: pointer;
+
+    transition:
+        background 0.25s ease,
+        border-color 0.25s ease,
+        color 0.25s ease;
+}
+
+.theme:active {
+    transform: scale(0.94);
+}
+</style>
+</head>
+
+<body>
+
+<main class="app">
+
+    <header class="header">
+
+        <div class="logo">
+            ENOUGH.
+        </div>
+
+        <button class="add">
+            +
+        </button>
+
+    </header>
+
+
+    <input
+        class="search"
+        placeholder="Person suchen"
+    >
+
+
+    <p class="section-title">
+        Verbindungen
+    </p>
+
+
+    <button class="chat">
+
+        <div>
+
+            <div class="chat-name">
+                @anna
+            </div>
+
+            <div class="chat-preview">
+                Bis später.
+            </div>
+
+        </div>
+
+    </button>
+
+
+    <section
+        class="empty"
+        style="display:none"
+    >
+
+        <div class="empty-title">
+            Noch keine Verbindung.
+        </div>
+
+        <div class="empty-text">
+            Suche nach einer Person,<br>
+            um einen Chat zu starten.
+        </div>
+
+    </section>
+
+</main>
+
+
+<button
+    class="theme"
+    id="themeToggle"
+    aria-label="Darstellung wechseln"
+>
+    ◐
+</button>
+
+
+<script>
+const root = document.documentElement;
+const toggle = document.getElementById("themeToggle");
+
+function applyTheme(theme) {
+    root.classList.toggle("dark", theme === "dark");
+    localStorage.setItem("enough-theme", theme);
+}
+
+const savedTheme = localStorage.getItem("enough-theme");
+
+if (savedTheme) {
+    applyTheme(savedTheme);
+} else {
+    applyTheme(
+        window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light"
+    );
+}
+
+toggle.addEventListener("click", () => {
+    const isDark = root.classList.contains("dark");
+    applyTheme(isDark ? "light" : "dark");
+});
+</script>
+
+</body>
+</html>

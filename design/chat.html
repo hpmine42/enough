@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ENOUGH. — Chat</title>
+
+<style>
+:root {
+    --bg: #F2F1EC;
+    --text: #252522;
+    --muted: #77766F;
+    --border: #D6D4CC;
+
+    --received: #E3E1D9;
+
+    --sent: #292925;
+    --sent-text: #F2F1EC;
+}
+
+:root.dark {
+    --bg: #191917;
+    --text: #E7E6DF;
+    --muted: #929189;
+    --border: #33332F;
+
+    --received: #2A2A26;
+
+    --sent: #E4E3DC;
+    --sent-text: #191917;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+
+    font-family:
+        Inter,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+
+    transition:
+        background 0.25s ease,
+        color 0.25s ease;
+}
+
+.app {
+    width: 100%;
+    max-width: 430px;
+    height: 100dvh;
+
+    margin: auto;
+
+    display: flex;
+    flex-direction: column;
+
+    padding-top: env(safe-area-inset-top);
+}
+
+.header {
+    height: 64px;
+
+    display: flex;
+    align-items: center;
+
+    padding: 0 18px;
+
+    border-bottom: 1px solid var(--border);
+}
+
+.back {
+    width: 42px;
+    height: 42px;
+
+    border: 0;
+    background: transparent;
+
+    color: var(--text);
+
+    font-size: 22px;
+}
+
+.username {
+    margin-left: 4px;
+
+    font-size: 16px;
+    font-weight: 500;
+}
+
+.messages {
+    flex: 1;
+
+    overflow-y: auto;
+
+    padding: 22px 18px;
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 8px;
+
+    overscroll-behavior: contain;
+}
+
+.message {
+    max-width: 78%;
+
+    padding: 10px 14px;
+
+    border-radius: 17px;
+
+    font-size: 15px;
+    line-height: 1.4;
+
+    word-break: break-word;
+}
+
+.received {
+    align-self: flex-start;
+
+    background: var(--received);
+
+    border-bottom-left-radius: 5px;
+}
+
+.sent {
+    align-self: flex-end;
+
+    background: var(--sent);
+    color: var(--sent-text);
+
+    border-bottom-right-radius: 5px;
+}
+
+.time {
+    margin-top: 4px;
+
+    font-size: 10px;
+
+    opacity: .55;
+}
+
+.composer {
+    padding:
+        10px
+        14px
+        calc(env(safe-area-inset-bottom) + 10px);
+
+    display: flex;
+    gap: 8px;
+
+    border-top: 1px solid var(--border);
+}
+
+.input {
+    flex: 1;
+
+    min-width: 0;
+
+    height: 48px;
+
+    border: 1px solid var(--border);
+    border-radius: 16px;
+
+    background: transparent;
+    color: var(--text);
+
+    padding: 0 15px;
+
+    font-size: 15px;
+
+    outline: none;
+}
+
+.input::placeholder {
+    color: var(--muted);
+}
+
+.send {
+    width: 48px;
+    height: 48px;
+
+    flex-shrink: 0;
+
+    border: 0;
+    border-radius: 50%;
+
+    background: var(--sent);
+    color: var(--sent-text);
+
+    font-size: 18px;
+}
+
+.theme {
+    position: fixed;
+
+    right: 16px;
+    bottom: calc(env(safe-area-inset-bottom) + 76px);
+
+    width: 34px;
+    height: 34px;
+
+    border: 1px solid var(--border);
+    border-radius: 50%;
+
+    background: var(--bg);
+    color: var(--muted);
+
+    font-size: 13px;
+
+    cursor: pointer;
+
+    transition:
+        background 0.25s ease,
+        border-color 0.25s ease,
+        color 0.25s ease;
+}
+
+.theme:active {
+    transform: scale(0.94);
+}
+</style>
+</head>
+
+<body>
+
+<main class="app">
+
+
+    <header class="header">
+
+        <button class="back">
+            ←
+        </button>
+
+        <div class="username">
+            @anna
+        </div>
+
+    </header>
+
+
+    <section class="messages">
+
+
+        <div class="message received">
+
+            Hallo!
+
+            <div class="time">
+                21:04
+            </div>
+
+        </div>
+
+
+        <div class="message sent">
+
+            Hey, wie geht's?
+
+            <div class="time">
+                21:05
+            </div>
+
+        </div>
+
+
+        <div class="message received">
+
+            Gut. Und dir?
+
+            <div class="time">
+                21:05
+            </div>
+
+        </div>
+
+
+    </section>
+
+
+    <form class="composer">
+
+        <input
+            class="input"
+            placeholder="Nachricht"
+        >
+
+        <button
+            class="send"
+            type="button"
+        >
+            ↑
+        </button>
+
+    </form>
+
+
+</main>
+
+
+<button
+    class="theme"
+    id="themeToggle"
+    aria-label="Darstellung wechseln"
+>
+    ◐
+</button>
+
+
+<script>
+const root = document.documentElement;
+const toggle = document.getElementById("themeToggle");
+
+function applyTheme(theme) {
+    root.classList.toggle("dark", theme === "dark");
+    localStorage.setItem("enough-theme", theme);
+}
+
+const savedTheme = localStorage.getItem("enough-theme");
+
+if (savedTheme) {
+    applyTheme(savedTheme);
+} else {
+    applyTheme(
+        window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light"
+    );
+}
+
+toggle.addEventListener("click", () => {
+    const isDark = root.classList.contains("dark");
+    applyTheme(isDark ? "light" : "dark");
+});
+</script>
+
+</body>
+</html>
