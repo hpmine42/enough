@@ -4,11 +4,18 @@ import Chat from './components/Chat';
 import Home from './components/Home';
 import Login from './components/Login';
 import Register from './components/Register';
-import ThemeToggle from './components/ThemeToggle';
+import ForgotPassword from './components/ForgotPassword';
+import ResetPassword from './components/ResetPassword';
+import Settings from './components/Settings';
+import ThemeButton from './components/ThemeButton';
+import { t, useLang } from './i18n';
 
 export default function App() {
-  const { configured, loading, user } = useAuth();
+  const { configured, loading, user, recovery } = useAuth();
   const route = useHashRoute();
+  // Re-render the whole tree on language changes so every t() string updates
+  // without a page reload.
+  useLang();
 
   if (!configured) {
     return (
@@ -17,15 +24,10 @@ export default function App() {
           <section className="brand">
             <h1>enough.</h1>
           </section>
-          <p>Die Verbindung zur Datenbank ist nicht konfiguriert.</p>
-          <p>
-            Bitte lege eine <code>.env</code>-Datei mit{' '}
-            <code>VITE_SUPABASE_URL</code> und{' '}
-            <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> an (siehe{' '}
-            <code>.env.example</code>).
-          </p>
+          <p>{t('errors.notConfigured')}</p>
+          <p>{t('errors.notConfiguredHint')}</p>
         </main>
-        <ThemeToggle />
+        <ThemeButton className="floating" />
       </>
     );
   }
@@ -33,30 +35,37 @@ export default function App() {
   if (loading) {
     return (
       <>
-        <main className="loading">…</main>
-        <ThemeToggle />
+        <main className="loading">{t('loading')}</main>
+        <ThemeButton className="floating" />
       </>
     );
+  }
+
+  // Password-reset flow: the user followed a recovery link.
+  if (recovery) {
+    return <ResetPassword />;
   }
 
   if (!user) {
-    return (
-      <>
-        {route.startsWith('#/register') ? <Register /> : <Login />}
-        <ThemeToggle />
-      </>
-    );
+    if (route.startsWith('#/register')) return <Register />;
+    if (route.startsWith('#/forgot')) return <ForgotPassword />;
+    if (route.startsWith('#/reset')) return <ResetPassword />;
+    return <Login />;
   }
 
+  const settingsMatch = route.startsWith('#/settings');
   const chatMatch = route.match(/^#\/chat\/(.+)$/);
-  if (chatMatch) {
-    return <Chat connectionId={decodeURIComponent(chatMatch[1])} />;
-  }
 
   return (
     <>
-      <Home />
-      <ThemeToggle />
+      <div className={`app-stage${settingsMatch ? ' shifted' : ''}`}>
+        {chatMatch ? (
+          <Chat connectionId={decodeURIComponent(chatMatch[1])} />
+        ) : (
+          <Home />
+        )}
+      </div>
+      {settingsMatch && <Settings />}
     </>
   );
 }

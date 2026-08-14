@@ -2,15 +2,24 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { AuthProvider } from './context/AuthContext';
-import { applyTheme, getInitialTheme } from './lib/theme';
+import { PreferencesProvider } from './context/PreferencesContext';
+import { checkSchemaCompatibility } from './lib/api';
+import { bootstrapTheme } from './lib/theme';
 import './index.css';
 
-applyTheme(getInitialTheme());
+// Apply the persisted/system theme before first paint (also done by an inline
+// script in index.html; this covers every entry path).
+bootstrapTheme();
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
     <AuthProvider>
-      <App />
+      <PreferencesProvider>
+        <App />
+      </PreferencesProvider>
     </AuthProvider>
   </StrictMode>,
 );
+
+// Developer aid: warn when the DB migration is missing (see docs/MIGRATIONS.md).
+checkSchemaCompatibility();

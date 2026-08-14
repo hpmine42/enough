@@ -9,7 +9,8 @@ import {
 import { User } from '@supabase/supabase-js';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import { errorMessage } from '../lib/errors';
-import { getMyProfile, upsertProfile } from '../lib/api';
+import { getMyProfile, updateMyDisplayName, upsertProfile } from '../lib/api';
+import { t } from '../i18n';
 import { Profile } from '../lib/types';
 
 interface SignUpResult {
@@ -22,13 +23,21 @@ interface AuthContextValue {
   loading: boolean;
   user: User | null;
   profile: Profile | null;
+  recovery: boolean;
   signIn: (email: string, password: string) => Promise<string | null>;
   signUp: (
     email: string,
     password: string,
     username: string,
+    displayName: string,
   ) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<string | null>;
+  updatePassword: (password: string) => Promise<string | null>;
+  updateEmail: (email: string) => Promise<string | null>;
+  updateDisplayName: (name: string) => Promise<string | null>;
+  refreshProfile: () => Promise<void>;
+  clearRecovery: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -37,6 +46,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [recovery, setRecovery] = useState(false);
+
+  const loadProfile = useCallback(async (userId: string) => {
+    const p = await getMyProfile(userId);
+    setProfile(p);
+  }, []);
 
   useEffect(() => {
     if (!supabase) {
@@ -46,11 +61,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let active = true;
 
-    const loadProfile = async (userId: string) => {
-      const p = await getMyProfile(userId);
-      if (active) setProfile(p);
-    };
-
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
       const sessionUser = data.session?.user ?? null;
@@ -59,10 +69,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (!active) return;
       const sessionUser = session?.user ?? null;
       setUser(sessionUser);
+      if (event === 'PASSWORD_RECOVERY') {
+        // The user followed a password-reset link; the session is scoped for
+        // updating the password only.
+        setRecovery(true);
+      }
       if (sessionUser) {
         loadProfile(sessionUser.id);
       } else {
@@ -78,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (email: string, password: string): Promise<string | null> => {
-      if (!supabase) return 'Keine Verbindung zum Server.';
+      if (!supabase) return t('errors.network');
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -94,17 +109,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: string,
       password: string,
       username: string,
+      displayName: string,
     ): Promise<SignUpResult> => {
       if (!supabase) {
-        return { error: 'Keine Verbindung zum Server.', needsConfirmation: false };
+        return { error: t('errors.network'), needsConfirmation: false };
       }
       // The existing auth.users trigger creates public.profiles and reads the
-      // username from raw_user_meta_data. Omitting it makes the trigger insert
-      // NULL into profiles.username and aborts the Auth transaction.
+      // username from raw_user_meta_data. display_name is passed along so the
+      // profile trigger (see migration) can copy it when the column exists.
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { username } },
+        options: { data: { username, display_name: displayName } },
       });
       if (error) {
         return {
@@ -113,7 +129,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
       }
       if (!data.user) {
-        return { error: 'Registrierung fehlgeschlagen.', needsConfirmation: false };
+        return {
+          error: t('errors.generic'),
+          needsConfirmation: false,
+        };
       }
 
       // Email confirmation is enabled in production. In that mode signUp
@@ -126,7 +145,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Keep the authenticated fallback idempotent for environments where
       // email auto-confirm is enabled or the trigger has already inserted it.
-      const profileError = await upsertProfile(data.user.id, username);
+      const profileError = await upsertProfile(
+        data.user.id,
+        username,
+        displayName,
+      );
       if (profileError) {
         // Avoid leaving the user signed in without a valid profile.
         await supabase.auth.signOut();
@@ -142,7 +165,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (supabase) await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
+    setRecovery(false);
   }, []);
+
+  const resetPassword = useCallback(async (email: string): Promise<string | null> => {
+    if (!supabase) return t('errors.network');
+    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    if (error) return errorMessage(error, 'auth resetPasswordForEmail');
+    return null;
+  }, []);
+
+  const updatePassword = useCallback(async (password: string): Promise<string | null> => {
+    if (!supabase) return t('errors.network');
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) return errorMessage(error, 'auth updateUser password');
+    return null;
+  }, []);
+
+  const updateEmail = useCallback(async (email: string): Promise<string | null> => {
+    if (!supabase) return t('errors.network');
+    const { error } = await supabase.auth.updateUser({ email });
+    if (error) return errorMessage(error, 'auth updateUser email');
+    return null;
+  }, []);
+
+  const updateDisplayName = useCallback(
+    async (name: string): Promise<string | null> => {
+      if (!supabase || !user) return t('errors.network');
+      const err = await updateMyDisplayName(user.id, name);
+      if (err) return err;
+      await loadProfile(user.id);
+      return null;
+    },
+    [user, loadProfile],
+  );
+
+  const refreshProfile = useCallback(async () => {
+    if (!user) return;
+    await loadProfile(user.id);
+  }, [user, loadProfile]);
+
+  const clearRecovery = useCallback(() => setRecovery(false), []);
 
   return (
     <AuthContext.Provider
@@ -151,9 +214,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         user,
         profile,
+        recovery,
         signIn,
         signUp,
         signOut,
+        resetPassword,
+        updatePassword,
+        updateEmail,
+        updateDisplayName,
+        refreshProfile,
+        clearRecovery,
       }}
     >
       {children}

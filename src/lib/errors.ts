@@ -1,3 +1,5 @@
+import { TranslationKey, t } from '../i18n';
+
 interface ErrorFields {
   code?: string;
   message?: string;
@@ -7,8 +9,8 @@ interface ErrorFields {
   name?: string;
 }
 
-// Log only the diagnostic fields returned by Supabase. Avoid logging request
-// bodies, credentials, sessions, tokens, or the complete error object.
+// Log only the diagnostic fields returned by Supabase. Never log request bodies,
+// credentials, sessions, tokens, or the complete error object.
 function logError(error: ErrorFields, context: string): void {
   console.error(`enough. ${context}:`, {
     code: error.code ?? null,
@@ -20,52 +22,66 @@ function logError(error: ErrorFields, context: string): void {
   });
 }
 
-// Maps known error codes to short, human-readable German messages while
-// retaining stage-specific Supabase diagnostics in the browser console.
+type ErrorKey =
+  | 'errors.generic'
+  | 'errors.network'
+  | 'errors.invalidCredentials'
+  | 'errors.emailTaken'
+  | 'errors.weakPassword'
+  | 'errors.usernameTaken'
+  | 'errors.usernameSave'
+  | 'errors.profileCreate'
+  | 'errors.noProfile'
+  | 'errors.permissionDenied';
+
+const keyOf = (k: ErrorKey): TranslationKey => k.split('.')[1] as TranslationKey;
+
+// Maps known Supabase error codes / messages to localized, human-readable text.
+// Stage-specific diagnostics stay in the browser console (developers only).
 export function errorMessage(error: unknown, context?: string): string {
   const e = error as ErrorFields | null | undefined;
-  if (!e) return 'Etwas ist schiefgelaufen.';
+  if (!e) return t(keyOf('errors.generic'));
 
-  // Registration passes an explicit stage so even mapped errors retain their
-  // exact diagnostics. Other existing flows keep their previous behavior and
-  // only log errors that would otherwise fall back to the generic message.
   if (context) logError(e, context);
 
   const code = e.code;
   const msg = (e.message ?? '').toLowerCase();
 
-  if (code === 'invalid_credentials' || msg.includes('invalid login credentials')) {
-    return 'Anmeldung fehlgeschlagen.';
+  if (
+    code === 'invalid_credentials' ||
+    msg.includes('invalid login credentials')
+  ) {
+    return t(keyOf('errors.invalidCredentials'));
   }
   if (
     code === 'user_already_exists' ||
     msg.includes('already registered') ||
     msg.includes('already been registered')
   ) {
-    return 'Diese E-Mail-Adresse ist bereits registriert.';
+    return t(keyOf('errors.emailTaken'));
   }
   if (code === 'weak_password' || msg.includes('password should be')) {
-    return 'Das Passwort ist zu schwach.';
+    return t(keyOf('errors.weakPassword'));
   }
   if (
     code === '23505' &&
     (msg.includes('username') || msg.includes('profiles_username'))
   ) {
-    return 'Dieser Benutzername ist bereits vergeben.';
+    return t(keyOf('errors.usernameTaken'));
   }
   if (
     code === '23502' &&
     msg.includes('username') &&
     msg.includes('profiles')
   ) {
-    return 'Der Benutzername konnte nicht gespeichert werden.';
+    return t(keyOf('errors.usernameSave'));
   }
   if (
     code === '42501' &&
     msg.includes('row-level security') &&
     msg.includes('profiles')
   ) {
-    return 'Das Profil konnte nicht erstellt werden.';
+    return t(keyOf('errors.profileCreate'));
   }
   if (
     msg === 'failed to fetch' ||
@@ -73,12 +89,19 @@ export function errorMessage(error: unknown, context?: string): string {
     msg.includes('fetch failed') ||
     msg.includes('network request failed')
   ) {
-    return 'Keine Verbindung zum Server.';
+    return t(keyOf('errors.network'));
   }
   if (code === 'PGRST116') {
-    return 'Kein Profil gefunden.';
+    return t(keyOf('errors.noProfile'));
+  }
+  if (code === 'P0001') {
+    // Raised by DB triggers, e.g. messaging into a non-active connection.
+    return t('chat.unavailable');
+  }
+  if (code === '42501') {
+    return t(keyOf('errors.permissionDenied'));
   }
 
   if (!context) logError(e, 'request error');
-  return 'Etwas ist schiefgelaufen.';
+  return t(keyOf('errors.generic'));
 }

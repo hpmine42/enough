@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -8,6 +8,20 @@
     />
     <meta name="theme-color" content="#F2F1EC" />
     <title>enough.</title>
+    <script>
+      // Apply the persisted theme before first paint to avoid a flash of the
+      // wrong theme. Mode: 'light' | 'dark' | 'system' (default).
+      (function () {
+        try {
+          var mode = localStorage.getItem('enough-theme');
+          var dark = false;
+          if (mode === 'light') dark = false;
+          else if (mode === 'dark') dark = true;
+          else dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
