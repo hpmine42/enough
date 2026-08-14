@@ -27,7 +27,7 @@ export async function upsertProfile(
     if (error.code === '23505') {
       return 'Dieser Benutzername ist bereits vergeben.';
     }
-    return errorMessage(error);
+    return errorMessage(error, 'registration profiles.upsert');
   }
   return null;
 }

@@ -98,20 +98,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!supabase) {
         return { error: 'Keine Verbindung zum Server.', needsConfirmation: false };
       }
-      const { data, error } = await supabase.auth.signUp({ email, password });
-      if (error) return { error: errorMessage(error), needsConfirmation: false };
+      // The existing auth.users trigger creates public.profiles and reads the
+      // username from raw_user_meta_data. Omitting it makes the trigger insert
+      // NULL into profiles.username and aborts the Auth transaction.
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { username } },
+      });
+      if (error) {
+        return {
+          error: errorMessage(error, 'registration auth.signUp'),
+          needsConfirmation: false,
+        };
+      }
       if (!data.user) {
         return { error: 'Registrierung fehlgeschlagen.', needsConfirmation: false };
       }
 
+      // Email confirmation is enabled in production. In that mode signUp
+      // intentionally returns no session, so a browser-side profile write
+      // would be anonymous and correctly rejected by profiles RLS. The Auth
+      // trigger has already created the profile inside the sign-up transaction.
+      if (!data.session) {
+        return { error: null, needsConfirmation: true };
+      }
+
+      // Keep the authenticated fallback idempotent for environments where
+      // email auto-confirm is enabled or the trigger has already inserted it.
       const profileError = await upsertProfile(data.user.id, username);
       if (profileError) {
         // Avoid leaving the user signed in without a valid profile.
-        if (data.session) await supabase.auth.signOut();
+        await supabase.auth.signOut();
         return { error: profileError, needsConfirmation: false };
       }
 
-      return { error: null, needsConfirmation: !data.session };
+      return { error: null, needsConfirmation: false };
     },
     [],
   );

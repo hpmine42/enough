@@ -1,8 +1,35 @@
-// Maps known error codes to short, human-readable German messages.
-// Raw error details are logged for development but never shown to the user.
-export function errorMessage(error: unknown): string {
-  const e = error as { code?: string; message?: string } | null | undefined;
+interface ErrorFields {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+  status?: number;
+  name?: string;
+}
+
+// Log only the diagnostic fields returned by Supabase. Avoid logging request
+// bodies, credentials, sessions, tokens, or the complete error object.
+function logError(error: ErrorFields, context: string): void {
+  console.error(`enough. ${context}:`, {
+    code: error.code ?? null,
+    message: error.message ?? null,
+    details: error.details ?? null,
+    hint: error.hint ?? null,
+    status: error.status ?? null,
+    name: error.name ?? null,
+  });
+}
+
+// Maps known error codes to short, human-readable German messages while
+// retaining stage-specific Supabase diagnostics in the browser console.
+export function errorMessage(error: unknown, context?: string): string {
+  const e = error as ErrorFields | null | undefined;
   if (!e) return 'Etwas ist schiefgelaufen.';
+
+  // Registration passes an explicit stage so even mapped errors retain their
+  // exact diagnostics. Other existing flows keep their previous behavior and
+  // only log errors that would otherwise fall back to the generic message.
+  if (context) logError(e, context);
 
   const code = e.code;
   const msg = (e.message ?? '').toLowerCase();
@@ -21,6 +48,26 @@ export function errorMessage(error: unknown): string {
     return 'Das Passwort ist zu schwach.';
   }
   if (
+    code === '23505' &&
+    (msg.includes('username') || msg.includes('profiles_username'))
+  ) {
+    return 'Dieser Benutzername ist bereits vergeben.';
+  }
+  if (
+    code === '23502' &&
+    msg.includes('username') &&
+    msg.includes('profiles')
+  ) {
+    return 'Der Benutzername konnte nicht gespeichert werden.';
+  }
+  if (
+    code === '42501' &&
+    msg.includes('row-level security') &&
+    msg.includes('profiles')
+  ) {
+    return 'Das Profil konnte nicht erstellt werden.';
+  }
+  if (
     msg === 'failed to fetch' ||
     msg.includes('networkerror') ||
     msg.includes('fetch failed') ||
@@ -32,6 +79,6 @@ export function errorMessage(error: unknown): string {
     return 'Kein Profil gefunden.';
   }
 
-  console.error('enough. error:', error);
+  if (!context) logError(e, 'request error');
   return 'Etwas ist schiefgelaufen.';
 }
