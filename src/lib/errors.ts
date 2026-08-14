@@ -32,9 +32,12 @@ type ErrorKey =
   | 'errors.usernameSave'
   | 'errors.profileCreate'
   | 'errors.noProfile'
-  | 'errors.permissionDenied';
+  | 'errors.permissionDenied'
+  | 'errors.emailNotConfirmed'
+  | 'errors.emailNotFound'
+  | 'errors.wrongPassword';
 
-const keyOf = (k: ErrorKey): TranslationKey => k.split('.')[1] as TranslationKey;
+const keyOf = (k: ErrorKey): TranslationKey => k as unknown as TranslationKey;
 
 // Maps known Supabase error codes / messages to localized, human-readable text.
 // Stage-specific diagnostics stay in the browser console (developers only).
@@ -52,6 +55,12 @@ export function errorMessage(error: unknown, context?: string): string {
     msg.includes('invalid login credentials')
   ) {
     return t(keyOf('errors.invalidCredentials'));
+  }
+  if (
+    msg.includes('email not confirmed') ||
+    msg.includes('email_not_confirmed')
+  ) {
+    return t(keyOf('errors.emailNotConfirmed'));
   }
   if (
     code === 'user_already_exists' ||
@@ -103,5 +112,26 @@ export function errorMessage(error: unknown, context?: string): string {
   }
 
   if (!context) logError(e, 'request error');
+
+  // Context-specific fallbacks for known operations that otherwise produce
+  // an unhelpful "generic" error.
+  if (context?.includes('decline')) {
+    return t('errors.declineFailed');
+  }
+  if (context?.includes('accept')) {
+    return t('errors.acceptFailed');
+  }
+  if (context?.includes('registration')) {
+    // Registration failures often come from the auth trigger hitting a
+    // unique constraint on username in the profiles table.
+    if (
+      code === '23505' ||
+      msg.includes('duplicate key') ||
+      msg.includes('unique constraint')
+    ) {
+      return t(keyOf('errors.usernameTaken'));
+    }
+  }
+
   return t(keyOf('errors.generic'));
 }

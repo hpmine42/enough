@@ -56,6 +56,8 @@ export const translations = {
       confirmTitle: 'Check your email',
       confirmText:
         'We sent a confirmation link to your email address. Please confirm it, then log in.',
+      confirmResend: 'Resend confirmation email',
+      confirmResent: 'A new confirmation email has been sent.',
       backToLogin: 'Back to log in',
       forgotTitle: 'Reset password',
       forgotText: 'Enter your email address and we will send you a reset link.',
@@ -200,7 +202,10 @@ export const translations = {
     errors: {
       generic: 'Something went wrong. Please try again.',
       network: 'No connection to the server.',
-      invalidCredentials: 'Log in failed. Check your email and password.',
+      invalidCredentials: 'Email or password is incorrect.',
+      emailNotConfirmed: 'Please confirm your email address before logging in.',
+      emailNotFound: 'No account found with this email address.',
+      wrongPassword: 'The password is incorrect.',
       emailTaken: 'This email address is already registered.',
       weakPassword: 'The password is too weak.',
       profileCreate: 'The profile could not be created.',
@@ -263,6 +268,8 @@ export const translations = {
       confirmTitle: 'Prüfe deine E-Mail',
       confirmText:
         'Wir haben einen Bestätigungslink an deine E-Mail-Adresse geschickt. Bitte bestätige ihn und melde dich dann an.',
+      confirmResend: 'Bestätigungsmail erneut senden',
+      confirmResent: 'Eine neue Bestätigungsmail wurde gesendet.',
       backToLogin: 'Zurück zur Anmeldung',
       forgotTitle: 'Passwort zurücksetzen',
       forgotText: 'Gib deine E-Mail-Adresse ein und wir senden dir einen Link.',
@@ -401,7 +408,10 @@ export const translations = {
     errors: {
       generic: 'Etwas ist schiefgelaufen. Bitte versuche es erneut.',
       network: 'Keine Verbindung zum Server.',
-      invalidCredentials: 'Anmeldung fehlgeschlagen. Prüfe E-Mail und Passwort.',
+      invalidCredentials: 'E-Mail oder Passwort ist falsch.',
+      emailNotConfirmed: 'Bitte bestätige zuerst deine E-Mail-Adresse.',
+      emailNotFound: 'Kein Konto mit dieser E-Mail-Adresse gefunden.',
+      wrongPassword: 'Das Passwort ist falsch.',
       emailTaken: 'Diese E-Mail-Adresse ist bereits registriert.',
       weakPassword: 'Das Passwort ist zu schwach.',
       profileCreate: 'Das Profil konnte nicht erstellt werden.',

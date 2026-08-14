@@ -7,5 +7,11 @@ const key = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
 export const isSupabaseConfigured: boolean = Boolean(url && key);
 
 export const supabase: SupabaseClient | null = isSupabaseConfigured
-  ? createClient(url as string, key as string)
+  ? createClient(url as string, key as string, {
+      auth: {
+        flowType: 'pkce',
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    })
   : null;

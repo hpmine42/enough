@@ -50,13 +50,20 @@ export async function upsertProfile(
 
 export async function usernameExists(username: string): Promise<boolean> {
   if (!supabase) return false;
+  // Try direct table access first (works when RLS allows anonymous reads).
   const { data, error } = await supabase
     .from('profiles')
     .select('id')
     .eq('username', username)
     .maybeSingle();
-  if (error) return false;
-  return Boolean(data);
+  if (!error) return Boolean(data);
+  // Fallback: try the RPC function if it exists.
+  const { data: rpcData, error: rpcError } = await supabase.rpc(
+    'check_username_taken',
+    { name: username },
+  );
+  if (!rpcError) return Boolean(rpcData);
+  return false;
 }
 
 export async function searchUsers(
@@ -573,15 +580,26 @@ export async function checkSchemaCompatibility(): Promise<void> {
 /** Find or create the accepted self-connection used by My Notes. */
 export async function ensureMyNotes(me: string): Promise<string | null> {
   if (!supabase) return null;
-  const { data, error } = await supabase
+  // First, look for any existing self-connection (any status).
+  const { data: existing, error: findError } = await supabase
     .from('connections')
-    .select('id')
+    .select('id, status')
     .eq('user_a', me)
     .eq('user_b', me)
-    .eq('status', 'accepted')
     .maybeSingle();
-  if (error) return null;
-  if (data) return data.id as string;
+  if (findError) return null;
+  if (existing) {
+    // If it exists but is not accepted, update it to accepted.
+    if (existing.status !== 'accepted') {
+      const { error: updateError } = await supabase
+        .from('connections')
+        .update({ status: 'accepted', created_at: new Date().toISOString() })
+        .eq('id', existing.id);
+      if (updateError) return null;
+    }
+    return existing.id as string;
+  }
+  // No existing self-connection: create one.
   const { data: inserted, error: insertError } = await supabase
     .from('connections')
     .insert({ user_a: me, user_b: me, status: 'accepted' })

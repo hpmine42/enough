@@ -687,9 +687,6 @@ if (text('.chat-peer-name') !== 'My Notes') {
   console.log('DEBUG hash:', dom.window.location.hash, '| peer:', text('.chat-peer-name'), '| loading:', text('.chat-loading'));
 }
 click('.chat-header .icon-button:last-child');
-await waitFor(() => dom.window.document.querySelector('.sheet') !== null, 'chat menu sheet opens');
-const deleteChatItem = [...dom.window.document.querySelectorAll('.sheet-item')].find((i) => i.textContent.includes('Delete chat for me'));
-deleteChatItem.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => dom.window.document.querySelector('.dialog') !== null, 'chat delete confirmation dialog');
 click('.dialog .btn-primary');
 await waitFor(() => db.chat_deletions.some((d) => d.connection_id.startsWith('conn-')), 'chat deletion persisted');

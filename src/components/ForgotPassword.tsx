@@ -29,17 +29,10 @@ export default function ForgotPassword() {
       </section>
 
       {sent ? (
-        <>
-          <section className="notice-card">
-            <h2>{t('auth.forgotTitle')}</h2>
-            <p>{t('auth.resetSent')}</p>
-          </section>
-          <div className="register">
-            <a className="link" href="#/login">
-              {t('auth.backToLogin')}
-            </a>
-          </div>
-        </>
+        <section className="notice-card">
+          <h2>{t('auth.forgotTitle')}</h2>
+          <p>{t('auth.resetSent')}</p>
+        </section>
       ) : (
         <form className="form" onSubmit={onSubmit}>
           <p className="form-hint">{t('auth.forgotText')}</p>

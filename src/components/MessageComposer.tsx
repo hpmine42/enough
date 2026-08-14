@@ -24,8 +24,8 @@ export default function MessageComposer({ onSend, disabled }: MessageComposerPro
     if (!el) return;
     el.style.height = 'auto';
     const lineHeight = 22;
-    const maxHeight = lineHeight * MAX_LINES + 16;
-    el.style.height = `${Math.min(Math.max(el.scrollHeight, 48), maxHeight)}px`;
+    const maxHeight = lineHeight * MAX_LINES + 20;
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, 52), maxHeight)}px`;
     el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
   }
 

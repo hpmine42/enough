@@ -33,6 +33,7 @@ interface AuthContextValue {
   ) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<string | null>;
+  resendConfirmation: (email: string) => Promise<string | null>;
   updatePassword: (password: string) => Promise<string | null>;
   updateEmail: (email: string) => Promise<string | null>;
   updateDisplayName: (name: string) => Promise<string | null>;
@@ -61,14 +62,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let active = true;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!active) return;
-      const sessionUser = data.session?.user ?? null;
-      setUser(sessionUser);
-      if (sessionUser) loadProfile(sessionUser.id);
-      setLoading(false);
-    });
-
+    // Register the auth state listener BEFORE getSession() so that the
+    // PASSWORD_RECOVERY event fired during URL detection is not missed.
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (!active) return;
       const sessionUser = session?.user ?? null;
@@ -83,6 +78,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setProfile(null);
       }
+    });
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      const sessionUser = data.session?.user ?? null;
+      setUser(sessionUser);
+      if (sessionUser) loadProfile(sessionUser.id);
+      setLoading(false);
     });
 
     return () => {
@@ -120,7 +123,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { username, display_name: displayName } },
+        options: {
+          data: { username, display_name: displayName },
+          emailRedirectTo: window.location.origin + window.location.pathname,
+        },
       });
       if (error) {
         return {
@@ -170,8 +176,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resetPassword = useCallback(async (email: string): Promise<string | null> => {
     if (!supabase) return t('errors.network');
-    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + window.location.pathname,
+    });
     if (error) return errorMessage(error, 'auth resetPasswordForEmail');
+    return null;
+  }, []);
+
+  const resendConfirmation = useCallback(async (email: string): Promise<string | null> => {
+    if (!supabase) return t('errors.network');
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: {
+        emailRedirectTo: window.location.origin + window.location.pathname,
+      },
+    });
+    if (error) return errorMessage(error, 'auth resendConfirmation');
     return null;
   }, []);
 
@@ -219,6 +240,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signUp,
         signOut,
         resetPassword,
+        resendConfirmation,
         updatePassword,
         updateEmail,
         updateDisplayName,
