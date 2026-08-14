@@ -9,18 +9,18 @@
  * text checked if you are unsure which information applies to you.
  */
 export const imprintConfig = {
-  providerName: '[Jakob Gregory]',
+  providerName: 'Jakob Gregory',
 
   address: {
-    street: '[Schwalbstraße 5]',
-    postalCode: '[53332]',
-    city: '[Bornheim]',
+    street: 'Schwalbstraße 5',
+    postalCode: '53332',
+    city: 'Bornheim',
     country: 'Deutschland',
   },
 
   contact: {
-    email: '[hpmine@web.de]',
-    phone: '[]',
+    email: 'hpmine@web.de',
+    phone: '',
   },
 
   // For companies or organizations, for example: "Max Mustermann"
