@@ -20,7 +20,6 @@ export const imprintConfig = {
 
   contact: {
     email: 'hpmine@web.de',
-    phone: '',
   },
 
   // For companies or organizations, for example: "Max Mustermann"
