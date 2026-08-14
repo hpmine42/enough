@@ -4,6 +4,7 @@ import { isValidUsername, normalizeUsername } from '../lib/helpers';
 import { usernameExists } from '../lib/api';
 import { t } from '../i18n';
 import AuthChrome from './AuthChrome';
+import LegalFooter from './LegalFooter';
 
 type UsernameState = 'idle' | 'invalid' | 'checking' | 'available' | 'taken';
 
@@ -207,6 +208,8 @@ export default function Register() {
           {t('auth.login')}
         </a>
       </div>
+
+      <LegalFooter className="auth-legal-footer" />
     </main>
   );
 }
@@ -266,6 +269,8 @@ function ConfirmEmail({ email }: { email: string }) {
           {t('auth.backToLogin')}
         </a>
       </div>
+
+      <LegalFooter className="auth-legal-footer" />
     </main>
   );
 }

@@ -80,6 +80,26 @@ export const translations = {
       themeLabel: 'Toggle theme',
     },
 
+    // legal notice / imprint
+    legal: {
+      legal: 'Legal',
+      imprint: 'Imprint',
+      pursuantTo: 'Information pursuant to Section 5 of the German Digital Services Act (DDG)',
+      templateNoticeTitle: 'Template — update before publishing',
+      templateNotice:
+        'Replace every value in square brackets in src/config/imprint.ts with your own details. Empty optional fields are hidden automatically.',
+      provider: 'Service provider',
+      representedBy: 'Represented by',
+      contact: 'Contact',
+      email: 'Email',
+      phone: 'Phone',
+      registerEntry: 'Register entry',
+      registerCourt: 'Register court',
+      registerNumber: 'Register number',
+      vatId: 'VAT identification number',
+      editoriallyResponsible: 'Editorial responsibility pursuant to Section 18(2) MStV',
+    },
+
     // settings
     settingsScreen: {
       title: 'Settings',
@@ -290,6 +310,25 @@ export const translations = {
         'Starte einen Chat, indem du in den Einstellungen nach Personen suchst.',
       settingsLabel: 'Einstellungen',
       themeLabel: 'Darstellung wechseln',
+    },
+
+    legal: {
+      legal: 'Rechtliches',
+      imprint: 'Impressum',
+      pursuantTo: 'Angaben gemäß § 5 Digitale-Dienste-Gesetz (DDG)',
+      templateNoticeTitle: 'Vorlage – vor Veröffentlichung anpassen',
+      templateNotice:
+        'Ersetze in src/config/imprint.ts alle Angaben in eckigen Klammern durch deine eigenen Daten. Leere optionale Felder werden automatisch ausgeblendet.',
+      provider: 'Diensteanbieter',
+      representedBy: 'Vertreten durch',
+      contact: 'Kontakt',
+      email: 'E-Mail',
+      phone: 'Telefon',
+      registerEntry: 'Registereintrag',
+      registerCourt: 'Registergericht',
+      registerNumber: 'Registernummer',
+      vatId: 'Umsatzsteuer-Identifikationsnummer',
+      editoriallyResponsible: 'Redaktionell verantwortlich gemäß § 18 Abs. 2 MStV',
     },
 
     settingsScreen: {

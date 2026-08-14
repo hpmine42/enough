@@ -7,6 +7,8 @@ import Register from './components/Register';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import Settings from './components/Settings';
+import Imprint from './components/Imprint';
+import LegalFooter from './components/LegalFooter';
 import ThemeButton from './components/ThemeButton';
 import { t, useLang } from './i18n';
 
@@ -17,6 +19,12 @@ export default function App() {
   // without a page reload.
   useLang();
 
+  // The imprint is public and must remain reachable without a configured
+  // backend, an account, or a completed authentication check.
+  if (route.startsWith('#/impressum') || route.startsWith('#/imprint')) {
+    return <Imprint />;
+  }
+
   if (!configured) {
     return (
       <>
@@ -26,6 +34,7 @@ export default function App() {
           </section>
           <p>{t('errors.notConfigured')}</p>
           <p>{t('errors.notConfiguredHint')}</p>
+          <LegalFooter className="config-legal-footer" />
         </main>
         <ThemeButton className="floating" />
       </>

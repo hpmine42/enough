@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { t } from '../i18n';
 import AuthChrome from './AuthChrome';
+import LegalFooter from './LegalFooter';
 
 export default function ForgotPassword() {
   const { resetPassword } = useAuth();
@@ -62,6 +63,8 @@ export default function ForgotPassword() {
           {t('auth.backToLogin')}
         </a>
       </div>
+
+      <LegalFooter className="auth-legal-footer" />
     </main>
   );
 }

@@ -737,6 +737,9 @@ export default function Settings() {
           <span>
             {t('settingsScreen.footer')} {APP_VERSION}
           </span>
+          <a className="link settings-legal-link" href="#/impressum">
+            {t('legal.imprint')}
+          </a>
           <a
             className="link settings-github"
             href={GITHUB_URL}

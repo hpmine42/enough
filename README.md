@@ -119,6 +119,26 @@ and is applied before first paint to avoid a flash. The theme module
 (`src/lib/theme.ts`) is standalone; the header button toggles light/dark while
 Settings offers the full three-way choice.
 
+## Impressum anpassen
+
+Das öffentliche Impressum ist unter `#/impressum` erreichbar und wird auf den
+Anmeldeseiten sowie in den Einstellungen verlinkt. Es funktioniert auch ohne
+eingerichtete Supabase-Verbindung.
+
+Vor der Veröffentlichung müssen in
+[`src/config/imprint.ts`](src/config/imprint.ts) alle Werte in eckigen Klammern
+durch die eigenen Angaben ersetzt werden:
+
+- vollständiger Name bzw. Firmenname
+- ladungsfähige Anschrift
+- E-Mail-Adresse und Telefonnummer
+- falls zutreffend: Vertretungsberechtigte, Registereintrag,
+  Umsatzsteuer-ID und redaktionell verantwortliche Person
+
+Nicht benötigte optionale Felder bleiben leer und werden dann nicht angezeigt.
+Welche Angaben im Einzelfall verpflichtend sind, hängt vom Betreiber und vom
+Angebot ab; die Vorlage ersetzt keine rechtliche Prüfung.
+
 ## Deployment
 
 GitHub Pages via `.github/workflows/deploy.yml` (base path `/enough/`). Only
