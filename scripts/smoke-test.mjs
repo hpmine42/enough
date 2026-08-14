@@ -418,6 +418,18 @@ await import(`${dist}/assets/${asset}`).catch((e) => {
 await waitFor(() => text('.auth-screen .brand h1') === 'enough.', 'login screen renders');
 assert(text('.button') === 'Log in', 'English is the default language');
 assert(text('.auth-links')?.includes('Forgot password?'), 'forgot-password link present');
+assert(text('.auth-legal-footer') === 'Imprint', 'public imprint link present');
+
+/* public imprint */
+setHash('#/impressum');
+await waitFor(() => text('.legal-content h1') === 'Imprint', 'public imprint renders');
+assert(
+  text('.legal-section address')?.includes('[Vor- und Nachname oder vollständiger Firmenname]'),
+  'imprint shows clearly marked editable placeholders',
+);
+assert(text('.legal-template-notice')?.includes('src/config/imprint.ts'), 'imprint explains where to customize it');
+setHash('#/login');
+await waitFor(() => text('.button') === 'Log in', 'return from imprint to login');
 
 /* language switch on auth screen */
 click('.lang-button');

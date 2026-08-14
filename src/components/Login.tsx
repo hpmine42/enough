@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { t } from '../i18n';
 import AuthChrome from './AuthChrome';
+import LegalFooter from './LegalFooter';
 
 export default function Login() {
   const { signIn } = useAuth();
@@ -70,6 +71,8 @@ export default function Login() {
           {t('auth.register')}
         </a>
       </div>
+
+      <LegalFooter className="auth-legal-footer" />
     </main>
   );
 }

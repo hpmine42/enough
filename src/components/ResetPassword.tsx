@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { t } from '../i18n';
 import AuthChrome from './AuthChrome';
+import LegalFooter from './LegalFooter';
 
 /** Shown after the user follows a password-reset link (recovery session). */
 export default function ResetPassword() {
@@ -51,6 +52,8 @@ export default function ResetPassword() {
             {t('auth.backToLogin')}
           </a>
         </div>
+
+        <LegalFooter className="auth-legal-footer" />
       </main>
     );
   }
@@ -100,6 +103,8 @@ export default function ResetPassword() {
           {t('auth.backToLogin')}
         </a>
       </div>
+
+      <LegalFooter className="auth-legal-footer" />
     </main>
   );
 }
