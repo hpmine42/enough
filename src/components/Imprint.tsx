@@ -51,13 +51,6 @@ export default function Imprint() {
         <h1>{t('legal.imprint')}</h1>
         <p className="legal-intro">{t('legal.pursuantTo')}</p>
 
-        {hasPlaceholders && (
-          <aside className="legal-template-notice" role="note">
-            <strong>{t('legal.templateNoticeTitle')}</strong>
-            <span>{t('legal.templateNotice')}</span>
-          </aside>
-        )}
-
         <section className="legal-section">
           <h2>{t('legal.provider')}</h2>
           <address>
