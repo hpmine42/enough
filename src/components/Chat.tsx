@@ -37,7 +37,7 @@ import MessageBubble from './MessageBubble';
 import MessageComposer from './MessageComposer';
 import BottomSheet from './BottomSheet';
 import Dialog from './Dialog';
-import { BackIcon, DotsIcon, DownIcon, InfoIcon } from './icons';
+import { BackIcon, TrashIcon, DownIcon, InfoIcon } from './icons';
 
 const PAGE_SIZE = 40;
 const LONG_PRESS_MS = 550;
@@ -72,7 +72,6 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   >(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
-  const [chatDeleteOpen, setChatDeleteOpen] = useState(false);
 
   // scroll / read state
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -485,7 +484,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     setError(null);
     const err = await deleteChatForMe(me, conn.id);
     setActionBusy(false);
-    setChatDeleteOpen(false);
+    setChatMenuOpen(false);
     if (err) {
       setError(err);
       return;
@@ -608,9 +607,9 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           type="button"
           className="icon-button"
           onClick={() => setChatMenuOpen(true)}
-          aria-label={t('settings')}
+          aria-label={t('chat.deleteChatForMe')}
         >
-          <DotsIcon size={20} />
+          <TrashIcon size={19} />
         </button>
       </header>
 
@@ -772,18 +771,15 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       )}
 
       {chatMenuOpen && (
-        <BottomSheet
-          title={displayName(peer)}
+        <Dialog
+          title={t('chat.deleteChatConfirmTitle')}
+          text={t('chat.deleteChatConfirmText')}
+          confirmLabel={t('chat.deleteChatForMe')}
           cancelLabel={t('cancel')}
-          onClose={() => setChatMenuOpen(false)}
-          items={[
-            {
-              key: 'delete-chat',
-              label: t('chat.deleteChatForMe'),
-              danger: true,
-              onSelect: () => setChatDeleteOpen(true),
-            },
-          ]}
+          danger
+          busy={actionBusy}
+          onConfirm={handleDeleteChat}
+          onCancel={() => setChatMenuOpen(false)}
         />
       )}
 
@@ -821,18 +817,6 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         />
       )}
 
-      {chatDeleteOpen && conn && (
-        <Dialog
-          title={t('chat.deleteChatConfirmTitle')}
-          text={t('chat.deleteChatConfirmText')}
-          confirmLabel={t('chat.deleteChatForMe')}
-          cancelLabel={t('cancel')}
-          danger
-          busy={actionBusy}
-          onConfirm={handleDeleteChat}
-          onCancel={() => setChatDeleteOpen(false)}
-        />
-      )}
     </main>
   );
 }

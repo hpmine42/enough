@@ -36,8 +36,12 @@ export default function Register() {
       const taken = await usernameExists(name);
       setUsernameState(taken ? 'taken' : 'available');
     }, 400);
-    // Failsafe: never block the submit button on a failed availability probe.
-    const failsafe = setTimeout(() => setUsernameState('available'), 4000);
+    // Failsafe: if the check takes too long (e.g. network issues), allow
+    // the submit button. The server-side unique constraint still catches
+    // duplicates, and we handle the error in the submit handler.
+    const failsafe = setTimeout(() => {
+      setUsernameState((prev) => (prev === 'checking' ? 'available' : prev));
+    }, 6000);
     return () => {
       clearTimeout(timer);
       clearTimeout(failsafe);
@@ -76,6 +80,13 @@ export default function Register() {
     const result = await signUp(email, password, name, displayName.trim());
     setBusy(false);
     if (result.error) {
+      // If the error is about username being taken, re-check and update state.
+      if (
+        result.error.toLowerCase().includes('username') ||
+        result.error.toLowerCase().includes('benutzername')
+      ) {
+        setUsernameState('taken');
+      }
       setError(result.error);
       return;
     }
@@ -85,7 +96,7 @@ export default function Register() {
   }
 
   if (notice === 'confirm') {
-    return <ConfirmEmail />;
+    return <ConfirmEmail email={email} />;
   }
 
   const usernameHint =
@@ -200,7 +211,26 @@ export default function Register() {
   );
 }
 
-function ConfirmEmail() {
+function ConfirmEmail({ email }: { email: string }) {
+  const { resendConfirmation } = useAuth();
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendNotice, setResendNotice] = useState<string | null>(null);
+  const [resendError, setResendError] = useState<string | null>(null);
+
+  async function handleResend() {
+    if (resendBusy || !email) return;
+    setResendBusy(true);
+    setResendNotice(null);
+    setResendError(null);
+    const err = await resendConfirmation(email);
+    setResendBusy(false);
+    if (err) {
+      setResendError(err);
+    } else {
+      setResendNotice(t('auth.confirmResent'));
+    }
+  }
+
   return (
     <main className="auth-screen">
       <AuthChrome />
@@ -211,6 +241,26 @@ function ConfirmEmail() {
         <h2>{t('auth.confirmTitle')}</h2>
         <p>{t('auth.confirmText')}</p>
       </section>
+      {resendNotice && (
+        <p className="field-hint ok" style={{ marginTop: 12 }}>
+          {resendNotice}
+        </p>
+      )}
+      {resendError && (
+        <p className="error" style={{ marginTop: 12 }} role="alert">
+          {resendError}
+        </p>
+      )}
+      <div className="auth-links" style={{ marginTop: 16 }}>
+        <button
+          type="button"
+          className="link"
+          onClick={handleResend}
+          disabled={resendBusy}
+        >
+          {resendBusy ? t('loading') : t('auth.confirmResend')}
+        </button>
+      </div>
       <div className="register">
         <a className="link" href="#/login">
           {t('auth.backToLogin')}

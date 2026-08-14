@@ -7,7 +7,9 @@ import {
   cancelConnectionRequest,
   ensureMyNotes,
   getMyConnections,
+  loadDeletionsForUser,
   removeMyNotes,
+  restoreChatForMe,
   searchUsers,
   sendConnectionRequest,
 } from '../lib/api';
@@ -144,11 +146,26 @@ export default function Settings() {
   const [notifUnsupported, setNotifUnsupported] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
 
+  // appearance (local state so the outline updates immediately)
+  const [appearanceMode, setAppearanceMode] = useState<ThemeMode>(() => getStoredMode());
+
   function openEmailChange() {
-    setEmailEditing(true);
-    setEmailNotice(null);
-    setEmailError(null);
-    accountRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setEmailEditing((prev) => {
+      if (prev) {
+        // Toggle off: close the form
+        setNewEmail('');
+        setEmailError(null);
+        setEmailNotice(null);
+        return false;
+      }
+      // Toggle on: open the form
+      setEmailNotice(null);
+      setEmailError(null);
+      setTimeout(() => {
+        accountRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+      return true;
+    });
   }
 
   useEffect(() => {
@@ -321,6 +338,11 @@ export default function Settings() {
         (c.user_a === other.id && c.user_b === me),
     );
     if (existing) {
+      // If this chat was deleted for me, restore it so it shows in the list.
+      const deletions = await loadDeletionsForUser(me);
+      if (deletions.chats.has(existing.id)) {
+        await restoreChatForMe(me, existing.id);
+      }
       navigate(`#/chat/${existing.id}`);
       return;
     }
@@ -537,9 +559,12 @@ export default function Settings() {
                 key={m}
                 type="button"
                 role="radio"
-                aria-checked={getStoredMode() === m}
-                className={`option${getStoredMode() === m ? ' selected' : ''}`}
-                onClick={() => applyMode(m)}
+                aria-checked={appearanceMode === m}
+                className={`option${appearanceMode === m ? ' selected' : ''}`}
+                onClick={() => {
+                  applyMode(m);
+                  setAppearanceMode(m);
+                }}
               >
                 {t(
                   m === 'light'
@@ -548,7 +573,7 @@ export default function Settings() {
                       ? 'settingsScreen.dark'
                       : 'settingsScreen.system',
                 )}
-                {getStoredMode() === m && <CheckIcon size={16} />}
+                {appearanceMode === m && <CheckIcon size={16} />}
               </button>
             ))}
           </div>
