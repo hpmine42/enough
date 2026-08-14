@@ -10,19 +10,14 @@ function isPlaceholder(value: string): boolean {
 export default function Imprint() {
   const [lang, setLang] = useLang();
   const { address, contact, register, editoriallyResponsible } = imprintConfig;
-  const hasRegisterEntry = Boolean(register.name || register.court || register.number);
+
+  const hasRegisterEntry = Boolean(
+    register.name || register.court || register.number,
+  );
+
   const hasEditorialResponsibility = Boolean(
     editoriallyResponsible.name || editoriallyResponsible.address,
   );
-  const hasPlaceholders = [
-    imprintConfig.providerName,
-    address.street,
-    address.postalCode,
-    address.city,
-    address.country,
-    contact.email,
-    contact.phone,
-  ].some(isPlaceholder);
 
   return (
     <main className="legal-screen">
@@ -30,11 +25,14 @@ export default function Imprint() {
         <a className="icon-button" href="#/" aria-label={t('back')}>
           <BackIcon size={22} />
         </a>
+
         <a className="logo legal-logo" href="#/">
           enough.
         </a>
+
         <div className="legal-header-actions">
           <ThemeButton />
+
           <button
             type="button"
             className="lang-button"
@@ -53,6 +51,7 @@ export default function Imprint() {
 
         <section className="legal-section">
           <h2>{t('legal.provider')}</h2>
+
           <address>
             <strong>{imprintConfig.providerName}</strong>
             <br />
@@ -73,9 +72,11 @@ export default function Imprint() {
 
         <section className="legal-section">
           <h2>{t('legal.contact')}</h2>
+
           <dl className="legal-contact-list">
             <div>
               <dt>{t('legal.email')}</dt>
+
               <dd>
                 {isPlaceholder(contact.email) ? (
                   contact.email
@@ -86,30 +87,21 @@ export default function Imprint() {
                 )}
               </dd>
             </div>
-            <div>
-              <dt>{t('legal.phone')}</dt>
-              <dd>
-                {isPlaceholder(contact.phone) ? (
-                  contact.phone
-                ) : (
-                  <a className="link" href={`tel:${contact.phone.replace(/\s/g, '')}`}>
-                    {contact.phone}
-                  </a>
-                )}
-              </dd>
-            </div>
           </dl>
         </section>
 
         {hasRegisterEntry && (
           <section className="legal-section">
             <h2>{t('legal.registerEntry')}</h2>
+
             {register.name && <p>{register.name}</p>}
+
             {register.court && (
               <p>
                 {t('legal.registerCourt')}: {register.court}
               </p>
             )}
+
             {register.number && (
               <p>
                 {t('legal.registerNumber')}: {register.number}
@@ -128,8 +120,14 @@ export default function Imprint() {
         {hasEditorialResponsibility && (
           <section className="legal-section">
             <h2>{t('legal.editoriallyResponsible')}</h2>
-            {editoriallyResponsible.name && <p>{editoriallyResponsible.name}</p>}
-            {editoriallyResponsible.address && <p>{editoriallyResponsible.address}</p>}
+
+            {editoriallyResponsible.name && (
+              <p>{editoriallyResponsible.name}</p>
+            )}
+
+            {editoriallyResponsible.address && (
+              <p>{editoriallyResponsible.address}</p>
+            )}
           </section>
         )}
       </article>
