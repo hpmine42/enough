@@ -3,17 +3,44 @@
 A deliberately minimal, one-to-one text messenger. Register, pick a username,
 find another `@username`, send a connection request, and chat.
 
+> **Less, but enough.**
+
 ## Stack
 
 - Vite + React + TypeScript
-- Supabase (Auth, Postgres, Realtime) — the backend already exists and is not
-  part of this repository
+- Supabase (Auth, Postgres, Realtime) — the backend exists separately and is
+  **not** part of this repository; schema changes are delivered as SQL in
+  [`supabase/migrations/`](supabase/migrations/)
 
 ## Design references
 
 The `design/` directory contains the original visual mockups
 (`login.html`, `home.html`, `chat.html`). They are permanent references for the
 production UI and should not be modified or turned into the app.
+
+## Features (v0.1)
+
+- Auth: login, registration (email, `@username`, display name, password × 2),
+  email confirmation, forgot/reset password, email change, persistent sessions
+- Localization: English (default) and German; auth screens have an EN/DE switch,
+  Settings has the full language control; no page reload on switch
+- Theme: Light / Dark / System (default), persisted, no flash of the wrong theme
+- Minimal Home: logo, theme toggle, settings, chat list with relative
+  timestamps and unread badges
+- Settings as a full-screen slide-in: profile, people search (by `@username`),
+  language, appearance, chat preferences (Enter to send, notifications,
+  My Notes), account, version/GitHub footer
+- Connections: live search, requests with accept / decline (custom dialog) /
+  cancel, 14-day expiration enforced by the database, re-request after decline
+- Chat: grouped bubbles, compact timestamps, long-press bottom sheet
+  (copy / delete for me / delete for everyone within 24 h), per-user chat
+  deletion, display-name change events, My Notes self-chat
+- Read state: viewport-based, per user, survives reloads; `↓ N` scroll button
+  with progressive read counts
+- Pagination with stable scroll position; Realtime for new messages,
+  deletions, connection and profile changes
+- Accessibility: semantic controls, focus states, no tap highlights,
+  `prefers-reduced-motion` support
 
 ## Setup
 
@@ -38,35 +65,62 @@ production UI and should not be modified or turned into the app.
    only uses the public client; security comes from Supabase Auth + Row Level
    Security.
 
-3. Run the app:
+3. **Apply the database migration** — see [`docs/MIGRATIONS.md`](docs/MIGRATIONS.md).
+   Run `supabase/migrations/0001_v01_features.sql` in the Supabase SQL editor.
+   Without it the app still runs, but display names, unread badges, per-user
+   deletion and request decline/expiry are unavailable (a warning is logged to
+   the console).
+
+4. Run the app:
 
    ```sh
    npm run dev
    ```
 
-## Database schema (existing backend)
+## Database schema
 
-The app reads and writes the existing tables without modifying them:
+The app reads and writes the existing tables plus the objects added by the
+migration:
 
-- `public.profiles` — `id` (= `auth.users.id`), `username` (unique)
+- `public.profiles` — `id` (= `auth.users.id`), `username` (unique),
+  `display_name` (added)
 - `public.connections` — `id`, `user_a`, `user_b`, `status`
-  (`pending` | `accepted`)
+  (`pending` | `accepted` | `declined` | `expired`), `created_at`
 - `public.messages` — `id`, `connection_id`, `sender_id`, `ciphertext`,
-  `created_at`, `deleted_at`
+  `created_at`, `deleted_at`, `kind` (`text` | `name_change`), `meta` (added)
+- `public.connection_reads` — per-user read position (added, RLS)
+- `public.message_deletions` — per-user "delete for me" rows (added, RLS)
+- `public.chat_deletions` — per-user "delete chat for me" rows (added, RLS)
+- `public.connection_unread` — security-invoker view for unread counts (added)
 
-Registration includes the username in Supabase Auth user metadata. The existing
-`auth.users` trigger creates the `profiles` row inside the sign-up transaction.
-When email confirmation is enabled, `signUp()` returns no session, so the app
-correctly avoids an anonymous profile write that `profiles` RLS would reject. An
-idempotent authenticated upsert remains as a fallback for auto-confirm setups.
+Registration includes the username and display name in Supabase Auth user
+metadata. The existing `auth.users` trigger creates the `profiles` row inside
+the sign-up transaction; an idempotent authenticated upsert remains as a
+fallback for auto-confirm setups.
 
 `messages.ciphertext` currently stores the plaintext message — v0.1 does **not**
 provide end-to-end encryption. The field name is preserved from the existing
 schema so real E2EE can be introduced later without renaming columns.
 
+## Testing
+
+- `npm run build` — TypeScript check + production build
+- `npm run smoke` — renders the production bundle in jsdom with a stubbed
+  Supabase API and walks through the main flows (auth screens, localization,
+  theme, settings, search, connection request lifecycle, chat, deletion,
+  My Notes, sign out). It is not a substitute for live-backend testing.
+- `supabase/rls-tests.sql` — authorization checks against the real database
+  using your two existing test users (see `docs/MIGRATIONS.md`).
+
 ## Theme
 
-Light/Dark theme is global, persisted in `localStorage`, and respects the
-system preference on first launch. The floating `◐` button is a temporary
-development control; the theme module (`src/lib/theme.ts`) is standalone so the
-button can later move to a settings area or be removed without rewriting the app.
+Light/Dark/System is global, persisted in `localStorage`, defaults to System,
+and is applied before first paint to avoid a flash. The theme module
+(`src/lib/theme.ts`) is standalone; the header button toggles light/dark while
+Settings offers the full three-way choice.
+
+## Deployment
+
+GitHub Pages via `.github/workflows/deploy.yml` (base path `/enough/`). Only
+browser-safe publishable Supabase credentials are injected at build time from
+repository secrets.

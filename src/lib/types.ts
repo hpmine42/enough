@@ -1,10 +1,15 @@
 export interface Profile {
   id: string;
   username: string;
+  display_name?: string | null;
   created_at?: string;
 }
 
-export type ConnectionStatus = 'pending' | 'accepted';
+export type ConnectionStatus =
+  | 'pending'
+  | 'accepted'
+  | 'declined'
+  | 'expired';
 
 export interface Connection {
   id: string;
@@ -12,6 +17,15 @@ export interface Connection {
   user_b: string;
   status: ConnectionStatus;
   created_at?: string;
+}
+
+export type MessageKind = 'text' | 'name_change' | 'connection_event';
+
+export interface MessageMeta {
+  old_name?: string | null;
+  new_name?: string | null;
+  type?: 'accepted' | null;
+  username?: string | null;
 }
 
 export interface Message {
@@ -24,4 +38,29 @@ export interface Message {
   ciphertext: string;
   created_at: string;
   deleted_at?: string | null;
+  kind?: MessageKind | null;
+  meta?: MessageMeta | null;
+}
+
+export interface ConnectionRead {
+  connection_id: string;
+  user_id: string;
+  last_read_at: string;
+}
+
+export interface MessageDeletion {
+  message_id: string;
+  user_id: string;
+  created_at?: string;
+}
+
+export interface ChatDeletion {
+  connection_id: string;
+  user_id: string;
+  created_at?: string;
+}
+
+export interface UnreadCount {
+  connection_id: string;
+  unread: number;
 }

@@ -1,5 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { t } from '../i18n';
+import AuthChrome from './AuthChrome';
 
 export default function Login() {
   const { signIn } = useAuth();
@@ -20,6 +22,7 @@ export default function Login() {
 
   return (
     <main className="auth-screen">
+      <AuthChrome />
       <section className="brand">
         <h1>enough.</h1>
       </section>
@@ -28,22 +31,22 @@ export default function Login() {
         <input
           className="input"
           type="email"
-          placeholder="E-Mail"
+          placeholder={t('auth.email')}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           autoComplete="email"
           required
-          aria-label="E-Mail"
+          aria-label={t('auth.email')}
         />
         <input
           className="input"
           type="password"
-          placeholder="Passwort"
+          placeholder={t('auth.password')}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="current-password"
           required
-          aria-label="Passwort"
+          aria-label={t('auth.password')}
         />
         {error && (
           <p className="error" role="alert">
@@ -51,14 +54,20 @@ export default function Login() {
           </p>
         )}
         <button className="button" type="submit" disabled={busy}>
-          {busy ? '…' : 'Anmelden'}
+          {busy ? t('loading') : t('auth.login')}
         </button>
       </form>
 
+      <div className="auth-links">
+        <a className="link" href="#/forgot">
+          {t('auth.forgotPassword')}
+        </a>
+      </div>
+
       <div className="register">
-        Noch kein Konto?{' '}
+        {t('auth.noAccount')}{' '}
         <a className="link" href="#/register">
-          Registrieren
+          {t('auth.register')}
         </a>
       </div>
     </main>
