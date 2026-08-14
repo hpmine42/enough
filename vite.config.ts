@@ -3,6 +3,11 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  // GitHub Pages serves this project at /enough/, so the built asset URLs
+  // must be prefixed accordingly. Vite does NOT read VITE_BASE automatically;
+  // it only reads the `base` option (or --base). The deploy workflow sets
+  // VITE_BASE=/enough/; default to '/' for local dev / root deployments.
+  base: process.env.VITE_BASE ?? '/',
   server: {
     host: true,
     port: 5173,
