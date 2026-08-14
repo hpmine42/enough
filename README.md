@@ -54,8 +54,11 @@ The app reads and writes the existing tables without modifying them:
 - `public.messages` — `id`, `connection_id`, `sender_id`, `ciphertext`,
   `created_at`, `deleted_at`
 
-Registration writes the username via an idempotent upsert on `profiles`, so it
-works whether or not a trigger already creates the profile row.
+Registration includes the username in Supabase Auth user metadata. The existing
+`auth.users` trigger creates the `profiles` row inside the sign-up transaction.
+When email confirmation is enabled, `signUp()` returns no session, so the app
+correctly avoids an anonymous profile write that `profiles` RLS would reject. An
+idempotent authenticated upsert remains as a fallback for auto-confirm setups.
 
 `messages.ciphertext` currently stores the plaintext message — v0.1 does **not**
 provide end-to-end encryption. The field name is preserved from the existing
