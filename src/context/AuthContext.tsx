@@ -9,7 +9,12 @@ import {
 import { User } from '@supabase/supabase-js';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import { errorMessage } from '../lib/errors';
-import { getMyProfile, updateMyDisplayName, upsertProfile } from '../lib/api';
+import {
+  deleteOwnAccount,
+  getMyProfile,
+  updateMyDisplayName,
+  upsertProfile,
+} from '../lib/api';
 import { t } from '../i18n';
 import { Profile } from '../lib/types';
 
@@ -37,6 +42,7 @@ interface AuthContextValue {
   updatePassword: (password: string) => Promise<string | null>;
   updateEmail: (email: string) => Promise<string | null>;
   updateDisplayName: (name: string) => Promise<string | null>;
+  deleteAccount: () => Promise<string | null>;
   refreshProfile: () => Promise<void>;
   clearRecovery: () => void;
 }
@@ -205,7 +211,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateEmail = useCallback(async (email: string): Promise<string | null> => {
     if (!supabase) return t('errors.network');
-    const { error } = await supabase.auth.updateUser({ email });
+    // Point the confirmation link back at the app (same target as sign-up and
+    // password reset) instead of Supabase's default redirect, which is what
+    // makes the emailed link unusable.
+    const { error } = await supabase.auth.updateUser(
+      { email },
+      { emailRedirectTo: window.location.origin + window.location.pathname },
+    );
     if (error) return errorMessage(error, 'auth updateUser email');
     return null;
   }, []);
@@ -215,11 +227,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!supabase || !user) return t('errors.network');
       const err = await updateMyDisplayName(user.id, name);
       if (err) return err;
+      // Keep auth.users.raw_user_meta_data in sync too, so the display name is
+      // updated everywhere in Supabase (not just public.profiles).
+      await supabase.auth.updateUser({ data: { display_name: name } });
       await loadProfile(user.id);
       return null;
     },
     [user, loadProfile],
   );
+
+  const deleteAccount = useCallback(async (): Promise<string | null> => {
+    if (!supabase) return t('errors.network');
+    const err = await deleteOwnAccount();
+    if (err) return err;
+    // The account is gone server-side, so there is nothing left to revoke —
+    // clear the local session only, then reset the in-memory state.
+    await supabase.auth.signOut({ scope: 'local' });
+    setUser(null);
+    setProfile(null);
+    setRecovery(false);
+    return null;
+  }, []);
 
   const refreshProfile = useCallback(async () => {
     if (!user) return;
@@ -244,6 +272,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         updatePassword,
         updateEmail,
         updateDisplayName,
+        deleteAccount,
         refreshProfile,
         clearRecovery,
       }}

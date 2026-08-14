@@ -7,6 +7,7 @@ interface DialogProps {
   cancelLabel: string;
   danger?: boolean;
   busy?: boolean;
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   children?: ReactNode;
@@ -20,6 +21,7 @@ export default function Dialog({
   cancelLabel,
   danger,
   busy,
+  confirmDisabled,
   onConfirm,
   onCancel,
   children,
@@ -65,7 +67,7 @@ export default function Dialog({
             ref={confirmRef}
             className={`btn-primary${danger ? ' danger' : ''}`}
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             type="button"
           >
             {busy ? '…' : confirmLabel}

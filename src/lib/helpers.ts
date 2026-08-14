@@ -25,14 +25,19 @@ export function isValidUsername(username: string): boolean {
   return /^[a-z0-9_]{3,20}$/.test(username);
 }
 
-/** Request attempts expire 14 days after they were created (or last re-sent). */
+/**
+ * Request attempts expire 14 days after they were created (or last re-sent).
+ * `accepted` and `ended` connections never expire.
+ */
 export function connectionExpiresAt(conn: Connection): Date | null {
-  if (conn.status === 'accepted' || !conn.created_at) return null;
+  if (conn.status === 'accepted' || conn.status === 'ended' || !conn.created_at) {
+    return null;
+  }
   return new Date(new Date(conn.created_at).getTime() + REQUEST_LIFETIME_MS);
 }
 
 export function isConnectionExpired(conn: Connection, now = new Date()): boolean {
-  if (conn.status === 'accepted') return false;
+  if (conn.status === 'accepted' || conn.status === 'ended') return false;
   const expiresAt = connectionExpiresAt(conn);
   return expiresAt ? expiresAt.getTime() <= now.getTime() : false;
 }
@@ -42,7 +47,7 @@ export function effectiveStatus(
   conn: Connection,
   now = new Date(),
 ): Connection['status'] {
-  if (conn.status !== 'accepted' && isConnectionExpired(conn, now)) {
+  if (conn.status !== 'accepted' && conn.status !== 'ended' && isConnectionExpired(conn, now)) {
     return 'expired';
   }
   return conn.status;

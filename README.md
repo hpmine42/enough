@@ -21,7 +21,9 @@ production UI and should not be modified or turned into the app.
 ## Features (v0.1)
 
 - Auth: login, registration (email, `@username`, display name, password × 2),
-  email confirmation, forgot/reset password, email change, persistent sessions
+  email confirmation, forgot/reset password, email change, persistent sessions,
+  self-service account deletion (frees the username; other participants keep the
+  chat and are told the account was deleted)
 - Localization: English (default) and German; auth screens have an EN/DE switch,
   Settings has the full language control; no page reload on switch
 - Theme: Light / Dark / System (default), persisted, no flash of the wrong theme
@@ -29,7 +31,8 @@ production UI and should not be modified or turned into the app.
   timestamps and unread badges
 - Settings as a full-screen slide-in: profile, people search (by `@username`),
   language, appearance, chat preferences (Enter to send, notifications,
-  My Notes), account, version/GitHub footer
+  My Notes), account (email/password change, delete account), version/GitHub
+  footer
 - Connections: live search, requests with accept / decline (custom dialog) /
   cancel, 14-day expiration enforced by the database, re-request after decline
 - Chat: grouped bubbles, compact timestamps, long-press bottom sheet
@@ -85,9 +88,12 @@ migration:
 - `public.profiles` — `id` (= `auth.users.id`), `username` (unique),
   `display_name` (added)
 - `public.connections` — `id`, `user_a`, `user_b`, `status`
-  (`pending` | `accepted` | `declined` | `expired`), `created_at`
+  (`pending` | `accepted` | `declined` | `expired` | `ended`), `created_at`
 - `public.messages` — `id`, `connection_id`, `sender_id`, `ciphertext`,
-  `created_at`, `deleted_at`, `kind` (`text` | `name_change`), `meta` (added)
+  `created_at`, `deleted_at`, `kind` (`text` | `name_change` |
+  `connection_event` | `deleted_account`), `meta` (added)
+- `public.delete_own_account()` — `security definer` RPC for self-service
+  account deletion (added by migration 0004)
 - `public.connection_reads` — per-user read position (added, RLS)
 - `public.message_deletions` — per-user "delete for me" rows (added, RLS)
 - `public.chat_deletions` — per-user "delete chat for me" rows (added, RLS)

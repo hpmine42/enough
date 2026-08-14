@@ -74,6 +74,15 @@ export default function MessageBubble({
       </div>
     );
   }
+  if (message.kind === 'deleted_account') {
+    return (
+      <div className="system-line" role="note">
+        {t('chat.deletedAccountMessage', {
+          username: message.meta?.username ?? peerUsername,
+        })}
+      </div>
+    );
+  }
 
   const showTime = group === 'alone' || group === 'last';
 

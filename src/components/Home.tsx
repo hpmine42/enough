@@ -48,6 +48,11 @@ function previewOf(last: Message | undefined, lang: string, peerUsername: string
       new: last.meta?.new_name ?? '',
     });
   }
+  if (last.kind === 'deleted_account') {
+    return t('chat.deletedAccountMessage', {
+      username: last.meta?.username ?? peerUsername,
+    });
+  }
   return last.ciphertext;
 }
 
@@ -317,11 +322,14 @@ export default function Home() {
         <div className="chat-list">
           {rows.map(({ conn, status, other, last, unread: unreadCount }) => {
             const self = isSelfConnection(conn);
+            const ended = status === 'ended';
             const name = self
               ? t('settingsScreen.myNotes')
-              : displayName(other);
-            const sub = self ? `@${other?.username ?? '…'}` : `@${other?.username ?? '…'}`;
-            const isRequest = status !== 'accepted';
+              : ended
+                ? t('chat.deletedAccount')
+                : displayName(other);
+            const sub = ended ? '' : `@${other?.username ?? '…'}`;
+            const isRequest = status !== 'accepted' && status !== 'ended';
             const isIncoming = status === 'pending' && conn.user_b === me;
             const isOutgoing = status === 'pending' && conn.user_a === me;
             const declined = status === 'declined';

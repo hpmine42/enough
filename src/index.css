@@ -812,20 +812,37 @@ textarea {
   gap: 10px;
   margin-top: 12px;
   padding-bottom: 8px;
-  animation: form-expand 0.25s ease-out;
+  animation: form-in 0.22s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-@keyframes form-expand {
+.settings-inline-form.closing {
+  animation: form-out 0.18s ease-in forwards;
+}
+
+@keyframes form-in {
   from {
     opacity: 0;
-    max-height: 0;
     transform: translateY(-6px);
   }
   to {
     opacity: 1;
-    max-height: 500px;
     transform: translateY(0);
   }
+}
+
+@keyframes form-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.delete-confirm-input {
+  margin-top: 10px;
 }
 
 .settings-inline-form .btn-small {
