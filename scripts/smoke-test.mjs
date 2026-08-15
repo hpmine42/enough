@@ -232,6 +232,8 @@ globalThis.fetch = async (input, init = {}) => {
           let rows = [...db.profiles];
           const id = eq('id');
           if (id) rows = rows.filter((r) => r.id === id);
+          const usernameEq = eq('username');
+          if (usernameEq) rows = rows.filter((r) => r.username === usernameEq);
           const ilike = filterParam('username','ilike');
           if (ilike) rows = rows.filter((r) => r.username.startsWith(ilike.replace('%', '')));
           const neq = filterParam('id','neq');
@@ -404,6 +406,11 @@ globalThis.fetch = async (input, init = {}) => {
         );
         return new Response(null, { status: 204 });
       }
+      case 'rpc/check_username_taken': {
+        const name = (body && (body.name ?? body.p_name)) || '';
+        const taken = db.profiles.some((p) => p.username === name);
+        return jsonResponse(taken);
+      }
     }
     return jsonResponse({ error: `unhandled: ${table}` }, 404);
   }
@@ -553,6 +560,11 @@ assert(
 /* live username validation */
 const usernameInput = dom.window.document.querySelector('.at-input');
 setInputValue(usernameInput, 'anna');
+await waitFor(
+  () => text('.field-hint') === 'This username is already taken.',
+  'live username validation → taken (must not show available)',
+);
+setInputValue(usernameInput, 'newuser123');
 await waitFor(
   () => text('.field-hint') === 'This username is available.',
   'live username validation → available',

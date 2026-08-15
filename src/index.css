@@ -1699,6 +1699,119 @@ textarea {
   }
 }
 
+/* ---------- markdown in messages ---------- */
+
+.md-root {
+  display: inline;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.message .md-root {
+  white-space: normal;
+}
+
+.md-paragraph {
+  display: block;
+}
+
+.md-paragraph + .md-paragraph {
+  margin-top: 0.65em;
+}
+
+.md-paragraph-gap {
+  display: block;
+  height: 0.65em;
+}
+
+.md-inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  word-break: break-all;
+}
+
+.sent .md-inline-code {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.md-code-block {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.07);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  text-align: left;
+}
+
+.sent .md-code-block {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.md-code-block code {
+  font-family: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.md-link {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  word-break: break-all;
+}
+
+.sent .md-link {
+  color: inherit;
+  text-decoration-color: rgba(255, 255, 255, 0.7);
+}
+
+.received .md-link {
+  color: inherit;
+  text-decoration-color: var(--muted);
+}
+
+.md-bold {
+  font-weight: 700;
+}
+
+.md-italic {
+  font-style: italic;
+}
+
+.md-strike {
+  text-decoration: line-through;
+  opacity: 0.85;
+}
+
+/* ---------- account delete spacing ---------- */
+
+.settings-delete-separator {
+  height: 1px;
+  margin: 40px 0 12px;
+  background: var(--border);
+}
+
+.settings-row.delete-separated {
+  margin-top: 28px;
+}
+
+/* extra breathing room for the dangerous delete-account row */
+.settings-row.delete-spaced {
+  margin-top: 40px;
+}
+
 /* ---------- reduced motion ---------- */
 
 @media (prefers-reduced-motion: reduce) {

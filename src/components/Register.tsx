@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isValidUsername, normalizeUsername } from '../lib/helpers';
 import { usernameExists } from '../lib/api';
@@ -19,9 +19,11 @@ export default function Register() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const checkIdRef = useRef(0);
 
   // Live username validation: format check while typing, availability check
-  // (debounced) once the format is valid.
+  // (debounced) once the format is valid. No failsafe that pretends
+  // \"available\" — we never show available unless the server confirmed it.
   useEffect(() => {
     const name = normalizeUsername(username);
     if (!name) {
@@ -33,19 +35,24 @@ export default function Register() {
       return;
     }
     setUsernameState('checking');
+    const currentId = ++checkIdRef.current;
     const timer = setTimeout(async () => {
-      const taken = await usernameExists(name);
-      setUsernameState(taken ? 'taken' : 'available');
+      // If another check started meanwhile, ignore this result (race guard).
+      if (currentId !== checkIdRef.current) return;
+      try {
+        const taken = await usernameExists(name);
+        if (currentId !== checkIdRef.current) return;
+        setUsernameState(taken ? 'taken' : 'available');
+      } catch {
+        if (currentId !== checkIdRef.current) return;
+        // On network errors don't show \"available\" — keep checking state
+        // as \"taken\"-like blocked (conservative) or reset to idle so user
+        // cannot proceed with a false positive.
+        setUsernameState('taken');
+      }
     }, 400);
-    // Failsafe: if the check takes too long (e.g. network issues), allow
-    // the submit button. The server-side unique constraint still catches
-    // duplicates, and we handle the error in the submit handler.
-    const failsafe = setTimeout(() => {
-      setUsernameState((prev) => (prev === 'checking' ? 'available' : prev));
-    }, 6000);
     return () => {
       clearTimeout(timer);
-      clearTimeout(failsafe);
     };
   }, [username]);
 
@@ -60,10 +67,32 @@ export default function Register() {
       setError(t('auth.usernameInvalid'));
       return;
     }
-    if (usernameState === 'taken') {
-      setError(t('auth.usernameTaken'));
+    // Always re-check right before submit to catch races and to avoid
+    // relying only on the debounced UI state which could have been shown
+    // as \"available\" before a concurrent registration.
+    if (usernameState === 'checking') {
+      setError(t('auth.checkingUsername'));
       return;
     }
+    // If format is ok but we haven't confirmed free, verify now.
+    if (usernameState !== 'available') {
+      setUsernameState('checking');
+      const taken = await usernameExists(name);
+      setUsernameState(taken ? 'taken' : 'available');
+      if (taken) {
+        setError(t('auth.usernameTaken'));
+        return;
+      }
+    } else {
+      // Even when UI says available, double-check synchronously.
+      const taken = await usernameExists(name);
+      if (taken) {
+        setUsernameState('taken');
+        setError(t('auth.usernameTaken'));
+        return;
+      }
+    }
+
     if (!displayName.trim()) {
       setError(t('auth.displayNameRequired'));
       return;
@@ -196,7 +225,12 @@ export default function Register() {
         <button
           className="button"
           type="submit"
-          disabled={busy || usernameState === 'checking'}
+          disabled={
+            busy ||
+            usernameState === 'checking' ||
+            usernameState === 'taken' ||
+            usernameState === 'invalid'
+          }
         >
           {busy ? t('loading') : t('auth.register')}
         </button>
