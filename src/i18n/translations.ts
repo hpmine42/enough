@@ -212,7 +212,7 @@ export const translations = {
       deleteForEveryone: 'Delete for everyone',
       deleteForEveryoneTitle: 'Delete for everyone?',
       deleteForEveryoneText:
-        'The message is removed for both of you. This can only be undone by you, within 24 hours.',
+        'The message is removed for both of you.',
       deleteForMe: 'Delete for me',
       deleteForMeTitle: 'Delete for me?',
       deleteForMeText: 'The message is hidden for you. The other person keeps it.',
@@ -456,7 +456,7 @@ export const translations = {
       deleteForEveryone: 'Für alle löschen',
       deleteForEveryoneTitle: 'Für alle löschen?',
       deleteForEveryoneText:
-        'Die Nachricht wird für euch beide entfernt. Das kannst du nur innerhalb von 24 Stunden rückgängig machen.',
+        'Die Nachricht wird für euch beide entfernt.',
       deleteForMe: 'Für mich löschen',
       deleteForMeTitle: 'Für mich löschen?',
       deleteForMeText: 'Die Nachricht wird für dich ausgeblendet. Die andere Person behält sie.',
