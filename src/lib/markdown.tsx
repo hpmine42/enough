@@ -2,17 +2,26 @@ import React from 'react';
 
 /**
  * Minimal safe markdown for chat messages.
- * Supports:
- * - ```code blocks```
+ *
+ * Block level:
+ * - # through ###### headings
+ * - unordered lists (- , * , +)
+ * - ordered lists (1. / 1) )
+ * - > blockquotes
+ * - ``` fenced code blocks
+ * - paragraphs separated by blank lines, single \n => <br>
+ *
+ * Inline level:
  * - `inline code`
  * - **bold** / __bold__
  * - *italic* / _italic_ (single delimiter)
  * - ~~strikethrough~~
  * - [label](https://url)
- * - paragraphs separated by blank lines, single \n => <br>
  *
  * No HTML is ever interpreted — all text is rendered as React text nodes,
- * only our own formatting elements are created.
+ * only our own formatting elements are created. Links are limited to
+ * http(s)/mailto targets, so no script execution or HTML injection is
+ * possible through message content.
  */
 
 type InlineNode =
@@ -196,11 +205,128 @@ function renderInlineNodes(nodes: InlineNode[], keyPrefix: number | string = '')
   });
 }
 
-// Block parser
+/* ------------------------------------------------------------------ */
+/* Block parser                                                        */
+/* ------------------------------------------------------------------ */
 
 type Block =
   | { type: 'code'; text: string; lang?: string }
+  | { type: 'heading'; level: number; raw: string }
+  | { type: 'list'; ordered: boolean; start: number; items: string[] }
+  | { type: 'quote'; raw: string }
   | { type: 'paragraph'; raw: string };
+
+// CommonMark-style line starts (up to 3 leading spaces tolerated).
+const HEADING_RE = /^\s{0,3}(#{1,6})\s+(.+?)\s*$/;
+const QUOTE_RE = /^\s{0,3}>\s?(.*)$/;
+const UL_ITEM_RE = /^\s{0,3}[-*+]\s+(.+)$/;
+const OL_ITEM_RE = /^\s{0,3}(\d{1,9})[.)]\s+(.+)$/;
+
+/**
+ * Splits a non-code segment into block-level constructs. Consecutive lines
+ * of the same construct are grouped (lists, quotes); blank lines end all
+ * open constructs; everything else accumulates into paragraphs.
+ */
+function parseRichBlocks(text: string): Block[] {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const blocks: Block[] = [];
+  let paragraph: string[] = [];
+  let quote: string[] = [];
+  let list: { ordered: boolean; start: number; items: string[] } | null = null;
+
+  function flushParagraph() {
+    if (paragraph.some((l) => l.trim() !== '')) {
+      blocks.push({ type: 'paragraph', raw: paragraph.join('\n') });
+    }
+    paragraph = [];
+  }
+
+  function flushQuote() {
+    if (quote.some((l) => l.trim() !== '')) {
+      blocks.push({ type: 'quote', raw: quote.join('\n') });
+    }
+    quote = [];
+  }
+
+  function flushList() {
+    if (list && list.items.length > 0) {
+      blocks.push({
+        type: 'list',
+        ordered: list.ordered,
+        start: list.start,
+        items: list.items,
+      });
+    }
+    list = null;
+  }
+
+  function flushAll() {
+    flushParagraph();
+    flushQuote();
+    flushList();
+  }
+
+  for (const line of lines) {
+    if (line.trim() === '') {
+      flushAll();
+      continue;
+    }
+
+    const heading = HEADING_RE.exec(line);
+    if (heading) {
+      flushAll();
+      blocks.push({
+        type: 'heading',
+        level: heading[1].length,
+        // An optional closing sequence of #s is decoration, not content.
+        raw: heading[2].replace(/\s+#+$/, ''),
+      });
+      continue;
+    }
+
+    const quoteLine = QUOTE_RE.exec(line);
+    if (quoteLine) {
+      flushParagraph();
+      flushList();
+      quote.push(quoteLine[1]);
+      continue;
+    }
+
+    const ulItem = UL_ITEM_RE.exec(line);
+    if (ulItem) {
+      flushParagraph();
+      flushQuote();
+      if (list && !list.ordered) {
+        list.items.push(ulItem[1]);
+      } else {
+        flushList();
+        list = { ordered: false, start: 1, items: [ulItem[1]] };
+      }
+      continue;
+    }
+
+    const olItem = OL_ITEM_RE.exec(line);
+    if (olItem) {
+      flushParagraph();
+      flushQuote();
+      if (list && list.ordered) {
+        list.items.push(olItem[2]);
+      } else {
+        flushList();
+        list = { ordered: true, start: parseInt(olItem[1], 10), items: [olItem[2]] };
+      }
+      continue;
+    }
+
+    // Plain text line: ends quotes and lists, extends the paragraph.
+    flushQuote();
+    flushList();
+    paragraph.push(line);
+  }
+
+  flushAll();
+  return blocks;
+}
 
 function parseBlocks(input: string): Block[] {
   const blocks: Block[] = [];
@@ -211,9 +337,7 @@ function parseBlocks(input: string): Block[] {
   while ((m = codeBlockRegex.exec(input)) !== null) {
     const before = input.slice(lastIndex, m.index);
     if (before) {
-      // Push paragraph blocks for text before code block
-      // Split by blank lines? Keep as one raw that will be further split into lines later.
-      blocks.push(...splitParagraphs(before));
+      blocks.push(...parseRichBlocks(before));
     }
     const lang = m[1];
     const text = m[2] ?? '';
@@ -222,42 +346,26 @@ function parseBlocks(input: string): Block[] {
   }
   const after = input.slice(lastIndex);
   if (after) {
-    blocks.push(...splitParagraphs(after));
-  }
-  // If no code blocks, splitParagraphs will handle whole input
-  if (blocks.length === 0 && input) {
-    blocks.push(...splitParagraphs(input));
+    blocks.push(...parseRichBlocks(after));
   }
   return blocks;
 }
 
-function splitParagraphs(text: string): Block[] {
-  // Normalize \r\n
-  const normalized = text.replace(/\r\n/g, '\n');
-  // Split by two or more newlines into paragraphs
-  const parts = normalized.split(/\n{2,}/);
-  const out: Block[] = [];
-  for (const p of parts) {
-    if (p.trim() === '') continue;
-    out.push({ type: 'paragraph', raw: p });
-  }
-  return out;
-}
+/* ------------------------------------------------------------------ */
+/* Rendering                                                           */
+/* ------------------------------------------------------------------ */
 
-function Paragraph({ raw, idx }: { raw: string; idx: number }) {
-  // Split by single newline — each newline becomes <br> except last
+/** Line-broken inline content, shared by paragraphs and quotes. */
+function Lines({ raw, keyPrefix }: { raw: string; keyPrefix: string }) {
   const lines = raw.split('\n');
   return (
     <>
-      {lines.map((line, li) => {
-        const inline = parseInline(line);
-        return (
-          <React.Fragment key={`${idx}-${li}`}>
-            {renderInlineNodes(inline, `${idx}-${li}`)}
-            {li < lines.length - 1 && <br />}
-          </React.Fragment>
-        );
-      })}
+      {lines.map((line, li) => (
+        <React.Fragment key={`${keyPrefix}-${li}`}>
+          {renderInlineNodes(parseInline(line), `${keyPrefix}-${li}`)}
+          {li < lines.length - 1 && <br />}
+        </React.Fragment>
+      ))}
     </>
   );
 }
@@ -277,11 +385,44 @@ export function MarkdownText({ text }: { text: string }) {
             </pre>
           );
         }
+        if (b.type === 'heading') {
+          const level = Math.min(Math.max(b.level, 1), 6);
+          return React.createElement(
+            `h${level}`,
+            { key: i, className: `md-heading md-h${level}` },
+            renderInlineNodes(parseInline(b.raw), `h${i}`),
+          );
+        }
+        if (b.type === 'list') {
+          const items = b.items.map((item, ii) => (
+            <li key={ii}>{renderInlineNodes(parseInline(item), `li${i}-${ii}`)}</li>
+          ));
+          return b.ordered ? (
+            <ol
+              key={i}
+              className="md-list"
+              start={b.start !== 1 ? b.start : undefined}
+            >
+              {items}
+            </ol>
+          ) : (
+            <ul key={i} className="md-list">
+              {items}
+            </ul>
+          );
+        }
+        if (b.type === 'quote') {
+          return (
+            <blockquote key={i} className="md-quote">
+              <Lines raw={b.raw} keyPrefix={`q${i}`} />
+            </blockquote>
+          );
+        }
         // paragraph
         const isLast = i === blocks.length - 1;
         return (
           <span key={i} className="md-paragraph">
-            <Paragraph raw={b.raw} idx={i} />
+            <Lines raw={b.raw} keyPrefix={`p${i}`} />
             {!isLast && <span className="md-paragraph-gap" />}
           </span>
         );

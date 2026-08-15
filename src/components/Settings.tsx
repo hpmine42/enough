@@ -867,7 +867,6 @@ export default function Settings() {
           <button
             type="button"
             className="settings-row clickable danger-text delete-spaced"
-            style={{ marginTop: 40 }}
             onClick={() => {
               setDeleteError(null);
               setDeleteConfirm('');

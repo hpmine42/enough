@@ -1702,13 +1702,82 @@ textarea {
 /* ---------- markdown in messages ---------- */
 
 .md-root {
-  display: inline;
+  display: block;
   word-break: break-word;
   white-space: normal;
 }
 
 .message .md-root {
   white-space: normal;
+}
+
+/* Blocks at the very start/end of a message hug the bubble padding
+   instead of adding extra air. */
+.md-root > :first-child {
+  margin-top: 0;
+}
+
+.md-root > :last-child {
+  margin-bottom: 0;
+}
+
+/* Headings stay modest on purpose: bold, only slightly larger steps,
+   so they feel like part of the message rather than a document. */
+.md-heading {
+  display: block;
+  margin: 0.55em 0 0.35em;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.md-h1 {
+  font-size: 1.28em;
+}
+
+.md-h2 {
+  font-size: 1.16em;
+}
+
+.md-h3 {
+  font-size: 1.07em;
+}
+
+.md-h4,
+.md-h5,
+.md-h6 {
+  font-size: 1em;
+}
+
+.md-list {
+  margin: 0.5em 0 0.3em;
+  padding-left: 1.3em;
+  text-align: left;
+}
+
+.md-list > li {
+  margin: 0.12em 0;
+}
+
+.md-list > li:first-child {
+  margin-top: 0;
+}
+
+.md-list > li:last-child {
+  margin-bottom: 0;
+}
+
+.md-quote {
+  margin: 0.5em 0 0.3em;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+  text-align: left;
+}
+
+.sent .md-quote {
+  border-color: rgba(255, 255, 255, 0.45);
+  color: inherit;
 }
 
 .md-paragraph {
@@ -1797,19 +1866,21 @@ textarea {
 
 /* ---------- account delete spacing ---------- */
 
+/* Upper divider above the Delete Account row. The gap above it is
+   intentionally kept noticeably larger than the spacing around the row
+   itself, so the dangerous action is visually set apart. */
 .settings-delete-separator {
   height: 1px;
-  margin: 40px 0 12px;
+  margin: 48px 0 0;
   background: var(--border);
 }
 
-.settings-row.delete-separated {
-  margin-top: 28px;
-}
-
-/* extra breathing room for the dangerous delete-account row */
+/* The row's own border-bottom acts as the lower divider. Equal padding
+   above and below the text centers Delete Account between the two
+   dividers. */
 .settings-row.delete-spaced {
-  margin-top: 40px;
+  padding-top: 22px;
+  padding-bottom: 22px;
 }
 
 /* ---------- reduced motion ---------- */
