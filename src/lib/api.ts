@@ -572,7 +572,8 @@ export async function checkSchemaCompatibility(): Promise<void> {
   if (missing.length > 0) {
     console.warn(
       `enough.: database migration not applied — missing ${missing.join(', ')}. ` +
-        'Run supabase/migrations/0001_v01_features.sql (see docs/MIGRATIONS.md).',
+        'Run all files in supabase/migrations/ in numeric order ' +
+        '(see docs/MIGRATIONS.md).',
     );
   }
 }
@@ -581,45 +582,175 @@ export async function checkSchemaCompatibility(): Promise<void> {
 /* My Notes (self-chat)                                                */
 /* ------------------------------------------------------------------ */
 
-/** Find or create the accepted self-connection used by My Notes. */
-export async function ensureMyNotes(me: string): Promise<string | null> {
-  if (!supabase) return null;
-  // First, look for any existing self-connection (any status).
+interface MyNotesSetupResult {
+  connectionId: string | null;
+  error: string | null;
+}
+
+interface SupabaseErrorShape {
+  code?: string;
+  message?: string;
+}
+
+function isMissingMyNotesRpc(error: unknown): boolean {
+  const e = error as SupabaseErrorShape | null;
+  const message = e?.message?.toLowerCase() ?? '';
+  return (
+    e?.code === 'PGRST202' ||
+    e?.code === '42883' ||
+    (message.includes('function') &&
+      (message.includes('ensure_my_notes') || message.includes('remove_my_notes')) &&
+      (message.includes('not find') || message.includes('does not exist')))
+  );
+}
+
+function isMyNotesSchemaError(error: unknown): boolean {
+  const code = (error as SupabaseErrorShape | null)?.code;
+  // 23514: a legacy user_a <> user_b CHECK constraint.
+  // 42501: normal connection RLS correctly disallows accepted browser inserts.
+  return code === '23514' || code === '42501';
+}
+
+/**
+ * Find or create the accepted self-connection used by My Notes.
+ *
+ * Normal connection RLS should allow browser users to create only pending
+ * requests, so the preferred path is the auth-bound RPC from migration 0005.
+ * The direct-table fallback keeps older, permissive installations working.
+ */
+export async function ensureMyNotes(me: string): Promise<MyNotesSetupResult> {
+  if (!supabase) {
+    return { connectionId: null, error: t('errors.network') };
+  }
+
+  const { data: rpcId, error: rpcError } = await supabase.rpc('ensure_my_notes');
+  if (!rpcError && typeof rpcId === 'string' && rpcId) {
+    return { connectionId: rpcId, error: null };
+  }
+
+  if (rpcError && !isMissingMyNotesRpc(rpcError)) {
+    if (isMyNotesSchemaError(rpcError)) {
+      return {
+        connectionId: null,
+        error: t('settingsScreen.myNotesUpgradeRequired'),
+      };
+    }
+    return {
+      connectionId: null,
+      error: errorMessage(rpcError, 'my notes ensure RPC'),
+    };
+  }
+
+  // Compatibility fallback for a backend without migration 0005 whose
+  // existing policies already permit an accepted self-connection.
   const { data: existing, error: findError } = await supabase
     .from('connections')
     .select('id, status')
     .eq('user_a', me)
     .eq('user_b', me)
     .maybeSingle();
-  if (findError) return null;
-  if (existing) {
-    // If it exists but is not accepted, update it to accepted.
-    if (existing.status !== 'accepted') {
-      const { error: updateError } = await supabase
-        .from('connections')
-        .update({ status: 'accepted', created_at: new Date().toISOString() })
-        .eq('id', existing.id);
-      if (updateError) return null;
-    }
-    return existing.id as string;
+  if (findError) {
+    errorMessage(findError, 'my notes legacy lookup');
+    return {
+      connectionId: null,
+      error: t('settingsScreen.myNotesUpgradeRequired'),
+    };
   }
-  // No existing self-connection: create one.
+
+  if (existing) {
+    if (existing.status === 'accepted') {
+      return { connectionId: existing.id as string, error: null };
+    }
+    const { data: updated, error: updateError } = await supabase
+      .from('connections')
+      .update({ status: 'accepted', created_at: new Date().toISOString() })
+      .eq('id', existing.id)
+      .select('id');
+    if (!updateError && updated?.length === 1) {
+      return { connectionId: existing.id as string, error: null };
+    }
+    if (updateError) errorMessage(updateError, 'my notes legacy update');
+    return {
+      connectionId: null,
+      error: t('settingsScreen.myNotesUpgradeRequired'),
+    };
+  }
+
   const { data: inserted, error: insertError } = await supabase
     .from('connections')
     .insert({ user_a: me, user_b: me, status: 'accepted' })
     .select('id')
     .single();
-  if (insertError) return null;
-  return inserted.id as string;
+  if (!insertError && inserted?.id) {
+    return { connectionId: inserted.id as string, error: null };
+  }
+
+  // A second tab may have won the insert race. Recover the row before showing
+  // an error rather than reporting a harmless unique conflict.
+  if (insertError?.code === '23505') {
+    const { data: raced } = await supabase
+      .from('connections')
+      .select('id')
+      .eq('user_a', me)
+      .eq('user_b', me)
+      .maybeSingle();
+    if (raced?.id) return { connectionId: raced.id as string, error: null };
+  }
+
+  if (insertError) errorMessage(insertError, 'my notes legacy insert');
+  return {
+    connectionId: null,
+    error: t('settingsScreen.myNotesUpgradeRequired'),
+  };
 }
 
-export async function removeMyNotes(connectionId: string): Promise<string | null> {
+/** Delete only the signed-in user's My Notes connection. */
+export async function removeMyNotes(
+  me: string,
+  knownConnectionId?: string,
+): Promise<string | null> {
   if (!supabase) return t('errors.network');
-  const { error } = await supabase
+
+  const { error: rpcError } = await supabase.rpc('remove_my_notes');
+  if (!rpcError) return null;
+  if (!isMissingMyNotesRpc(rpcError)) {
+    return errorMessage(rpcError, 'my notes remove RPC');
+  }
+
+  // Compatibility fallback for installations not yet using migration 0005.
+  let connectionId = knownConnectionId;
+  if (!connectionId) {
+    const { data, error } = await supabase
+      .from('connections')
+      .select('id')
+      .eq('user_a', me)
+      .eq('user_b', me)
+      .maybeSingle();
+    if (error) {
+      errorMessage(error, 'my notes legacy remove lookup');
+      return t('settingsScreen.myNotesUpgradeRequired');
+    }
+    connectionId = data?.id as string | undefined;
+  }
+  if (!connectionId) return null;
+
+  const { data: deleted, error } = await supabase
     .from('connections')
     .delete()
-    .eq('id', connectionId);
-  if (error) return errorMessage(error, 'my notes remove');
+    .eq('id', connectionId)
+    .eq('user_a', me)
+    .eq('user_b', me)
+    .select('id');
+  if (error) {
+    const message = errorMessage(error, 'my notes legacy remove');
+    if (isMyNotesSchemaError(error)) {
+      return t('settingsScreen.myNotesUpgradeRequired');
+    }
+    return message;
+  }
+  if (!deleted || deleted.length === 0) {
+    return t('settingsScreen.myNotesUpgradeRequired');
+  }
   return null;
 }
 
