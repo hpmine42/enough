@@ -112,6 +112,9 @@ export const translations = {
       emailChangeSent:
         'A verification link was sent to the new address. It becomes active after you confirm it.',
       changePassword: 'Change password',
+      changePasswordConfirmTitle: 'Change password?',
+      changePasswordConfirmText:
+        'You will need to confirm your current password before choosing a new one.',
       currentPassword: 'Current password',
       newPassword: 'New password',
       changePasswordSubmit: 'Change password',
@@ -354,6 +357,9 @@ export const translations = {
       emailChangeSent:
         'Ein Bestätigungslink wurde an die neue Adresse gesendet. Sie wird nach Bestätigung aktiv.',
       changePassword: 'Passwort ändern',
+      changePasswordConfirmTitle: 'Passwort ändern?',
+      changePasswordConfirmText:
+        'Bestätige zuerst dein aktuelles Passwort, bevor du ein neues festlegst.',
       currentPassword: 'Aktuelles Passwort',
       newPassword: 'Neues Passwort',
       changePasswordSubmit: 'Passwort ändern',

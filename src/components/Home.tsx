@@ -95,13 +95,6 @@ export default function Home() {
     );
     setUnread(counts);
 
-    // A new message restored a previously deleted chat: keep it visible.
-    for (const c of visible) {
-      if (deleted.has(c.id) && last[c.id]) {
-        restoreChatForMe(me, c.id);
-      }
-    }
-
     setLoading(false);
   }, [me]);
 
@@ -128,9 +121,15 @@ export default function Home() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload) => {
+        async (payload) => {
           const msg = payload.new as Message | undefined;
-          if (!msg || msg.sender_id === me) return;
+          if (!msg) return;
+          // A genuinely new incoming message revives a chat deleted only for
+          // this user. Normal visible chats are a harmless no-op here. Own
+          // messages from another tab/device still refresh ordering.
+          if (msg.sender_id !== me) {
+            await restoreChatForMe(me, msg.connection_id);
+          }
           load();
         },
       )

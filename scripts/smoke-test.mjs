@@ -61,6 +61,13 @@ const payload = b64url({
   user_metadata: { username: 'anna' },
 });
 const ACCESS_TOKEN = `${header}.${payload}.fake-signature`;
+if (process.env.SMOKE_RECOVERY) {
+  // Exercise the implicit recovery callback format used by Supabase email
+  // links. Never print or persist the URL token in test diagnostics.
+  window.location.hash =
+    `#access_token=${ACCESS_TOKEN}&refresh_token=refresh-1&expires_in=3600` +
+    '&token_type=bearer&type=recovery';
+}
 
 /* A tiny in-memory "database" for the stub API. */
 let ensureMyNotesRpcCalls = 0;
@@ -284,7 +291,7 @@ globalThis.fetch = async (input, init = {}) => {
         break;
       }
       case 'messages': {
-        if (method === 'GET') {
+        if (method === 'GET' || method === 'HEAD') {
           const cid = eq('connection_id');
           let rows = db.messages.filter((r) => r.connection_id === cid);
           const before = filterParam('created_at','lt');
@@ -455,6 +462,43 @@ await import(`${dist}/assets/${asset}`).catch((e) => {
   process.exit(1);
 });
 
+if (process.env.SMOKE_RECOVERY) {
+  await waitFor(
+    () => text('.button') === 'Set new password',
+    'implicit recovery callback opens reset screen',
+  );
+  assert(
+    !window.location.hash.includes('access_token'),
+    'Supabase removes recovery tokens from the URL',
+  );
+  const recoveryInputs = dom.window.document.querySelectorAll(
+    '.form input[type="password"]',
+  );
+  setInputValue(recoveryInputs[0], 'changed123');
+  setInputValue(recoveryInputs[1], 'different123');
+  dom.window.document.querySelector('.form').dispatchEvent(
+    new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+  );
+  await waitFor(
+    () => text('.error') === 'The passwords do not match.',
+    'recovery rejects mismatching passwords',
+  );
+  setInputValue(recoveryInputs[1], 'changed123');
+  dom.window.document.querySelector('.form').dispatchEvent(
+    new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+  );
+  await waitFor(
+    () => dom.window.document.querySelector('.home-screen') !== null,
+    'recovery updates the password successfully',
+  );
+  console.log(
+    failures === 0
+      ? '\nRecovery smoke test passed.\n'
+      : `\n${failures} recovery smoke test(s) FAILED.\n`,
+  );
+  process.exit(failures === 0 ? 0 : 1);
+}
+
 /* --- unauthenticated: login screen, English default --- */
 await waitFor(() => text('.auth-screen .brand h1') === 'enough.', 'login screen renders');
 assert(text('.button') === 'Log in', 'English is the default language');
@@ -560,6 +604,48 @@ assert(
   'settings sections (profile/search/language/appearance/chat/account)',
 );
 
+/* password change starts with an in-app confirmation */
+const passwordRow = [...dom.window.document.querySelectorAll('.settings-row.clickable')].find((r) =>
+  r.textContent.includes('Change password'),
+);
+passwordRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => text('.dialog-title') === 'Change password?',
+  'password change opens confirmation dialog first',
+);
+assert(
+  dom.window.document.querySelector('.dialog') !== null,
+  'password confirmation is custom (no browser alert)',
+);
+click('.dialog .btn-primary');
+await waitFor(
+  () => dom.window.document.querySelectorAll('.settings-inline-form input[type="password"]').length === 3,
+  'password form opens after confirmation',
+);
+const passwordInputs = dom.window.document.querySelectorAll(
+  '.settings-inline-form input[type="password"]',
+);
+setInputValue(passwordInputs[0], 'secret123');
+setInputValue(passwordInputs[1], 'changed123');
+setInputValue(passwordInputs[2], 'different123');
+passwordInputs[0].closest('form').dispatchEvent(
+  new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+);
+await waitFor(
+  () => text('.settings-inline-form .error') === 'The passwords do not match.',
+  'password change rejects mismatching passwords',
+);
+setInputValue(passwordInputs[2], 'changed123');
+passwordInputs[0].closest('form').dispatchEvent(
+  new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+);
+await waitFor(
+  () => [...dom.window.document.querySelectorAll('.field-hint.ok')].some(
+    (node) => node.textContent === 'Your password has been changed.',
+  ),
+  'password change succeeds after backend re-authentication',
+);
+
 /* language control inside settings */
 const languageSection = [...dom.window.document.querySelectorAll('.settings-section')].find((s) =>
   s.querySelector('.settings-section-title')?.textContent === 'Language',
@@ -581,6 +667,28 @@ const darkOption = [...appearanceSection.querySelectorAll('.option')].find((o) =
 darkOption.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => dom.window.document.documentElement.classList.contains('dark'), 'settings appearance → dark');
 assert(window.localStorage.getItem('enough-theme') === 'dark', 'appearance persists');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-header .theme-icon')?.classList.contains('dark'),
+  'header theme icon follows Settings selection',
+);
+click('.settings-header .theme-button');
+await waitFor(
+  () => !dom.window.document.documentElement.classList.contains('dark'),
+  'header theme control stays synchronized',
+);
+const systemOption = [...appearanceSection.querySelectorAll('.option')].find((o) =>
+  o.textContent.includes('System'),
+);
+assert(
+  [...appearanceSection.querySelectorAll('.option-label svg')].length === 3,
+  'light/dark/system options have minimalist icons',
+);
+systemOption.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => systemOption.getAttribute('aria-checked') === 'true',
+  'settings appearance → system',
+);
+assert(window.localStorage.getItem('enough-theme') === 'system', 'system appearance persists');
 
 /* person search inside settings */
 const searchSection = [...dom.window.document.querySelectorAll('.settings-section')].find((s) =>
@@ -651,6 +759,10 @@ assert(
 click('.chat-row-actions .btn-small');
 await waitFor(() => db.connections.find((c) => c.id === 'conn-incoming').status === 'accepted', 'accept → accepted in DB');
 await waitFor(() => !dom.window.document.querySelector('.chat-row.request'), 'request row becomes normal chat row');
+await waitFor(
+  () => text('.unread-badge') === '1',
+  'first incoming message is unread before a read-state row exists',
+);
 // Open the conversation.
 click('.chat-row .chat');
 await waitFor(() => text('.chat-peer-name') === 'Benno Schmidt', 'chat opens after accept');
@@ -686,8 +798,109 @@ const sheetLabels = [...dom.window.document.querySelectorAll('.sheet-item')].map
 assert(sheetLabels.includes('Copy'), 'sheet has Copy');
 assert(sheetLabels.includes('Delete for everyone'), 'own message ≤ 24h → Delete for everyone');
 assert(sheetLabels.includes('Delete for me'), 'sheet has Delete for me');
-click('.sheet-cancel');
-await waitFor(() => dom.window.document.querySelector('.sheet') === null, 'sheet closes via Cancel');
+const deleteEveryoneItem = [...dom.window.document.querySelectorAll('.sheet-item')].find((item) =>
+  item.textContent === 'Delete for everyone',
+);
+deleteEveryoneItem.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => text('.dialog-title') === 'Delete for everyone?',
+  'destructive message action confirms immediately',
+);
+assert(
+  dom.window.document.querySelector('.sheet') === null,
+  'message sheet closes behind confirmation',
+);
+click('.dialog .btn-plain');
+await waitFor(() => dom.window.document.querySelector('.dialog') === null, 'message delete can be canceled');
+myBubble.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+await sleep(700);
+await waitFor(() => dom.window.document.querySelector('.sheet') !== null, 'message menu reopens');
+const confirmDeleteItem = [...dom.window.document.querySelectorAll('.sheet-item')].find((item) =>
+  item.textContent === 'Delete for everyone',
+);
+confirmDeleteItem.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(() => text('.dialog-title') === 'Delete for everyone?', 'delete confirmation reopens');
+click('.dialog .btn-primary');
+await waitFor(
+  () => [...dom.window.document.querySelectorAll('.system-line')].some(
+    (line) => line.textContent === 'You deleted this message.',
+  ),
+  'deleted own message uses the correct replacement text',
+);
+const deletedMessage = db.messages.find((message) => message.ciphertext === '');
+assert(
+  Boolean(deletedMessage?.deleted_at),
+  'delete for everyone clears content in the backend response',
+);
+const incomingBubble = [...dom.window.document.querySelectorAll('.message')].find((message) =>
+  message.textContent.includes('Hallo Anna!'),
+);
+incomingBubble.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+await sleep(700);
+await waitFor(() => dom.window.document.querySelector('.sheet') !== null, 'other message menu opens');
+const otherLabels = [...dom.window.document.querySelectorAll('.sheet-item')].map(
+  (item) => item.textContent,
+);
+assert(!otherLabels.includes('Delete for everyone'), 'other message cannot be deleted for everyone');
+const deleteMeItem = [...dom.window.document.querySelectorAll('.sheet-item')].find((item) =>
+  item.textContent === 'Delete for me',
+);
+deleteMeItem.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => text('.dialog-title') === 'Delete for me?',
+  'delete for me confirms immediately',
+);
+click('.dialog .btn-primary');
+await waitFor(
+  () => ![...dom.window.document.querySelectorAll('.message')].some(
+    (message) => message.textContent.includes('Hallo Anna!'),
+  ),
+  'delete for me hides only the selected message',
+);
+assert(
+  db.messages.some((message) => message.ciphertext === 'Hallo Anna!') &&
+    db.message_deletions.some((row) => row.message_id === 'msg-1'),
+  'delete for me preserves message content and stores per-user state',
+);
+
+/* a per-user deleted chat is restored by entering it through Settings search */
+click('.chat-header .icon-button:last-child');
+await waitFor(() => text('.dialog-title') === 'Delete chat?', 'accepted chat delete confirms');
+click('.dialog .btn-primary');
+await waitFor(
+  () =>
+    dom.window.document.querySelector('.home-screen') !== null &&
+    ![...dom.window.document.querySelectorAll('.chat-row .chat-name')].some(
+      (name) => name.textContent === 'Benno Schmidt',
+    ),
+  'accepted chat is hidden only for the current user',
+);
+setHash('#/settings');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
+  'settings opens to rediscover deleted chat',
+);
+const restoreSearchSection = [...dom.window.document.querySelectorAll('.settings-section')].find((section) =>
+  section.querySelector('.settings-section-title')?.textContent === 'Search people',
+);
+setInputValue(restoreSearchSection.querySelector('input'), 'benno');
+await waitFor(
+  () => [...restoreSearchSection.querySelectorAll('.chat-name')].some(
+    (name) => name.textContent === 'Benno Schmidt',
+  ),
+  'deleted chat participant is rediscoverable by username',
+);
+restoreSearchSection.querySelector('.chat').dispatchEvent(
+  new dom.window.MouseEvent('click', { bubbles: true }),
+);
+await waitFor(() => text('.chat-peer-name') === 'Benno Schmidt', 'search reopens deleted chat');
+click('.chat-header .icon-button:first-child');
+await waitFor(
+  () => [...dom.window.document.querySelectorAll('.chat-row .chat-name')].some(
+    (name) => name.textContent === 'Benno Schmidt',
+  ),
+  'reopened chat returns to Home without a page reload',
+);
 
 /* decline flow with confirmation dialog (fresh incoming request) */
 db.connections.push({
@@ -704,7 +917,12 @@ await waitFor(
   () => [...dom.window.document.querySelectorAll('.chat-row.request .chat-name')].some((n) => n.textContent === 'Benno Schmidt'),
   'new incoming request appears on home',
 );
-const declineBtn = [...dom.window.document.querySelectorAll('.chat-row-actions .btn-small')].find((b) =>
+click('.chat-row.request .chat');
+await waitFor(
+  () => text('.request-banner')?.includes('Connection request'),
+  'incoming request opens in chat',
+);
+const declineBtn = [...dom.window.document.querySelectorAll('.request-banner .btn-small')].find((b) =>
   b.textContent.includes('Decline'),
 );
 declineBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
@@ -716,6 +934,7 @@ assert(
 const dialogConfirm = dom.window.document.querySelector('.dialog .btn-primary');
 dialogConfirm.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => db.connections.find((c) => c.id === 'conn-decline').status === 'declined', 'decline → declined in DB');
+click('.chat-header .icon-button:first-child');
 await waitFor(
   () => text('.chat-row.request .chat-preview')?.includes('Request declined'),
   'declined request stays visible on home',
@@ -808,6 +1027,16 @@ signOutBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => text('.dialog-title') === 'Sign out?', 'sign out confirmation dialog');
 click('.dialog .btn-primary');
 await waitFor(() => text('.button') === 'Log in', 'sign out returns to login screen');
+
+if (failures === 0) {
+  // A fresh client instance is required because callback flow selection occurs
+  // when Supabase is initialized.
+  execFileSync(process.execPath, [new URL(import.meta.url).pathname], {
+    cwd: root,
+    env: { ...process.env, SMOKE_RECOVERY: '1' },
+    stdio: 'inherit',
+  });
+}
 
 console.log(failures === 0 ? '\nAll smoke tests passed.\n' : `\n${failures} smoke test(s) FAILED.\n`);
 process.exit(failures === 0 ? 0 : 1);

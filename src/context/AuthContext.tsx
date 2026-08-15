@@ -7,7 +7,11 @@ import {
   ReactNode,
 } from 'react';
 import { User } from '@supabase/supabase-js';
-import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import {
+  hasImplicitRecoveryCallback,
+  isSupabaseConfigured,
+  supabase,
+} from '../lib/supabase';
 import { errorMessage } from '../lib/errors';
 import {
   deleteOwnAccount,
@@ -90,7 +94,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!active) return;
       const sessionUser = data.session?.user ?? null;
       setUser(sessionUser);
-      if (sessionUser) loadProfile(sessionUser.id);
+      if (sessionUser) {
+        loadProfile(sessionUser.id);
+        if (hasImplicitRecoveryCallback) setRecovery(true);
+      }
       setLoading(false);
     });
 
