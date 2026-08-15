@@ -908,6 +908,16 @@ textarea {
   background: var(--received);
 }
 
+.option-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.option-label svg {
+  color: var(--muted);
+}
+
 .settings-footer {
   display: flex;
   align-items: center;

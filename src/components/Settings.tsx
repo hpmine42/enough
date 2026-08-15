@@ -25,7 +25,10 @@ import {
   BackIcon,
   CheckIcon,
   GithubIcon,
+  MoonIcon,
   SearchIcon,
+  SunIcon,
+  SystemIcon,
 } from './icons';
 
 const APP_VERSION = '0.1.0';
@@ -108,6 +111,7 @@ export default function Settings() {
   const {
     user,
     profile,
+    signIn,
     signOut,
     updateDisplayName,
     updateEmail,
@@ -140,6 +144,7 @@ export default function Settings() {
 
   // password
   const [pwEditing, setPwEditing] = useState(false);
+  const [pwConfirmOpen, setPwConfirmOpen] = useState(false);
   const [currentPw, setCurrentPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
@@ -283,7 +288,19 @@ export default function Settings() {
       setPwError(t('auth.passwordMismatch'));
       return;
     }
+    if (!user?.email) {
+      setPwError(t('errors.passwordChangeFailed'));
+      return;
+    }
     setPwBusy(true);
+    // Re-authenticate with Supabase before changing the password. The current
+    // password field is therefore real backend validation, not a UI-only gate.
+    const authError = await signIn(user.email, currentPw);
+    if (authError) {
+      setPwBusy(false);
+      setPwError(authError);
+      return;
+    }
     const err = await updatePassword(newPw);
     setPwBusy(false);
     if (err) {
@@ -664,13 +681,22 @@ export default function Settings() {
                   setAppearanceMode(m);
                 }}
               >
-                {t(
-                  m === 'light'
-                    ? 'settingsScreen.light'
-                    : m === 'dark'
-                      ? 'settingsScreen.dark'
-                      : 'settingsScreen.system',
-                )}
+                <span className="option-label">
+                  {m === 'light' ? (
+                    <SunIcon size={17} />
+                  ) : m === 'dark' ? (
+                    <MoonIcon size={17} />
+                  ) : (
+                    <SystemIcon size={17} />
+                  )}
+                  {t(
+                    m === 'light'
+                      ? 'settingsScreen.light'
+                      : m === 'dark'
+                        ? 'settingsScreen.dark'
+                        : 'settingsScreen.system',
+                  )}
+                </span>
                 {appearanceMode === m && <CheckIcon size={16} />}
               </button>
             ))}
@@ -768,9 +794,13 @@ export default function Settings() {
               type="button"
               className="settings-row clickable"
               onClick={() => {
-                setPwEditing((v) => !v);
                 setPwNotice(null);
                 setPwError(null);
+                if (pwEditing) {
+                  setPwEditing(false);
+                } else {
+                  setPwConfirmOpen(true);
+                }
               }}
             >
               <div className="settings-row-main">
@@ -869,6 +899,20 @@ export default function Settings() {
           </a>
         </footer>
       </div>
+
+      {pwConfirmOpen && (
+        <Dialog
+          title={t('settingsScreen.changePasswordConfirmTitle')}
+          text={t('settingsScreen.changePasswordConfirmText')}
+          confirmLabel={t('confirm')}
+          cancelLabel={t('cancel')}
+          onConfirm={() => {
+            setPwConfirmOpen(false);
+            setPwEditing(true);
+          }}
+          onCancel={() => setPwConfirmOpen(false)}
+        />
+      )}
 
       {signOutOpen && (
         <Dialog

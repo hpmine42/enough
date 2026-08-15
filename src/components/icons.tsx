@@ -34,6 +34,15 @@ export function MoonIcon(props: IconProps) {
   );
 }
 
+export function SystemIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="3" y="4" width="18" height="13" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+    </svg>
+  );
+}
+
 export function GearIcon(props: IconProps) {
   return (
     <svg {...base(props)}>

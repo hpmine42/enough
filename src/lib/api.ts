@@ -502,42 +502,44 @@ export async function saveReadState(
     );
 }
 
-/** Unread counts per connection (view-first; degrades to no badges). */
+/** Unread counts per connection (view-first with an RLS-safe fallback). */
 export async function getUnreadCounts(
   me: string,
   connectionIds: string[],
   readState: Record<string, string>,
 ): Promise<Record<string, number>> {
   if (!supabase || connectionIds.length === 0) return {};
-  // Preferred: the connection_unread view (RLS via security invoker).
-  const { data, error } = await supabase
+  const client = supabase;
+  const map: Record<string, number> = {};
+
+  // Preferred: the connection_unread view (RLS via security invoker). The
+  // original view starts at connection_reads, so a brand-new conversation has
+  // no row until it has been opened once. Preserve returned rows and fill only
+  // missing connections below.
+  const { data, error } = await client
     .from('connection_unread')
     .select('connection_id, unread')
     .eq('user_id', me);
   if (!error && data) {
-    const map: Record<string, number> = {};
-    for (const row of (data ?? []) as UnreadCount[]) {
+    for (const row of data as UnreadCount[]) {
       map[row.connection_id] = row.unread;
     }
-    return map;
   }
-  // Fallback: per-connection counts from the messages table.
-  const client = supabase;
-  const map: Record<string, number> = {};
+
+  // Count only connections the view could not represent (or all connections
+  // if the optional view is unavailable). Messages RLS remains the authority.
+  const missing = connectionIds.filter((cid) => !(cid in map));
   await Promise.all(
-    connectionIds.map(async (cid) => {
+    missing.map(async (cid) => {
       const since = readState[cid];
-      if (!since) {
-        map[cid] = 0;
-        return;
-      }
-      const { count, error: countError } = await client
+      let query = client
         .from('messages')
         .select('id', { count: 'exact', head: true })
         .eq('connection_id', cid)
-        .gt('created_at', since)
         .neq('sender_id', me)
         .is('deleted_at', null);
+      if (since) query = query.gt('created_at', since);
+      const { count, error: countError } = await query;
       map[cid] = countError ? 0 : (count ?? 0);
     }),
   );

@@ -3,8 +3,8 @@ import {
   applyMode,
   effectiveTheme,
   getStoredMode,
+  THEME_CHANGE_EVENT,
   ThemeMode,
-  watchSystemTheme,
 } from '../lib/theme';
 import { t, useLang } from '../i18n';
 import { MoonIcon, SunIcon } from './icons';
@@ -21,28 +21,32 @@ interface ThemeButtonProps {
  */
 export default function ThemeButton({ className, label }: ThemeButtonProps) {
   useLang(); // re-render on language change (aria label)
-  const [mode, setMode] = useState<ThemeMode>(() => getStoredMode());
   const [dark, setDark] = useState(
     () => effectiveTheme(getStoredMode()) === 'dark',
   );
 
   useEffect(() => {
-    // Follow system theme changes while in 'system' mode.
-    return watchSystemTheme(getStoredMode());
+    const sync = (event?: Event) => {
+      const mode =
+        event instanceof CustomEvent &&
+        (event.detail === 'light' ||
+          event.detail === 'dark' ||
+          event.detail === 'system')
+          ? (event.detail as ThemeMode)
+          : getStoredMode();
+      setDark(effectiveTheme(mode) === 'dark');
+    };
+    window.addEventListener(THEME_CHANGE_EVENT, sync);
+    sync();
+    return () => window.removeEventListener(THEME_CHANGE_EVENT, sync);
   }, []);
 
   function toggle() {
-    const nextMode: ThemeMode = mode === 'dark' ? 'light' : 'dark';
-    setMode(nextMode);
-    setDark(nextMode === 'dark');
-    applyMode(nextMode);
+    // Read the shared persisted mode at click time. Settings can change it
+    // while this button remains mounted behind/in the overlay.
+    const currentDark = effectiveTheme(getStoredMode()) === 'dark';
+    applyMode(currentDark ? 'light' : 'dark');
   }
-
-  // Follow system theme changes while in 'system' mode.
-  useState(() => {
-    const unsub = watchSystemTheme(getStoredMode());
-    return unsub;
-  });
 
   return (
     <button

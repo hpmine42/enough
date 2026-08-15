@@ -70,8 +70,13 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const [confirmAction, setConfirmAction] = useState<
     'deleteEveryone' | 'deleteMe' | null
   >(null);
+  // The bottom sheet closes before its selected callback runs. Keep the
+  // destructive action's target separately so the confirmation dialog can
+  // open immediately without losing the selected message.
+  const [confirmTarget, setConfirmTarget] = useState<SheetTarget | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
+  const [declineOpen, setDeclineOpen] = useState(false);
 
   // scroll / read state
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -401,6 +406,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     setError(null);
     const err = await declineConnection(conn.id);
     setBusyId(null);
+    setDeclineOpen(false);
     if (err) setError(err);
     else setConn({ ...conn, status: 'declined' });
   }
@@ -429,19 +435,21 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   }
 
   async function handleDeleteEveryone() {
-    if (!sheetTarget) return;
+    if (!confirmTarget) return;
+    const target = confirmTarget;
     setActionBusy(true);
     setError(null);
-    const err = await deleteMessageForEveryone(sheetTarget.message.id);
+    const err = await deleteMessageForEveryone(target.message.id);
     setActionBusy(false);
     setConfirmAction(null);
+    setConfirmTarget(null);
     if (err) {
       setError(err);
       return;
     }
     setMessages((prev) =>
       prev.map((m) =>
-        m.id === sheetTarget.message.id
+        m.id === target.message.id
           ? { ...m, deleted_at: new Date().toISOString(), ciphertext: '' }
           : m,
       ),
@@ -449,17 +457,19 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   }
 
   async function handleDeleteForMe() {
-    if (!sheetTarget) return;
+    if (!confirmTarget) return;
+    const target = confirmTarget;
     setActionBusy(true);
     setError(null);
-    const err = await deleteMessageForMe(me, sheetTarget.message.id);
+    const err = await deleteMessageForMe(me, target.message.id);
     setActionBusy(false);
     setConfirmAction(null);
+    setConfirmTarget(null);
     if (err) {
       setError(err);
       return;
     }
-    setDeletedForMe((prev) => new Set(prev).add(sheetTarget.message.id));
+    setDeletedForMe((prev) => new Set(prev).add(target.message.id));
   }
 
   async function handleCopy() {
@@ -568,7 +578,10 @@ export default function Chat({ connectionId }: { connectionId: string }) {
                 key: 'everyone',
                 label: t('message.deleteForEveryone'),
                 danger: true,
-                onSelect: () => setConfirmAction('deleteEveryone'),
+                onSelect: () => {
+                  setConfirmTarget(sheetTarget);
+                  setConfirmAction('deleteEveryone');
+                },
               },
             ]
           : []),
@@ -578,7 +591,10 @@ export default function Chat({ connectionId }: { connectionId: string }) {
                 key: 'me',
                 label: t('message.deleteForMe'),
                 danger: true,
-                onSelect: () => setConfirmAction('deleteMe'),
+                onSelect: () => {
+                  setConfirmTarget(sheetTarget);
+                  setConfirmAction('deleteMe');
+                },
               },
             ]
           : []),
@@ -646,7 +662,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
                     type="button"
                     className="btn-small ghost"
                     disabled={busyId === conn?.id}
-                    onClick={handleDecline}
+                    onClick={() => setDeclineOpen(true)}
                   >
                     {t('connection.decline')}
                   </button>
@@ -800,7 +816,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         />
       )}
 
-      {confirmAction === 'deleteEveryone' && sheetTarget && (
+      {confirmAction === 'deleteEveryone' && confirmTarget && (
         <Dialog
           title={t('message.deleteForEveryoneTitle')}
           text={t('message.deleteForEveryoneText')}
@@ -809,11 +825,14 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           danger
           busy={actionBusy}
           onConfirm={handleDeleteEveryone}
-          onCancel={() => setConfirmAction(null)}
+          onCancel={() => {
+            setConfirmAction(null);
+            setConfirmTarget(null);
+          }}
         />
       )}
 
-      {confirmAction === 'deleteMe' && sheetTarget && (
+      {confirmAction === 'deleteMe' && confirmTarget && (
         <Dialog
           title={t('message.deleteForMeTitle')}
           text={t('message.deleteForMeText')}
@@ -822,7 +841,23 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           danger
           busy={actionBusy}
           onConfirm={handleDeleteForMe}
-          onCancel={() => setConfirmAction(null)}
+          onCancel={() => {
+            setConfirmAction(null);
+            setConfirmTarget(null);
+          }}
+        />
+      )}
+
+      {declineOpen && (
+        <Dialog
+          title={t('connection.declinedTitle')}
+          text={t('connection.declinedText')}
+          confirmLabel={t('connection.decline')}
+          cancelLabel={t('cancel')}
+          danger
+          busy={busyId === conn?.id}
+          onConfirm={handleDecline}
+          onCancel={() => setDeclineOpen(false)}
         />
       )}
 

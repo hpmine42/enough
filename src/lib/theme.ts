@@ -4,6 +4,7 @@ export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'enough-theme';
 
 const DARK_MEDIA = '(prefers-color-scheme: dark)';
+export const THEME_CHANGE_EVENT = 'enough-theme-change';
 
 function systemTheme(): Theme {
   return typeof window !== 'undefined' &&
@@ -34,6 +35,12 @@ function render(theme: Theme): void {
   }
 }
 
+function notifyThemeChange(mode: ThemeMode): void {
+  window.dispatchEvent(
+    new CustomEvent<ThemeMode>(THEME_CHANGE_EVENT, { detail: mode }),
+  );
+}
+
 export function applyMode(mode: ThemeMode): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, mode);
@@ -41,6 +48,7 @@ export function applyMode(mode: ThemeMode): void {
     /* storage unavailable */
   }
   render(effectiveTheme(mode));
+  notifyThemeChange(mode);
 }
 
 /** Inline bootstrap used before React mounts to avoid a flash of the wrong theme. */
@@ -48,13 +56,20 @@ export function bootstrapTheme(): void {
   render(effectiveTheme(getStoredMode()));
 }
 
-/** Follows system changes while the mode is 'system'. Returns an unsubscribe fn. */
-export function watchSystemTheme(mode: ThemeMode): () => void {
-  if (mode !== 'system' || typeof window === 'undefined') {
-    return () => undefined;
-  }
+/**
+ * Follows operating-system changes for the lifetime of the app. The listener
+ * remains installed even while an explicit mode is selected, so switching to
+ * System later works without remounting a theme button.
+ */
+export function watchSystemTheme(): () => void {
+  if (typeof window === 'undefined') return () => undefined;
   const mql = window.matchMedia(DARK_MEDIA);
-  const onChange = () => render(effectiveTheme('system'));
+  const onChange = () => {
+    const mode = getStoredMode();
+    if (mode !== 'system') return;
+    render(effectiveTheme(mode));
+    notifyThemeChange(mode);
+  };
   mql.addEventListener('change', onChange);
   return () => mql.removeEventListener('change', onChange);
 }
