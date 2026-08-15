@@ -120,8 +120,6 @@ export default function Settings() {
     setEnterToSend,
     notifications,
     setNotifications,
-    myNotes,
-    setMyNotes,
   } = usePreferences();
   const [lang] = useLang();
 
@@ -165,7 +163,10 @@ export default function Settings() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState('');
 
-  // my notes
+  // My Notes is server-backed. Unlike UI-only preferences, its switch must
+  // reflect whether the self-connection actually exists for this account.
+  const [myNotes, setMyNotes] = useState(false);
+  const [notesLoading, setNotesLoading] = useState(true);
   const [notesBusy, setNotesBusy] = useState(false);
   const [notesError, setNotesError] = useState<string | null>(null);
 
@@ -200,8 +201,34 @@ export default function Settings() {
   }
 
   useEffect(() => {
-    if (!me) return;
-    getMyConnections(me).then(setConnections);
+    let active = true;
+    if (!me) {
+      setConnections([]);
+      setMyNotes(false);
+      setNotesLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setNotesLoading(true);
+    getMyConnections(me).then((loaded) => {
+      if (!active) return;
+      setConnections(loaded);
+      setMyNotes(
+        loaded.some(
+          (connection) =>
+            connection.user_a === me &&
+            connection.user_b === me &&
+            connection.status === 'accepted',
+        ),
+      );
+      setNotesLoading(false);
+    });
+
+    return () => {
+      active = false;
+    };
   }, [me]);
 
   useEffect(() => {
@@ -289,30 +316,58 @@ export default function Settings() {
   }
 
   async function toggleMyNotes(on: boolean) {
-    if (notesBusy) return;
+    if (notesBusy || notesLoading || !me) return;
     setNotesBusy(true);
     setNotesError(null);
-    if (on) {
-      const id = await ensureMyNotes(me);
-      if (!id) {
-        setNotesError(t('settingsScreen.myNotesError'));
-      } else {
-        setMyNotes(true);
-      }
-    } else {
-      const self = connections.find((c) => c.user_a === me && c.user_b === me);
-      if (self) {
-        const err = await removeMyNotes(self.id);
-        if (err) {
-          setNotesError(t('settingsScreen.myNotesError'));
-        } else {
-          setMyNotes(false);
+
+    try {
+      if (on) {
+        const result = await ensureMyNotes(me);
+        if (result.error || !result.connectionId) {
+          setNotesError(result.error ?? t('settingsScreen.myNotesError'));
+          return;
         }
+        const connectionId = result.connectionId;
+        setConnections((current) => {
+          const existingIndex = current.findIndex(
+            (connection) =>
+              connection.user_a === me && connection.user_b === me,
+          );
+          const notesConnection: Connection = {
+            id: connectionId,
+            user_a: me,
+            user_b: me,
+            status: 'accepted',
+            created_at: new Date().toISOString(),
+          };
+          if (existingIndex < 0) return [notesConnection, ...current];
+          return current.map((connection, index) =>
+            index === existingIndex
+              ? { ...connection, status: 'accepted' as const }
+              : connection,
+          );
+        });
+        setMyNotes(true);
       } else {
+        const self = connections.find(
+          (connection) => connection.user_a === me && connection.user_b === me,
+        );
+        const error = await removeMyNotes(me, self?.id);
+        if (error) {
+          setNotesError(error);
+          return;
+        }
+        setConnections((current) =>
+          current.filter(
+            (connection) =>
+              connection.user_a !== me || connection.user_b !== me,
+          ),
+        );
         setMyNotes(false);
       }
+    } finally {
+      setNotesBusy(false);
     }
-    setNotesBusy(false);
   }
 
   async function toggleNotifications(on: boolean) {
@@ -650,7 +705,7 @@ export default function Settings() {
             <Toggle
               checked={myNotes}
               onChange={toggleMyNotes}
-              disabled={notesBusy}
+              disabled={notesBusy || notesLoading}
               label={t('settingsScreen.myNotes')}
             />
           </Row>

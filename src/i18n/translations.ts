@@ -139,6 +139,8 @@ export const translations = {
       myNotes: 'My Notes',
       myNotesHint: 'A private chat with yourself.',
       myNotesError: 'My Notes could not be set up.',
+      myNotesUpgradeRequired:
+        'My Notes requires the latest database update (migrations 0003 and 0005).',
       account: 'Account',
       signOut: 'Sign out',
       signOutTitle: 'Sign out?',
@@ -380,6 +382,8 @@ export const translations = {
       myNotes: 'Meine Notizen',
       myNotesHint: 'Ein privater Chat mit dir selbst.',
       myNotesError: 'Meine Notizen konnten nicht eingerichtet werden.',
+      myNotesUpgradeRequired:
+        'Meine Notizen benötigen das aktuelle Datenbank-Update (Migrationen 0003 und 0005).',
       account: 'Konto',
       signOut: 'Abmelden',
       signOutTitle: 'Abmelden?',

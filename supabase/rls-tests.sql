@@ -1,10 +1,10 @@
 -- =====================================================================
 -- enough. — RLS / authorization test script
 -- =====================================================================
--- Run AFTER applying supabase/migrations/0001_v01_features.sql, in the
--- Supabase SQL editor. Uses the two oldest profiles in the database as
--- test users A and B (i.e. your two existing test accounts) and verifies
--- both positive and negative authorization cases for the v0.1 features.
+-- Run AFTER applying every file in supabase/migrations/ (0001 through
+-- 0005), in the Supabase SQL editor. Uses the two oldest profiles in the
+-- database as test users A and B (i.e. your two existing test accounts) and
+-- verifies both positive and negative authorization cases for the v0.1 features.
 --
 -- Every check raises an exception on failure; a run that finishes
 -- without errors means all checks passed.

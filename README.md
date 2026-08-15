@@ -68,11 +68,15 @@ production UI and should not be modified or turned into the app.
    only uses the public client; security comes from Supabase Auth + Row Level
    Security.
 
-3. **Apply the database migration** — see [`docs/MIGRATIONS.md`](docs/MIGRATIONS.md).
-   Run `supabase/migrations/0001_v01_features.sql` in the Supabase SQL editor.
-   Without it the app still runs, but display names, unread badges, per-user
-   deletion and request decline/expiry are unavailable (a warning is logged to
-   the console).
+3. **Apply every database migration in numeric order** — see
+   [`docs/MIGRATIONS.md`](docs/MIGRATIONS.md). In the Supabase SQL editor, run
+   `0001` through `0005`; do not stop after `0001`. The scripts are idempotent,
+   so they are safe to run again after an update. In particular, My Notes needs
+   `0003_allow_self_connections.sql` and `0005_my_notes_rpc.sql`.
+
+   Without the migrations the app still opens, but database-backed features
+   such as display names, unread badges, per-user deletion, request
+   decline/expiry, account deletion, and My Notes are unavailable.
 
 4. Run the app:
 
@@ -94,6 +98,9 @@ migration:
   `connection_event` | `deleted_account`), `meta` (added)
 - `public.delete_own_account()` — `security definer` RPC for self-service
   account deletion (added by migration 0004)
+- `public.ensure_my_notes()` / `public.remove_my_notes()` — auth-bound RPCs
+  that manage only the caller's self-chat without weakening normal connection
+  RLS (added by migration 0005)
 - `public.connection_reads` — per-user read position (added, RLS)
 - `public.message_deletions` — per-user "delete for me" rows (added, RLS)
 - `public.chat_deletions` — per-user "delete chat for me" rows (added, RLS)

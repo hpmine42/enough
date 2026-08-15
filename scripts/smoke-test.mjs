@@ -63,6 +63,9 @@ const payload = b64url({
 const ACCESS_TOKEN = `${header}.${payload}.fake-signature`;
 
 /* A tiny in-memory "database" for the stub API. */
+let ensureMyNotesRpcCalls = 0;
+let removeMyNotesRpcCalls = 0;
+
 const db = {
   profiles: [
     {
@@ -356,6 +359,36 @@ globalThis.fetch = async (input, init = {}) => {
         if (method === 'GET') return jsonResponse(db.connection_unread);
         break;
       }
+      case 'rpc/ensure_my_notes': {
+        ensureMyNotesRpcCalls++;
+        let row = db.connections.find(
+          (c) => c.user_a === 'user-1' && c.user_b === 'user-1',
+        );
+        if (row) {
+          row.status = 'accepted';
+        } else {
+          row = {
+            id: `conn-${db.connections.length + 1}`,
+            user_a: 'user-1',
+            user_b: 'user-1',
+            status: 'accepted',
+            created_at: new Date().toISOString(),
+          };
+          db.connections.push(row);
+        }
+        return jsonResponse(row.id);
+      }
+      case 'rpc/remove_my_notes': {
+        removeMyNotesRpcCalls++;
+        const ids = new Set(
+          db.connections
+            .filter((c) => c.user_a === 'user-1' && c.user_b === 'user-1')
+            .map((c) => c.id),
+        );
+        db.messages = db.messages.filter((m) => !ids.has(m.connection_id));
+        db.connections = db.connections.filter((c) => !ids.has(c.id));
+        return jsonResponse(ids.size > 0);
+      }
       case 'rpc/delete_own_account': {
         // Self-service account deletion: drop the current user's rows.
         db.profiles = db.profiles.filter((p) => p.id !== 'user-1');
@@ -432,10 +465,13 @@ assert(text('.auth-legal-footer') === 'Imprint', 'public imprint link present');
 setHash('#/impressum');
 await waitFor(() => text('.legal-content h1') === 'Imprint', 'public imprint renders');
 assert(
-  text('.legal-section address')?.includes('[Vor- und Nachname oder vollständiger Firmenname]'),
-  'imprint shows clearly marked editable placeholders',
+  text('.legal-section address')?.includes('Jakob Gregory'),
+  'imprint shows the configured provider',
 );
-assert(text('.legal-template-notice')?.includes('src/config/imprint.ts'), 'imprint explains where to customize it');
+assert(
+  dom.window.document.querySelector('.legal-contact-list a[href="mailto:hpmine@web.de"]') !== null,
+  'imprint shows the configured contact address',
+);
 setHash('#/login');
 await waitFor(() => text('.button') === 'Log in', 'return from imprint to login');
 
@@ -694,6 +730,8 @@ const chatSection = [...dom.window.document.querySelectorAll('.settings-section'
 const notesToggle = [...chatSection.querySelectorAll('.toggle')].find((t) => t.getAttribute('aria-label') === 'Meine Notizen' || t.getAttribute('aria-label') === 'My Notes');
 notesToggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => db.connections.some((c) => c.user_a === 'user-1' && c.user_b === 'user-1'), 'My Notes self-connection created');
+assert(ensureMyNotesRpcCalls === 1, 'My Notes setup uses the auth-bound RPC');
+assert(notesToggle.getAttribute('aria-checked') === 'true', 'My Notes switch reflects the database row');
 setHash('#/chat/nowhere');
 await waitFor(() => dom.window.document.querySelector('.chat-screen') !== null, 'chat route opened to force reload');
 setHash('#/');
@@ -718,6 +756,22 @@ await waitFor(
 /* account deletion (type-to-confirm) */
 setHash('#/settings');
 await waitFor(() => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'), 'settings open for delete account');
+const reopenedChatSection = [...dom.window.document.querySelectorAll('.settings-section')].find((s) =>
+  s.querySelector('.settings-section-title')?.textContent === 'Chat',
+);
+const reopenedNotesToggle = [...reopenedChatSection.querySelectorAll('.toggle')].find(
+  (toggle) => toggle.getAttribute('aria-label') === 'My Notes',
+);
+await waitFor(
+  () => reopenedNotesToggle.getAttribute('aria-checked') === 'true',
+  'My Notes switch reloads its state from the database',
+);
+reopenedNotesToggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => !db.connections.some((c) => c.user_a === 'user-1' && c.user_b === 'user-1'),
+  'disabling My Notes removes the self-connection',
+);
+assert(removeMyNotesRpcCalls === 1, 'My Notes removal uses the auth-bound RPC');
 const deleteAccountBtn = [...dom.window.document.querySelectorAll('.settings-row')].find((r) =>
   r.textContent.includes('Delete account'),
 );

@@ -10,7 +10,6 @@ import {
 const KEYS = {
   enterToSend: 'enough-enter-to-send',
   notifications: 'enough-notifications',
-  myNotes: 'enough-my-notes',
 } as const;
 
 function read(key: string, def: boolean): boolean {
@@ -35,8 +34,6 @@ interface PreferencesContextValue {
   setEnterToSend: (v: boolean) => void;
   notifications: boolean;
   setNotifications: (v: boolean) => void;
-  myNotes: boolean;
-  setMyNotes: (v: boolean) => void;
 }
 
 const PreferencesContext = createContext<PreferencesContextValue | undefined>(
@@ -50,7 +47,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotificationsState] = useState(() =>
     read(KEYS.notifications, false),
   );
-  const [myNotes, setMyNotesState] = useState(() => read(KEYS.myNotes, false));
 
   useEffect(() => {
     write(KEYS.enterToSend, enterToSend);
@@ -58,16 +54,12 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     write(KEYS.notifications, notifications);
   }, [notifications]);
-  useEffect(() => {
-    write(KEYS.myNotes, myNotes);
-  }, [myNotes]);
 
   const setEnterToSend = useCallback((v: boolean) => setEnterToSendState(v), []);
   const setNotifications = useCallback(
     (v: boolean) => setNotificationsState(v),
     [],
   );
-  const setMyNotes = useCallback((v: boolean) => setMyNotesState(v), []);
 
   return (
     <PreferencesContext.Provider
@@ -76,8 +68,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         setEnterToSend,
         notifications,
         setNotifications,
-        myNotes,
-        setMyNotes,
       }}
     >
       {children}

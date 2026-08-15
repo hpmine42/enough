@@ -2,17 +2,23 @@
 
 The Supabase backend is not part of this repository. Schema changes are delivered
 as SQL files you run yourself in the Supabase dashboard (SQL editor) or with the
-Supabase CLI. **The frontend requires `0001` to be applied before the new
-features work**; without it the app still runs but degrades (no display names,
-no unread badges, no per-user deletion, no request decline).
+Supabase CLI. **Apply all migrations, not only `0001`.** Without them the app
+still opens but database-backed features degrade or remain unavailable.
 
 ## How to run
 
 1. Open your Supabase project → **SQL Editor**.
-2. Paste the full contents of `supabase/migrations/0001_v01_features.sql` and run it.
-   It is idempotent and non-destructive — safe to run more than once.
+2. Run the full contents of every file in `supabase/migrations/` in numeric
+   order (`0001` → `0005`). Each migration is idempotent and safe to run again
+   after pulling a frontend update.
 3. Optional but recommended: run `supabase/rls-tests.sql` to verify the
    authorization model with your two existing test users.
+
+If Settings says that **My Notes could not be set up**, verify that both
+`0003_allow_self_connections.sql` and `0005_my_notes_rpc.sql` have run. `0003`
+removes a legacy self-connection check; `0005` provides a narrowly scoped RPC
+that can create the accepted self-chat without relaxing the RLS policy for
+normal connection requests.
 
 ## What the migration does
 
@@ -28,8 +34,10 @@ no unread badges, no per-user deletion, no request decline).
 | 8 | Grants to `authenticated` | PostgREST Data API access for the new objects (RLS remains the authority) |
 | 9 | Realtime publication for the new tables | Live sync of deletions/read state across devices |
 
-## Migrations 0003 + 0004
+## Later migrations
 
+- `0002_username_check_rpc.sql` — makes username availability checks work while
+  anonymous profile reads remain blocked by RLS.
 - `0003_allow_self_connections.sql` — drops a legacy `CHECK (user_a <> user_b)`
   constraint on `connections` (if present) so the My Notes self-chat
   (`user_a = user_b`) can be created.
@@ -41,8 +49,13 @@ no unread badges, no per-user deletion, no request decline).
     `@username deleted their account` system message into each accepted chat,
     marks those chats `ended` (blocking further messages), then removes the
     profile (freeing the username) and the auth user.
+- `0005_my_notes_rpc.sql` — creates `public.ensure_my_notes()` and
+  `public.remove_my_notes()`. Both functions take no IDs from the browser and
+  operate only on `auth.uid()`'s self-connection. This is required when the
+  normal connection-insert policy correctly permits only pending requests;
+  weakening that policy to make My Notes work would let users bypass consent.
 
-Run these after `0001`/`0002` in the Supabase SQL editor; both are idempotent.
+Run all of these after `0001` in numeric order. They are idempotent.
 
 ## Design decisions
 
@@ -62,8 +75,10 @@ Run these after `0001`/`0002` in the Supabase SQL editor; both are idempotent.
 - **New policies are only added** (never replacing existing ones). All new RLS
   policies are scoped to `auth.uid()` and, where needed, to membership in the
   relevant connection.
-- **My Notes** needs no new schema: it is an accepted self-connection
-  (`user_a = user_b = auth.uid()`), which the pair-unique index permits.
+- **My Notes** uses the existing connection/message schema: it is an accepted
+  self-connection (`user_a = user_b = auth.uid()`). Setup/removal goes through
+  auth-bound `security definer` functions so normal users still cannot create
+  arbitrary accepted connections. The functions accept no user-supplied IDs.
 
 ## RLS model (new objects)
 
