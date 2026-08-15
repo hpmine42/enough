@@ -863,9 +863,11 @@ export default function Settings() {
               <div className="settings-row-label">{t('settingsScreen.signOut')}</div>
             </div>
           </button>
+          <div className="settings-delete-separator" aria-hidden="true" />
           <button
             type="button"
-            className="settings-row clickable danger-text"
+            className="settings-row clickable danger-text delete-spaced"
+            style={{ marginTop: 40 }}
             onClick={() => {
               setDeleteError(null);
               setDeleteConfirm('');

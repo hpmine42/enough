@@ -50,19 +50,48 @@ export async function upsertProfile(
 
 export async function usernameExists(username: string): Promise<boolean> {
   if (!supabase) return false;
-  // Try direct table access first (works when RLS allows anonymous reads).
+  // Preferred: RPC that works for anon users (see migration 0002).
+  const { data: rpcData, error: rpcError } = await supabase.rpc(
+    'check_username_taken',
+    { name: username },
+  );
+  if (!rpcError) return Boolean(rpcData);
+
+  // Fallback: direct table access (works when RLS allows anonymous reads
+  // or when the user is already authenticated).
   const { data, error } = await supabase
     .from('profiles')
     .select('id')
     .eq('username', username)
     .maybeSingle();
   if (!error) return Boolean(data);
-  // Fallback: try the RPC function if it exists.
-  const { data: rpcData, error: rpcError } = await supabase.rpc(
-    'check_username_taken',
-    { name: username },
-  );
-  if (!rpcError) return Boolean(rpcData);
+
+  // If both checks fail (e.g. network issue or missing RPC), do NOT
+  // report \"available\". Treat it as taken to be safe — the submit handler
+  // will re-check and will show the taken error instead of allowing a
+  // duplicate username.
+  // We still return false only when we are sure the name is free, so on
+  // ambiguous errors we pretend it is taken to prevent the false
+  // \"available\" badge.
+  // However, to avoid locking users out completely on a transient failure,
+  // we only return true when we have evidence of an error; the caller
+  // can keep the state as \"checking\"/unknown if needed. For the
+  // boolean API we conservatively return true on hard errors only if the
+  // RPC error code is not a missing-function error. Missing RPC should
+  // have been caught by the direct query fallback.
+  const isRpcMissing =
+    (rpcError as { code?: string })?.code === 'PGRST202' ||
+    (rpcError as { code?: string })?.code === '42883';
+  if (isRpcMissing && error) {
+    // Both failed, but RPC is simply not deployed — direct query already
+    // said \"no row\" when error is null. If we reach here direct query
+    // also errored, so we cannot confirm free.
+    return true;
+  }
+  if (rpcError && error) {
+    // Network / permission error on both paths — be conservative.
+    return true;
+  }
   return false;
 }
 

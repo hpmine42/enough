@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { t, getLang } from '../i18n';
 import { formatRelative } from '../lib/helpers';
 import { Message } from '../lib/types';
+import MarkdownText from '../lib/markdown';
 
 interface MessageBubbleProps {
   message: Message;
@@ -110,7 +111,7 @@ export default function MessageBubble({
       role={focusable ? 'button' : undefined}
       aria-label={message.ciphertext}
     >
-      {message.ciphertext}
+      <MarkdownText text={message.ciphertext} />
       {showTime && (
         <div className="time">{formatRelative(message.created_at, getLang())}</div>
       )}
