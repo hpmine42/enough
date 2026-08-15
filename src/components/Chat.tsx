@@ -37,6 +37,7 @@ import MessageBubble from './MessageBubble';
 import MessageComposer from './MessageComposer';
 import BottomSheet from './BottomSheet';
 import Dialog from './Dialog';
+import ThemeButton from './ThemeButton';
 import { BackIcon, TrashIcon, DownIcon, InfoIcon } from './icons';
 
 const PAGE_SIZE = 40;
@@ -626,6 +627,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
             {ended ? '' : `@${peerUsername || '…'}`}
           </div>
         </div>
+        <ThemeButton />
         <button
           type="button"
           className="icon-button"
