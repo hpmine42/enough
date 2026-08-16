@@ -30,9 +30,8 @@ production UI and should not be modified or turned into the app.
 - Minimal Home: logo, theme toggle, settings, chat list with relative
   timestamps and unread badges
 - Settings as a full-screen slide-in: profile, people search (by `@username`),
-  language, appearance, chat preferences (Enter to send, notifications,
-  My Notes), account (email/password change, delete account), version/GitHub
-  footer
+  language, appearance, chat preferences (Enter to send, My Notes), account
+  (email/password change, delete account), version/GitHub footer
 - Connections: live search, requests with accept / decline (custom dialog) /
   cancel, 14-day expiration enforced by the database, re-request after decline
 - Chat: grouped bubbles, compact timestamps, long-press bottom sheet

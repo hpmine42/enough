@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { usePreferences } from '../context/PreferencesContext';
-import { navigate } from '../lib/router';
+import { navigate, useHashRoute } from '../lib/router';
 import {
   acceptConnection,
   cancelConnectionRequest,
@@ -26,7 +25,7 @@ import { supabase } from '../lib/supabase';
 import { getLang, t } from '../i18n';
 import { Connection, Message, Profile } from '../lib/types';
 import ThemeButton from './ThemeButton';
-import { GearIcon } from './icons';
+import { GearIcon, NoteIcon } from './icons';
 import Dialog from './Dialog';
 
 interface RowData {
@@ -58,7 +57,6 @@ function previewOf(last: Message | undefined, lang: string, peerUsername: string
 
 export default function Home() {
   const { user } = useAuth();
-  const { notifications: notificationsPref } = usePreferences();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [others, setOthers] = useState<Record<string, Profile>>({});
   const [lastMessages, setLastMessages] = useState<Record<string, Message>>({});
@@ -68,7 +66,6 @@ export default function Home() {
   const [declineTarget, setDeclineTarget] = useState<Connection | null>(null);
   const [declineBusy, setDeclineBusy] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const notifiedRef = useRef<Set<string>>(new Set());
 
   const me = user?.id ?? '';
 
@@ -103,6 +100,20 @@ export default function Home() {
     setLoading(true);
     load();
   }, [me, load]);
+
+  /* Home stays mounted behind the Settings overlay. Leaving Settings may have
+     changed the chat list (e.g. My Notes toggled on/off), so reload it on the
+     Settings → Home transition instead of waiting for a remount or reload. */
+  const route = useHashRoute();
+  const inSettingsRef = useRef(route.startsWith('#/settings'));
+  useEffect(() => {
+    const inSettings = route.startsWith('#/settings');
+    const wasInSettings = inSettingsRef.current;
+    inSettingsRef.current = inSettings;
+    if (wasInSettings && !inSettings && me) {
+      load();
+    }
+  }, [route, me, load]);
 
   /* Realtime: connections, messages, profiles, deletions — one channel. */
   useEffect(() => {
@@ -171,61 +182,7 @@ export default function Home() {
       client.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me, load, notificationsPref]);
-
-  /* OS notifications for new messages while the app is hidden. */
-  useEffect(() => {
-    if (
-      !supabase ||
-      !me ||
-      !notificationsPref ||
-      typeof window === 'undefined' ||
-      !('Notification' in window) ||
-      Notification.permission !== 'granted'
-    ) {
-      return;
-    }
-    const client = supabase;
-    const channel = client
-      .channel('home-notifications')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload) => {
-          const msg = payload.new as Message | undefined;
-          if (!msg || msg.sender_id === me || msg.deleted_at) return;
-          if (msg.kind === 'name_change') return;
-          if (document.visibilityState !== 'hidden') return;
-          if (notifiedRef.current.has(msg.id)) return;
-          notifiedRef.current.add(msg.id);
-          const conn = connectionsRef.current.find(
-            (c) => c.id === msg.connection_id,
-          );
-          if (!conn) return;
-          const other = others[otherUserId(conn, me)];
-          try {
-            new Notification(t('notification.title'), {
-              body: t('notification.body', {
-                name: displayName(other),
-                text: msg.ciphertext,
-              }),
-            });
-          } catch {
-            /* notifications unsupported — ignore */
-          }
-        },
-      )
-      .subscribe();
-    return () => {
-      client.removeChannel(channel);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me, notificationsPref]);
-
-  const connectionsRef = useRef(connections);
-  useEffect(() => {
-    connectionsRef.current = connections;
-  }, [connections]);
+  }, [me, load]);
 
   /* Rows sorted by latest activity (message time, else connection time). */
   const rows = useMemo<RowData[]>(() => {
@@ -342,7 +299,7 @@ export default function Home() {
             return (
               <div
                 key={conn.id}
-                className={`chat-row${isRequest ? ' request' : ''}${unreadCount > 0 ? ' unread' : ''}`}
+                className={`chat-row${isRequest ? ' request' : ''}${unreadCount > 0 ? ' unread' : ''}${self ? ' notes' : ''}`}
               >
                 <button
                   type="button"
@@ -373,10 +330,15 @@ export default function Home() {
                         </span>
                       ) : (
                         <>
-                          <span className="chat-preview">
-                            {previewOf(last ?? undefined, getLang(), other?.username ?? '') ??
-                              (self ? '' : '')}
-                          </span>
+                          {!(self && !last) && (
+                            <span className="chat-preview">
+                              {previewOf(
+                                last ?? undefined,
+                                getLang(),
+                                other?.username ?? '',
+                              ) ?? ''}
+                            </span>
+                          )}
                           {unreadCount > 0 && (
                             <span className="unread-badge" aria-label={`${unreadCount} ${t('unread.unreadCount', { count: unreadCount })}`}>
                               {unreadCount > 99 ? '99+' : unreadCount}
@@ -385,7 +347,14 @@ export default function Home() {
                         </>
                       )}
                     </div>
-                    <div className="chat-username">{sub}</div>
+                    {self ? (
+                      <div className="chat-notes-tag">
+                        <NoteIcon size={12} />
+                        {t('chat.myNotesTag')}
+                      </div>
+                    ) : (
+                      <div className="chat-username">{sub}</div>
+                    )}
                   </div>
                 </button>
                 {isIncoming && (

@@ -96,6 +96,16 @@ export function InfoIcon(props: IconProps) {
   );
 }
 
+export function NoteIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M6.5 3.5h8l4 4v13H6.5z" />
+      <path d="M14.5 3.5v4h4" />
+      <path d="M9 12h6M9 15.5h6" />
+    </svg>
+  );
+}
+
 export function CheckIcon(props: IconProps) {
   return (
     <svg {...base(props)}>

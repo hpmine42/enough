@@ -129,16 +129,9 @@ window.matchMedia = (query) => ({
   removeEventListener() {},
 });
 globalThis.matchMedia = window.matchMedia;
-window.Notification = class {
-  static permission = 'default';
-  static requestPermission() {
-    return Promise.resolve('denied');
-  }
-  constructor(title, options) {
-    this.title = title;
-    this.options = options;
-  }
-};
+// Note: no Notification stub is installed on purpose. enough. must not touch
+// the browser Notification API anywhere, so any remaining usage would throw
+// here and fail the smoke test.
 /* Realtime never connects in the smoke test. */
 window.WebSocket = class {
   constructor() {}
@@ -464,6 +457,11 @@ async function waitFor(fn, name, timeout = 3000) {
 
 console.log('\nenough. UI smoke test\n');
 
+// Simulate an older enough. installation that stored the removed browser
+// notifications preference. It must be dropped on load without affecting any
+// other preference.
+window.localStorage.setItem('enough-notifications', '1');
+
 await import(`${dist}/assets/${asset}`).catch((e) => {
   console.error('bundle import failed:', e);
   process.exit(1);
@@ -511,6 +509,16 @@ await waitFor(() => text('.auth-screen .brand h1') === 'enough.', 'login screen 
 assert(text('.button') === 'Log in', 'English is the default language');
 assert(text('.auth-links')?.includes('Forgot password?'), 'forgot-password link present');
 assert(text('.auth-legal-footer') === 'Imprint', 'public imprint link present');
+
+/* enough. has no notification feature at all. */
+assert(
+  typeof window.Notification === 'undefined',
+  'app never touches the browser Notification API',
+);
+assert(
+  window.localStorage.getItem('enough-notifications') === null,
+  'legacy notification preference is removed on load',
+);
 
 /* public imprint */
 setHash('#/impressum');
@@ -614,6 +622,21 @@ await waitFor(() => text('.settings-static-value') === '@anna', 'profile usernam
 assert(
   dom.window.document.querySelectorAll('.settings-section').length >= 6,
   'settings sections (profile/search/language/appearance/chat/account)',
+);
+assert(
+  ![...dom.window.document.querySelectorAll('.settings-row')].some((r) =>
+    /notifications|benachrichtigungen/i.test(r.textContent ?? ''),
+  ),
+  'no notifications setting remains in Settings',
+);
+assert(
+  ![...dom.window.document.querySelectorAll('.toggle')].some(
+    (tg) =>
+      /notifications|benachrichtigungen/i.test(
+        tg.getAttribute('aria-label') ?? '',
+      ),
+  ),
+  'no notifications toggle remains',
 );
 
 /* password change starts with an in-app confirmation */
@@ -952,7 +975,7 @@ await waitFor(
   'declined request stays visible on home',
 );
 
-/* my notes toggle */
+/* my notes: enabling shows the row immediately after leaving settings */
 setHash('#/settings');
 await waitFor(() => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'), 'settings reopens');
 const chatSection = [...dom.window.document.querySelectorAll('.settings-section')].find((s) =>
@@ -963,25 +986,76 @@ notesToggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
 await waitFor(() => db.connections.some((c) => c.user_a === 'user-1' && c.user_b === 'user-1'), 'My Notes self-connection created');
 assert(ensureMyNotesRpcCalls === 1, 'My Notes setup uses the auth-bound RPC');
 assert(notesToggle.getAttribute('aria-checked') === 'true', 'My Notes switch reflects the database row');
-setHash('#/chat/nowhere');
-await waitFor(() => dom.window.document.querySelector('.chat-screen') !== null, 'chat route opened to force reload');
+// Leave settings directly — no reload, no detour through another chat.
 setHash('#/');
-await waitFor(() => text('.chat-row .chat-name') === 'My Notes', 'My Notes appears in chat list');
+await waitFor(() => text('.chat-row .chat-name') === 'My Notes', 'My Notes appears immediately after leaving settings');
+assert(
+  dom.window.document.querySelector('.chat-row.notes .chat-notes-tag')?.textContent?.trim() === 'Private',
+  'My Notes row is visually distinct (private tag)',
+);
+assert(
+  dom.window.document.querySelector('.chat-row.notes') !== null,
+  'My Notes row carries the notes marker class',
+);
 
-/* chat deletion (delete for me) */
+/* write a note */
 const notesRow = [...dom.window.document.querySelectorAll('.chat-row .chat')].find((r) => r.textContent.includes('My Notes'));
 notesRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => text('.chat-peer-name') === 'My Notes', 'My Notes chat opens');
-if (text('.chat-peer-name') !== 'My Notes') {
-  console.log('DEBUG hash:', dom.window.location.hash, '| peer:', text('.chat-peer-name'), '| loading:', text('.chat-loading'));
-}
-click('.chat-header .icon-button:last-child');
-await waitFor(() => dom.window.document.querySelector('.dialog') !== null, 'chat delete confirmation dialog');
-click('.dialog .btn-primary');
-await waitFor(() => db.chat_deletions.some((d) => d.connection_id.startsWith('conn-')), 'chat deletion persisted');
+const notesComposer = dom.window.document.querySelector('.composer-input');
+setInputValue(notesComposer, 'Buy milk');
+notesComposer.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+notesComposer.closest('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
 await waitFor(
-  () => ![...dom.window.document.querySelectorAll('.chat-row .chat-name')].some((n) => n.textContent === 'My Notes'),
-  'deleted chat hidden on home',
+  () => [...dom.window.document.querySelectorAll('.message')].some((m) => m.textContent.includes('Buy milk')),
+  'note is sent into My Notes',
+);
+
+/* trash opens the special My Notes dialog (not the chat-delete dialog) */
+click('.chat-header .icon-button:last-child');
+await waitFor(() => dom.window.document.querySelector('.dialog') !== null, 'trash opens a confirmation dialog');
+assert(
+  text('.dialog-title') === 'Clear this chat and disable My Notes?',
+  'My Notes uses its own clear-and-disable dialog',
+);
+assert(
+  text('.dialog-text') === 'You can re-enable My Notes later in Settings.',
+  'My Notes dialog explains re-enabling in Settings',
+);
+assert(
+  dom.window.document.querySelector('.dialog .btn-plain') !== null &&
+    dom.window.document.querySelector('.dialog .btn-primary') !== null,
+  'My Notes dialog has cancel and confirm buttons',
+);
+/* cancel changes nothing */
+click('.dialog .btn-plain');
+await waitFor(() => dom.window.document.querySelector('.dialog') === null, 'cancel closes the dialog');
+assert(
+  db.connections.some((c) => c.user_a === 'user-1' && c.user_b === 'user-1'),
+  'cancel keeps the My Notes self-connection',
+);
+assert(
+  db.messages.some((m) => m.ciphertext === 'Buy milk'),
+  'cancel keeps the notes content',
+);
+/* confirm clears everything, disables My Notes and returns to Home */
+click('.chat-header .icon-button:last-child');
+await waitFor(() => dom.window.document.querySelector('.dialog') !== null, 'dialog reopens');
+click('.dialog .btn-primary');
+await waitFor(
+  () =>
+    dom.window.document.querySelector('.home-screen') !== null &&
+    ![...dom.window.document.querySelectorAll('.chat-row .chat-name')].some((n) => n.textContent === 'My Notes'),
+  'confirm returns to Home with My Notes gone immediately',
+);
+assert(removeMyNotesRpcCalls === 1, 'clearing uses the auth-bound remove_my_notes() RPC');
+assert(
+  !db.connections.some((c) => c.user_a === 'user-1' && c.user_b === 'user-1'),
+  'confirm removes the self-connection',
+);
+assert(
+  !db.messages.some((m) => m.ciphertext === 'Buy milk'),
+  'confirm removes the notes content',
 );
 
 /* account deletion (type-to-confirm) */
@@ -994,15 +1068,31 @@ const reopenedNotesToggle = [...reopenedChatSection.querySelectorAll('.toggle')]
   (toggle) => toggle.getAttribute('aria-label') === 'My Notes',
 );
 await waitFor(
-  () => reopenedNotesToggle.getAttribute('aria-checked') === 'true',
-  'My Notes switch reloads its state from the database',
+  () => reopenedNotesToggle.getAttribute('aria-checked') === 'false',
+  'My Notes switch is off immediately after clearing from the chat',
 );
+
+/* re-enabling shows the (empty) notes chat again right after leaving settings */
 reopenedNotesToggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(
-  () => !db.connections.some((c) => c.user_a === 'user-1' && c.user_b === 'user-1'),
-  'disabling My Notes removes the self-connection',
+  () => db.connections.some((c) => c.user_a === 'user-1' && c.user_b === 'user-1'),
+  'My Notes re-enabled',
 );
-assert(removeMyNotesRpcCalls === 1, 'My Notes removal uses the auth-bound RPC');
+assert(ensureMyNotesRpcCalls === 2, 're-enabling calls ensure_my_notes again');
+setHash('#/');
+await waitFor(
+  () => text('.chat-row .chat-name') === 'My Notes',
+  'My Notes appears again immediately after leaving settings',
+);
+const notesRowAgain = [...dom.window.document.querySelectorAll('.chat-row .chat')].find((r) => r.textContent.includes('My Notes'));
+notesRowAgain.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(() => text('.chat-peer-name') === 'My Notes', 're-enabled My Notes chat opens');
+await waitFor(
+  () => text('.chat-empty') === 'No messages yet.',
+  'My Notes is empty after re-enabling',
+);
+setHash('#/settings');
+await waitFor(() => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'), 'settings open for delete account');
 const deleteAccountBtn = [...dom.window.document.querySelectorAll('.settings-row')].find((r) =>
   r.textContent.includes('Delete account'),
 );

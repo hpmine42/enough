@@ -9,8 +9,12 @@ import {
 
 const KEYS = {
   enterToSend: 'enough-enter-to-send',
-  notifications: 'enough-notifications',
 } as const;
+
+// Older enough. versions stored a browser-notifications preference under this
+// key. enough. no longer has any notification feature, so a leftover value is
+// removed once when the app loads. No other preference key is touched.
+const LEGACY_NOTIFICATIONS_KEY = 'enough-notifications';
 
 function read(key: string, def: boolean): boolean {
   try {
@@ -32,8 +36,6 @@ function write(key: string, value: boolean): void {
 interface PreferencesContextValue {
   enterToSend: boolean;
   setEnterToSend: (v: boolean) => void;
-  notifications: boolean;
-  setNotifications: (v: boolean) => void;
 }
 
 const PreferencesContext = createContext<PreferencesContextValue | undefined>(
@@ -44,30 +46,28 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [enterToSend, setEnterToSendState] = useState(() =>
     read(KEYS.enterToSend, false),
   );
-  const [notifications, setNotificationsState] = useState(() =>
-    read(KEYS.notifications, false),
-  );
 
   useEffect(() => {
     write(KEYS.enterToSend, enterToSend);
   }, [enterToSend]);
+
+  // Drop a stored notification preference from older enough. versions. The
+  // feature is gone completely, so the value must not influence anything.
   useEffect(() => {
-    write(KEYS.notifications, notifications);
-  }, [notifications]);
+    try {
+      window.localStorage.removeItem(LEGACY_NOTIFICATIONS_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
 
   const setEnterToSend = useCallback((v: boolean) => setEnterToSendState(v), []);
-  const setNotifications = useCallback(
-    (v: boolean) => setNotificationsState(v),
-    [],
-  );
 
   return (
     <PreferencesContext.Provider
       value={{
         enterToSend,
         setEnterToSend,
-        notifications,
-        setNotifications,
       }}
     >
       {children}
