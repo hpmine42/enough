@@ -1720,6 +1720,65 @@ textarea {
 
 /* ---------- markdown in messages ---------- */
 
+/*
+ * Markdown palette — the bubble is the color context, not the global theme.
+ *
+ * The bubble background depends on the theme AND on who sent the message
+ * (light theme: sent = dark bubble, received = light bubble; dark theme:
+ * sent = light bubble, received = dark bubble). Markdown must keep enough
+ * contrast against whichever bubble it sits on, so each bubble context
+ * defines its own palette here. The .md-* rules below only consume these
+ * variables — the markdown renderer never needs to know about theme or
+ * sender/receiver.
+ *
+ * Dark bubble  -> light surfaces on dark (light overlays).
+ * Light bubble -> dark surfaces on light (dark overlays).
+ */
+
+/* Light bubble (received in light mode): dark surfaces on light. */
+:root {
+  --md-inline-code-bg: rgba(0, 0, 0, 0.08);
+  --md-inline-code-border: rgba(0, 0, 0, 0.06);
+  --md-code-bg: rgba(0, 0, 0, 0.07);
+  --md-code-border: rgba(0, 0, 0, 0.08);
+  --md-quote-border: var(--border);
+  --md-quote-text: var(--muted);
+  --md-link-underline: var(--muted);
+}
+
+/* Dark bubble (sent in light mode): light surfaces on dark. */
+.message.sent {
+  --md-inline-code-bg: rgba(255, 255, 255, 0.18);
+  --md-inline-code-border: rgba(255, 255, 255, 0.18);
+  --md-code-bg: rgba(255, 255, 255, 0.14);
+  --md-code-border: rgba(255, 255, 255, 0.18);
+  --md-quote-border: rgba(255, 255, 255, 0.45);
+  --md-quote-text: var(--sent-text);
+  --md-link-underline: rgba(255, 255, 255, 0.7);
+}
+
+/* Dark bubble (received in dark mode): light surfaces on dark. */
+:root.dark .message.received {
+  --md-inline-code-bg: rgba(255, 255, 255, 0.18);
+  --md-inline-code-border: rgba(255, 255, 255, 0.18);
+  --md-code-bg: rgba(255, 255, 255, 0.14);
+  --md-code-border: rgba(255, 255, 255, 0.18);
+  --md-quote-border: rgba(255, 255, 255, 0.45);
+  --md-quote-text: var(--muted);
+  --md-link-underline: rgba(255, 255, 255, 0.7);
+}
+
+/* Light bubble (sent in dark mode): dark surfaces on light. */
+:root.dark .message.sent {
+  --md-inline-code-bg: rgba(25, 25, 23, 0.1);
+  --md-inline-code-border: rgba(25, 25, 23, 0.18);
+  --md-code-bg: rgba(25, 25, 23, 0.08);
+  --md-code-border: rgba(25, 25, 23, 0.32);
+  --md-quote-border: rgba(25, 25, 23, 0.38);
+  --md-quote-text: var(--sent-text);
+  --md-link-underline: rgba(25, 25, 23, 0.6);
+}
+
 .md-root {
   display: block;
   word-break: break-word;
@@ -1789,14 +1848,9 @@ textarea {
 .md-quote {
   margin: 0.5em 0 0.3em;
   padding: 2px 0 2px 10px;
-  border-left: 2px solid var(--border);
-  color: var(--muted);
+  border-left: 2px solid var(--md-quote-border);
+  color: var(--md-quote-text);
   text-align: left;
-}
-
-.sent .md-quote {
-  border-color: rgba(255, 255, 255, 0.45);
-  color: inherit;
 }
 
 .md-paragraph {
@@ -1817,22 +1871,17 @@ textarea {
   font-size: 0.9em;
   padding: 1px 5px;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--md-inline-code-bg);
+  border: 1px solid var(--md-inline-code-border);
   word-break: break-all;
-}
-
-.sent .md-inline-code {
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .md-code-block {
   margin: 8px 0;
   padding: 10px 12px;
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.07);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--md-code-bg);
+  border: 1px solid var(--md-code-border);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
   line-height: 1.45;
@@ -1840,11 +1889,6 @@ textarea {
   word-break: break-word;
   overflow-x: auto;
   text-align: left;
-}
-
-.sent .md-code-block {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .md-code-block code {
@@ -1855,19 +1899,11 @@ textarea {
 }
 
 .md-link {
+  color: inherit;
   text-decoration: underline;
   text-underline-offset: 3px;
+  text-decoration-color: var(--md-link-underline);
   word-break: break-all;
-}
-
-.sent .md-link {
-  color: inherit;
-  text-decoration-color: rgba(255, 255, 255, 0.7);
-}
-
-.received .md-link {
-  color: inherit;
-  text-decoration-color: var(--muted);
 }
 
 .md-bold {
