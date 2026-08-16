@@ -131,14 +131,6 @@ export const translations = {
       chat: 'Chat',
       enterToSend: 'Enter to send',
       enterToSendHint: 'Enter sends the message. Shift + Enter makes a new line.',
-      notifications: 'Notifications',
-      notificationsHint:
-        'Get notified about new messages when enough. is not in view.',
-      notificationsExplain:
-        'Notifications need your browser permission. We only ask when you enable them.',
-      notificationsDenied:
-        'Permission was denied in your browser. You can allow it in the browser settings.',
-      notificationsUnsupported: 'This browser does not support notifications.',
       myNotes: 'My Notes',
       myNotesHint: 'A private chat with yourself.',
       myNotesError: 'My Notes could not be set up.',
@@ -203,6 +195,10 @@ export const translations = {
         'The chat is deleted for you. The other person keeps their copy.',
       chatDeleted: 'The chat was deleted for you.',
       newMessages: 'New messages',
+      myNotesClearTitle: 'Clear this chat and disable My Notes?',
+      myNotesClearText:
+        'You can re-enable My Notes later in Settings.',
+      myNotesTag: 'Private',
     },
 
     // message actions
@@ -218,12 +214,6 @@ export const translations = {
       deleteForMeText: 'The message is hidden for you. The other person keeps it.',
       deleteError: 'The message could not be deleted.',
       deleteForEveryoneError: 'The message could not be deleted for everyone.',
-    },
-
-    // notifications (OS-level)
-    notification: {
-      title: 'enough.',
-      body: '{name}: {text}',
     },
 
     // unread
@@ -376,15 +366,6 @@ export const translations = {
       chat: 'Chat',
       enterToSend: 'Enter zum Senden',
       enterToSendHint: 'Enter sendet die Nachricht. Shift + Enter fügt eine Zeile ein.',
-      notifications: 'Benachrichtigungen',
-      notificationsHint:
-        'Benachrichtige mich über neue Nachrichten, wenn enough. nicht sichtbar ist.',
-      notificationsExplain:
-        'Benachrichtigungen benötigen die Berechtigung deines Browsers. Wir fragen nur, wenn du sie aktivierst.',
-      notificationsDenied:
-        'Die Berechtigung wurde im Browser abgelehnt. Du kannst sie in den Browser-Einstellungen erlauben.',
-      notificationsUnsupported:
-        'Dieser Browser unterstützt keine Benachrichtigungen.',
       myNotes: 'Meine Notizen',
       myNotesHint: 'Ein privater Chat mit dir selbst.',
       myNotesError: 'Meine Notizen konnten nicht eingerichtet werden.',
@@ -448,6 +429,10 @@ export const translations = {
         'Der Chat wird für dich gelöscht. Die andere Person behält ihren Verlauf.',
       chatDeleted: 'Der Chat wurde für dich gelöscht.',
       newMessages: 'Neue Nachrichten',
+      myNotesClearTitle: 'Diesen Chat leeren und Meine Notizen deaktivieren?',
+      myNotesClearText:
+        'Du kannst Meine Notizen später in den Einstellungen wieder aktivieren.',
+      myNotesTag: 'Privat',
     },
 
     message: {
@@ -462,11 +447,6 @@ export const translations = {
       deleteForMeText: 'Die Nachricht wird für dich ausgeblendet. Die andere Person behält sie.',
       deleteError: 'Die Nachricht konnte nicht gelöscht werden.',
       deleteForEveryoneError: 'Die Nachricht konnte nicht für alle gelöscht werden.',
-    },
-
-    notification: {
-      title: 'enough.',
-      body: '{name}: {text}',
     },
 
     unread: {

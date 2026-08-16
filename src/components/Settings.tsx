@@ -122,8 +122,6 @@ export default function Settings() {
   const {
     enterToSend,
     setEnterToSend,
-    notifications,
-    setNotifications,
   } = usePreferences();
   const [lang] = useLang();
 
@@ -175,10 +173,6 @@ export default function Settings() {
   const [notesBusy, setNotesBusy] = useState(false);
   const [notesError, setNotesError] = useState<string | null>(null);
 
-  // notifications
-  const [notifBusy, setNotifBusy] = useState(false);
-  const [notifDenied, setNotifDenied] = useState(false);
-  const [notifUnsupported, setNotifUnsupported] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
 
   // appearance (local state so the outline updates immediately)
@@ -385,44 +379,6 @@ export default function Settings() {
     } finally {
       setNotesBusy(false);
     }
-  }
-
-  async function toggleNotifications(on: boolean) {
-    if (notifBusy) return;
-    setNotifDenied(false);
-    setNotifUnsupported(false);
-    if (!on) {
-      setNotifications(false);
-      return;
-    }
-    if (typeof window === 'undefined' || !('Notification' in window)) {
-      setNotifUnsupported(true);
-      setNotifications(false);
-      return;
-    }
-    setNotifBusy(true);
-    if (Notification.permission === 'granted') {
-      setNotifications(true);
-      setNotifBusy(false);
-      return;
-    }
-    if (Notification.permission === 'denied') {
-      setNotifDenied(true);
-      setNotifications(false);
-      setNotifBusy(false);
-      return;
-    }
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') setNotifications(true);
-      else {
-        setNotifDenied(true);
-        setNotifications(false);
-      }
-    } catch {
-      setNotifications(false);
-    }
-    setNotifBusy(false);
   }
 
   const searchTimer = useRef<number | null>(null);
@@ -712,21 +668,6 @@ export default function Settings() {
               label={t('settingsScreen.enterToSend')}
             />
           </Row>
-          <Row
-            label={t('settingsScreen.notifications')}
-            sub={
-              notifications
-                ? t('settingsScreen.notificationsHint')
-                : t('settingsScreen.notificationsExplain')
-            }
-          >
-            <Toggle
-              checked={notifications}
-              onChange={toggleNotifications}
-              disabled={notifBusy}
-              label={t('settingsScreen.notifications')}
-            />
-          </Row>
           <Row label={t('settingsScreen.myNotes')} sub={t('settingsScreen.myNotesHint')}>
             <Toggle
               checked={myNotes}
@@ -738,16 +679,6 @@ export default function Settings() {
           {notesError && (
             <p className="error" role="alert">
               {notesError}
-            </p>
-          )}
-          {notifDenied && (
-            <p className="error" role="alert">
-              {t('settingsScreen.notificationsDenied')}
-            </p>
-          )}
-          {notifUnsupported && (
-            <p className="muted" role="note">
-              {t('settingsScreen.notificationsUnsupported')}
             </p>
           )}
         </Section>

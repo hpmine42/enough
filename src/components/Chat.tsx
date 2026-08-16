@@ -19,6 +19,7 @@ import {
   getMessagesPage,
   getProfiles,
   loadDeletionsForUser,
+  removeMyNotes,
   saveReadState,
   sendConnectionRequest,
   sendMessage,
@@ -512,6 +513,23 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     navigate('#/');
   }
 
+  /* My Notes trash: clear all notes and disable My Notes in one step.
+     remove_my_notes() deletes the self-connection including its messages, so
+     the notes chat disappears from Home immediately on return. */
+  async function handleClearMyNotes() {
+    if (!conn) return;
+    setActionBusy(true);
+    setError(null);
+    const err = await removeMyNotes(me, conn.id);
+    setActionBusy(false);
+    setChatMenuOpen(false);
+    if (err) {
+      setError(err);
+      return;
+    }
+    navigate('#/');
+  }
+
   /* ------------------------------ derived ------------------------------ */
 
   const status = conn ? effectiveStatus(conn) : 'accepted';
@@ -641,7 +659,9 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           type="button"
           className="icon-button"
           onClick={() => setChatMenuOpen(true)}
-          aria-label={t('chat.deleteChatForMe')}
+          aria-label={
+            self ? t('chat.myNotesClearTitle') : t('chat.deleteChatForMe')
+          }
         >
           <TrashIcon size={19} />
         </button>
@@ -806,7 +826,18 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         </button>
       )}
 
-      {chatMenuOpen && (
+      {chatMenuOpen && (self ? (
+        <Dialog
+          title={t('chat.myNotesClearTitle')}
+          text={t('chat.myNotesClearText')}
+          confirmLabel={t('confirm')}
+          cancelLabel={t('cancel')}
+          danger
+          busy={actionBusy}
+          onConfirm={handleClearMyNotes}
+          onCancel={() => setChatMenuOpen(false)}
+        />
+      ) : (
         <Dialog
           title={t('chat.deleteChatConfirmTitle')}
           text={t('chat.deleteChatConfirmText')}
@@ -817,7 +848,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           onConfirm={handleDeleteChat}
           onCancel={() => setChatMenuOpen(false)}
         />
-      )}
+      ))}
 
       {sheetTarget && (
         <BottomSheet
