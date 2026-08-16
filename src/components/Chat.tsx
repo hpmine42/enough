@@ -85,6 +85,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const loadingOlderRef = useRef(false);
   const [atBottom, setAtBottom] = useState(true);
   const [unreadBelow, setUnreadBelow] = useState(0);
+  const [newSinceUp, setNewSinceUp] = useState(0);
   const lastReadRef = useRef<string | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const pendingDeltaRef = useRef(0);
@@ -159,6 +160,9 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           const msg = payload.new as Message;
           setMessages((prev) => {
             if (prev.some((m) => m.id === msg.id)) return prev;
+            if (!atBottomRef.current) {
+              setNewSinceUp((c) => c + 1);
+            }
             return [...prev, msg].sort((a, b) =>
               a.created_at === b.created_at
                 ? a.id.localeCompare(b.id)
@@ -291,13 +295,18 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     if (!el) return;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const bottom = distance < 120;
+    const wasBottom = atBottomRef.current;
     atBottomRef.current = bottom;
     setAtBottom(bottom);
     if (bottom) {
+      setNewSinceUp(0);
       const last = messages[messages.length - 1];
       if (last) lastReadRef.current = last.created_at;
       setUnreadBelow(0);
     } else {
+      if (wasBottom) {
+        setNewSinceUp(0);
+      }
       computeUnreadBelow();
     }
     // Persist read state at most every ~1.5 s.
@@ -793,7 +802,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           aria-label={t('unread.down')}
         >
           <DownIcon size={18} />
-          {unreadBelow > 0 && <span className="scroll-down-count">{unreadBelow}</span>}
+          {newSinceUp > 0 && <span className="scroll-down-count">{newSinceUp}</span>}
         </button>
       )}
 
