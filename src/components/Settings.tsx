@@ -993,7 +993,10 @@ export default function Settings() {
           <span>
             {t('settingsScreen.footer')} {APP_VERSION}
           </span>
-          <a className="link settings-legal-link" href="#/impressum">
+          <a
+            className="link settings-legal-link"
+            href={lang === 'de' ? '#/impressum' : '#/imprint'}
+          >
             {t('legal.imprint')}
           </a>
           <a

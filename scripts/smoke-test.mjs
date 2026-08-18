@@ -713,7 +713,17 @@ assert(
 
 /* public imprint */
 setHash('#/impressum');
-await waitFor(() => text('.legal-content h1') === 'Imprint', 'public imprint renders');
+await waitFor(() => text('.legal-content h1') === 'Impressum', 'public German imprint renders');
+assert(
+  text('.legal-content')?.includes('Stand: 19. August 2026'),
+  'German imprint shows Stand date',
+);
+setHash('#/imprint');
+await waitFor(() => text('.legal-content h1') === 'Imprint', 'public English imprint renders');
+assert(
+  text('.legal-content')?.includes('Last updated: 19 August 2026'),
+  'English imprint shows Last updated date',
+);
 assert(
   text('.legal-section address')?.includes('Jakob Gregory'),
   'imprint shows the configured provider',
