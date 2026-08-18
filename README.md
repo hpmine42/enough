@@ -133,8 +133,10 @@ schema so real E2EE can be introduced later without renaming columns.
 
 Light/Dark/System is global, persisted in `localStorage`, defaults to System,
 and is applied before first paint to avoid a flash. The theme module
-(`src/lib/theme.ts`) is standalone; the header button toggles light/dark while
-Settings offers the full three-way choice.
+(`src/lib/theme.ts`) is standalone; the header button cycles through all three
+modes (light → dark → system → light) without a dialog, and Settings offers
+the same three-way choice. `system` follows the operating-system preference
+while the app is running; light and dark are independent of the OS.
 
 ## Impressum anpassen
 

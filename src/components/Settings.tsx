@@ -16,7 +16,7 @@ import {
 import { displayName, normalizeUsername } from '../lib/helpers';
 import { setLang, t, useLang } from '../i18n';
 import { Lang } from '../i18n/translations';
-import { applyMode, getStoredMode, ThemeMode } from '../lib/theme';
+import { applyMode, getStoredMode, THEME_CHANGE_EVENT, ThemeMode } from '../lib/theme';
 import { Connection, Profile } from '../lib/types';
 import Dialog from './Dialog';
 import Toggle from './Toggle';
@@ -177,6 +177,24 @@ export default function Settings() {
 
   // appearance (local state so the outline updates immediately)
   const [appearanceMode, setAppearanceMode] = useState<ThemeMode>(() => getStoredMode());
+
+  // Keep the radio list in sync when the header ThemeButton cycles through
+  // light/dark/system while this overlay is mounted.
+  useEffect(() => {
+    const sync = (event?: Event) => {
+      const next =
+        event instanceof CustomEvent &&
+        (event.detail === 'light' ||
+          event.detail === 'dark' ||
+          event.detail === 'system')
+          ? (event.detail as ThemeMode)
+          : getStoredMode();
+      setAppearanceMode(next);
+    };
+    window.addEventListener(THEME_CHANGE_EVENT, sync);
+    sync();
+    return () => window.removeEventListener(THEME_CHANGE_EVENT, sync);
+  }, []);
 
   // Form collapse animation state (smooth open + close).
   const emailCollapse = useCollapse(emailEditing);
