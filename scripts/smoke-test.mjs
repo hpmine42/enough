@@ -122,12 +122,26 @@ globalThis.cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
 globalThis.getComputedStyle = window.getComputedStyle.bind(window);
 globalThis.CustomEvent = window.CustomEvent;
 globalThis.MutationObserver = window.MutationObserver;
+// Controllable matchMedia: the smoke environment simulates an OS in light
+// mode. Tests flip it via setSystemDark() to exercise the 'system' theme mode.
+const systemDark = { value: false };
+const darkQueryListeners = new Set();
 window.matchMedia = (query) => ({
-  matches: false,
+  matches: query.includes('prefers-color-scheme: dark') ? systemDark.value : false,
   media: query,
-  addEventListener() {},
-  removeEventListener() {},
+  addEventListener(type, cb) {
+    if (type === 'change') darkQueryListeners.add(cb);
+  },
+  removeEventListener(type, cb) {
+    darkQueryListeners.delete(cb);
+  },
 });
+function setSystemDark(value) {
+  systemDark.value = value;
+  darkQueryListeners.forEach((cb) =>
+    cb({ matches: value, media: '(prefers-color-scheme: dark)' }),
+  );
+}
 globalThis.matchMedia = window.matchMedia;
 // Note: no Notification stub is installed on purpose. enough. must not touch
 // the browser Notification API anywhere, so any remaining usage would throw
@@ -541,13 +555,48 @@ assert(window.localStorage.getItem('enough-lang') === 'de', 'language persists')
 click('.lang-button');
 await waitFor(() => text('.button') === 'Log in', 'language switch → English');
 
-/* theme toggle */
+/* theme toggle — three-state cycle: light → dark → system → light */
+// Fresh storage defaults to 'system'; the OS is light in this environment.
 assert(!dom.window.document.documentElement.classList.contains('dark'), 'light theme initially');
+assert(window.localStorage.getItem('enough-theme') === null, 'theme defaults to system (no stored mode)');
+await waitFor(
+  () => dom.window.document.querySelector('.theme-button .theme-icon')?.classList.contains('mode-system'),
+  'initial state shows the system icon',
+);
 click('.theme-button');
-await waitFor(() => dom.window.document.documentElement.classList.contains('dark'), 'theme toggle → dark');
+await waitFor(() => window.localStorage.getItem('enough-theme') === 'light', 'system → light on first tap');
+await waitFor(
+  () => dom.window.document.querySelector('.theme-button .theme-icon')?.classList.contains('mode-light'),
+  'light state shows the sun icon',
+);
+click('.theme-button');
+await waitFor(() => window.localStorage.getItem('enough-theme') === 'dark', 'light → dark');
+await waitFor(() => dom.window.document.documentElement.classList.contains('dark'), 'dark applies');
 assert(window.localStorage.getItem('enough-theme') === 'dark', 'theme persists');
+await waitFor(
+  () => dom.window.document.querySelector('.theme-button .theme-icon')?.classList.contains('mode-dark'),
+  'dark state shows the moon icon',
+);
 click('.theme-button');
-await waitFor(() => !dom.window.document.documentElement.classList.contains('dark'), 'theme toggle → light');
+await waitFor(() => window.localStorage.getItem('enough-theme') === 'system', 'dark → system');
+assert(
+  !dom.window.document.documentElement.classList.contains('dark'),
+  'system mode follows the OS (light in this environment)',
+);
+await waitFor(
+  () => dom.window.document.querySelector('.theme-button .theme-icon')?.classList.contains('mode-system'),
+  'system state shows the system icon',
+);
+click('.theme-button');
+await waitFor(() => window.localStorage.getItem('enough-theme') === 'light', 'system → light');
+click('.theme-button');
+await waitFor(() => window.localStorage.getItem('enough-theme') === 'dark', 'cycle repeats → dark again');
+await waitFor(() => dom.window.document.documentElement.classList.contains('dark'), 'cycle applies dark again');
+// Continue through system → light so the remaining flow starts from light.
+click('.theme-button');
+await waitFor(() => window.localStorage.getItem('enough-theme') === 'system', 'cycle continues → system');
+click('.theme-button');
+await waitFor(() => window.localStorage.getItem('enough-theme') === 'light', 'cycle continues → light');
 
 /* forgot password */
 setHash('#/forgot');
@@ -698,19 +747,8 @@ await waitFor(() => text('.settings-section-title') === 'Profile', 'settings lan
 const appearanceSection = [...dom.window.document.querySelectorAll('.settings-section')].find((s) =>
   s.querySelector('.settings-section-title')?.textContent === 'Appearance',
 );
+const lightOption = [...appearanceSection.querySelectorAll('.option')].find((o) => o.textContent.includes('Light'));
 const darkOption = [...appearanceSection.querySelectorAll('.option')].find((o) => o.textContent.includes('Dark'));
-darkOption.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-await waitFor(() => dom.window.document.documentElement.classList.contains('dark'), 'settings appearance → dark');
-assert(window.localStorage.getItem('enough-theme') === 'dark', 'appearance persists');
-await waitFor(
-  () => dom.window.document.querySelector('.settings-header .theme-icon')?.classList.contains('dark'),
-  'header theme icon follows Settings selection',
-);
-click('.settings-header .theme-button');
-await waitFor(
-  () => !dom.window.document.documentElement.classList.contains('dark'),
-  'header theme control stays synchronized',
-);
 const systemOption = [...appearanceSection.querySelectorAll('.option')].find((o) =>
   o.textContent.includes('System'),
 );
@@ -718,12 +756,44 @@ assert(
   [...appearanceSection.querySelectorAll('.option-label svg')].length === 3,
   'light/dark/system options have minimalist icons',
 );
+darkOption.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(() => dom.window.document.documentElement.classList.contains('dark'), 'settings appearance → dark');
+assert(window.localStorage.getItem('enough-theme') === 'dark', 'appearance persists');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-header .theme-icon')?.classList.contains('mode-dark'),
+  'header theme icon follows Settings selection',
+);
+// The header toggle now cycles through all three modes; the radio list must follow.
+click('.settings-header .theme-button');
+await waitFor(
+  () => window.localStorage.getItem('enough-theme') === 'system',
+  'header theme control cycles → system',
+);
+await waitFor(
+  () => systemOption.getAttribute('aria-checked') === 'true',
+  'settings radios follow the header toggle',
+);
+await waitFor(
+  () => dom.window.document.querySelector('.settings-header .theme-icon')?.classList.contains('mode-system'),
+  'header icon shows the system state',
+);
+click('.settings-header .theme-button');
+await waitFor(() => window.localStorage.getItem('enough-theme') === 'light', 'header theme control cycles → light');
+await waitFor(() => lightOption.getAttribute('aria-checked') === 'true', 'settings radios follow light');
+click('.settings-header .theme-button');
+await waitFor(() => window.localStorage.getItem('enough-theme') === 'dark', 'header theme control cycles → dark');
+await waitFor(() => dom.window.document.documentElement.classList.contains('dark'), 'header cycle applies dark');
+// Pick System from the list — the header icon must follow in reverse as well.
 systemOption.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(
   () => systemOption.getAttribute('aria-checked') === 'true',
   'settings appearance → system',
 );
 assert(window.localStorage.getItem('enough-theme') === 'system', 'system appearance persists');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-header .theme-icon')?.classList.contains('mode-system'),
+  'header icon follows the Settings radio selection',
+);
 
 /* person search inside settings */
 const searchSection = [...dom.window.document.querySelectorAll('.settings-section')].find((s) =>
@@ -1129,6 +1199,130 @@ signOutBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => text('.dialog-title') === 'Sign out?', 'sign out confirmation dialog');
 click('.dialog .btn-primary');
 await waitFor(() => text('.button') === 'Log in', 'sign out returns to login screen');
+
+/* ------------------------------------------------------------------ */
+/* theme: OS preference switching and browser restart                  */
+/* ------------------------------------------------------------------ */
+
+// The persisted mode is 'system' (set in the appearance section above).
+await waitFor(() => window.localStorage.getItem('enough-theme') === 'system', 'system mode is active');
+
+// 1) System mode must react to OS light/dark changes while it is running.
+assert(
+  !dom.window.document.documentElement.classList.contains('dark'),
+  'system + OS light → light',
+);
+setSystemDark(true);
+await waitFor(
+  () => dom.window.document.documentElement.classList.contains('dark'),
+  'system follows OS switch → dark',
+);
+assert(window.localStorage.getItem('enough-theme') === 'system', 'OS change does not rewrite the mode');
+setSystemDark(false);
+await waitFor(
+  () => !dom.window.document.documentElement.classList.contains('dark'),
+  'system follows OS switch → light',
+);
+
+// 2) Explicit light/dark must ignore OS changes.
+click('.theme-button'); // system → light
+await waitFor(() => window.localStorage.getItem('enough-theme') === 'light', 'explicit light selected');
+setSystemDark(true);
+await sleep(50);
+assert(
+  !dom.window.document.documentElement.classList.contains('dark'),
+  'explicit light ignores OS dark',
+);
+setSystemDark(false);
+click('.theme-button'); // light → dark
+await waitFor(() => window.localStorage.getItem('enough-theme') === 'dark', 'explicit dark selected');
+setSystemDark(false);
+await sleep(50);
+assert(
+  dom.window.document.documentElement.classList.contains('dark'),
+  'explicit dark ignores OS light',
+);
+setSystemDark(true);
+await sleep(50);
+assert(
+  dom.window.document.documentElement.classList.contains('dark'),
+  'explicit dark stays dark when OS is dark',
+);
+
+// 3) Browser restart: the persisted mode is applied before first paint by the
+// inline script in index.html (no flash of the wrong theme), and the
+// status-bar color follows. A fresh JSDOM with seeded storage simulates a new
+// browser session.
+function bootWithTheme(storedMode, osDark) {
+  const storage = new Map();
+  if (storedMode) storage.set('enough-theme', storedMode);
+  const fresh = new JSDOM(html, {
+    url: 'https://enough.local/restart',
+    pretendToBeVisual: true,
+    runScripts: 'dangerously',
+    beforeParse(window2) {
+      Object.defineProperty(window2, 'localStorage', {
+        value: {
+          getItem: (k) => storage.get(k) ?? null,
+          setItem: (k, v) => storage.set(k, String(v)),
+          removeItem: (k) => storage.delete(k),
+          clear: () => storage.clear(),
+          key: (i) => [...storage.keys()][i] ?? null,
+          get length() {
+            return storage.size;
+          },
+        },
+        configurable: true,
+      });
+      window2.matchMedia = (query) => ({
+        matches: query.includes('prefers-color-scheme: dark') ? osDark : false,
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+      });
+    },
+  });
+  return fresh;
+}
+
+{
+  const booted = bootWithTheme('dark', false);
+  assert(
+    booted.window.document.documentElement.classList.contains('dark'),
+    'restart: persisted dark applies before first paint',
+  );
+  assert(
+    booted.window.document
+      .querySelector('meta[name="theme-color"]')
+      ?.getAttribute('content') === '#191917',
+    'restart: status-bar color follows the pre-paint theme',
+  );
+  booted.window.close();
+}
+{
+  const booted = bootWithTheme('light', true);
+  assert(
+    !booted.window.document.documentElement.classList.contains('dark'),
+    'restart: explicit light ignores OS dark before first paint',
+  );
+  booted.window.close();
+}
+{
+  const booted = bootWithTheme('system', true);
+  assert(
+    booted.window.document.documentElement.classList.contains('dark'),
+    'restart: system + OS dark → dark before first paint',
+  );
+  booted.window.close();
+}
+{
+  const booted = bootWithTheme('system', false);
+  assert(
+    !booted.window.document.documentElement.classList.contains('dark'),
+    'restart: system + OS light → light before first paint',
+  );
+  booted.window.close();
+}
 
 if (failures === 0) {
   // A fresh client instance is required because callback flow selection occurs

@@ -27,6 +27,11 @@ export function effectiveTheme(mode: ThemeMode): Theme {
   return mode === 'system' ? systemTheme() : mode;
 }
 
+/** Next mode in the single-button cycle: light → dark → system → light. */
+export function nextThemeMode(mode: ThemeMode): ThemeMode {
+  return mode === 'light' ? 'dark' : mode === 'dark' ? 'system' : 'light';
+}
+
 function render(theme: Theme): void {
   document.documentElement.classList.toggle('dark', theme === 'dark');
   // Keep every theme-color meta in sync (light + dark media variants and the

@@ -20,8 +20,8 @@ function base({ size = 20, ...rest }: IconProps) {
 export function SunIcon(props: IconProps) {
   return (
     <svg {...base(props)}>
-      <circle cx="12" cy="12" r="4.2" />
-      <path d="M12 2.8v2M12 19.2v2M2.8 12h2M19.2 12h2M5.5 5.5l1.4 1.4M17.1 17.1l1.4 1.4M18.5 5.5l-1.4 1.4M6.9 17.1l-1.4 1.4" />
+      <circle cx="12" cy="12" r="4.8" />
+      <path d="M12 4.9v2M12 19.1v-2M4.9 12h2M19.1 12h-2M16.2 7.8l1.4-1.4M7.8 7.8l-1.4-1.4M7.8 16.2l-1.4 1.4M16.2 16.2l1.4 1.4" />
     </svg>
   );
 }
