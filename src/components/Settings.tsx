@@ -9,6 +9,7 @@ import {
   getMyConnections,
   loadDeletionsForUser,
   removeMyNotes,
+  revealChatForMe,
   searchUsers,
   sendConnectionRequest,
 } from '../lib/api';
@@ -433,16 +434,11 @@ export default function Settings() {
     if (existing) {
       const deletions = await loadDeletionsForUser(me);
       if (deletions.chats.has(existing.id)) {
-        // Keep the cutoff. Reuse the pair row so the other person keeps
-        // history and this user starts from an empty view after accept.
+        // Keep the cutoff — do NOT change accepted → pending (RLS blocks
+        // it).  Instead, mark the chat as revealed so it reappears in the
+        // Home list while hidden_until keeps old messages hidden.
         if (existing.status === 'accepted' || existing.status === 'ended') {
-          setActionBusyId(other.id);
-          const err = await sendConnectionRequest(me, other.id);
-          setActionBusyId(null);
-          if (err) {
-            setSearchError(err);
-            return;
-          }
+          await revealChatForMe(me, existing.id);
         }
       }
       navigate(`#/chat/${existing.id}`);
