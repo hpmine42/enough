@@ -49,6 +49,8 @@ export const translations = {
         'Usernames are 3–20 characters: lowercase letters, numbers, underscore.',
       usernameTaken: 'This username is already taken.',
       usernameAvailable: 'This username is available.',
+      usernamePermanent:
+        'Choose your username carefully — it cannot be changed after registration.',
       checkingUsername: 'Checking…',
       usernameRequired: 'Please enter a username.',
       displayNameRequired: 'Please enter a display name.',
@@ -109,6 +111,9 @@ export const translations = {
       editEmail: 'Change email',
       newEmail: 'New email',
       changeEmailSubmit: 'Send verification link',
+      emailChangeConfirmTitle: 'Change email address?',
+      emailChangeConfirmText:
+        'You can change your email address here. After you enter the new address, we send a confirmation link to it. The change only takes effect once you confirm it via that link.',
       emailChangeSent:
         'A verification link was sent to the new address. It becomes active after you confirm it.',
       changePassword: 'Change password',
@@ -285,6 +290,8 @@ export const translations = {
         'Benutzernamen haben 3–20 Zeichen: Kleinbuchstaben, Zahlen, Unterstrich.',
       usernameTaken: 'Dieser Benutzername ist bereits vergeben.',
       usernameAvailable: 'Dieser Benutzername ist verfügbar.',
+      usernamePermanent:
+        'Wähle deinen Benutzernamen sorgfältig – er kann nach der Registrierung nicht mehr geändert werden.',
       checkingUsername: 'Prüfen…',
       usernameRequired: 'Bitte gib einen Benutzernamen ein.',
       displayNameRequired: 'Bitte gib einen Anzeigenamen ein.',
@@ -344,6 +351,9 @@ export const translations = {
       editEmail: 'E-Mail ändern',
       newEmail: 'Neue E-Mail',
       changeEmailSubmit: 'Bestätigungslink senden',
+      emailChangeConfirmTitle: 'E-Mail-Adresse ändern?',
+      emailChangeConfirmText:
+        'Du kannst deine E-Mail-Adresse hier ändern. Nach der Eingabe senden wir einen Bestätigungslink an die neue Adresse. Die Änderung wird erst wirksam, wenn du sie über diesen Link bestätigst.',
       emailChangeSent:
         'Ein Bestätigungslink wurde an die neue Adresse gesendet. Sie wird nach Bestätigung aktiv.',
       changePassword: 'Passwort ändern',

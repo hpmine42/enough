@@ -613,6 +613,11 @@ assert(
   dom.window.document.querySelectorAll('.form input').length === 5,
   'registration has 5 fields (email, @username, display name, password, confirm)',
 );
+assert(
+  text('.field-hint.muted') ===
+    'Choose your username carefully — it cannot be changed after registration.',
+  'username field carries a subtle cannot-be-changed hint',
+);
 
 /* live username validation */
 const usernameInput = dom.window.document.querySelector('.at-input');
@@ -630,6 +635,20 @@ setInputValue(usernameInput, 'AN');
 await waitFor(
   () => text('.field-hint')?.startsWith('Usernames are 3–20'),
   'live username validation → format error',
+);
+
+/* permanent username hint also exists in German (and stays while validating) */
+click('.lang-button');
+await waitFor(
+  () =>
+    text('.field-hint.muted') ===
+    'Wähle deinen Benutzernamen sorgfältig – er kann nach der Registrierung nicht mehr geändert werden.',
+  'permanent username hint in German',
+);
+click('.lang-button');
+await waitFor(
+  () => text('.field-hint.muted')?.startsWith('Choose your username'),
+  'permanent username hint switches back to English',
 );
 
 /* --- authenticated: real sign-in through the UI --- */
@@ -730,6 +749,50 @@ await waitFor(
   'password change succeeds after backend re-authentication',
 );
 
+/* email change also starts with an in-app confirmation */
+const emailRow = [...dom.window.document.querySelectorAll('.settings-row.clickable')].find((r) =>
+  r.textContent.includes('Change email'),
+);
+emailRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => text('.dialog-title') === 'Change email address?',
+  'email change opens confirmation dialog first',
+);
+assert(
+  text('.dialog-text')?.includes('confirmation link') === true,
+  'email dialog explains the confirmation-link flow',
+);
+click('.dialog .btn-plain');
+assert(
+  dom.window.document.querySelector('.settings-inline-form input[type="email"]') === null,
+  'email form stays closed after canceling the dialog',
+);
+emailRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => text('.dialog-title') === 'Change email address?',
+  'email confirmation dialog reopens',
+);
+click('.dialog .btn-primary');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-inline-form input[type="email"]') !== null,
+  'email form opens only after confirmation',
+);
+const emailChangeInput = dom.window.document.querySelector(
+  '.settings-inline-form input[type="email"]',
+);
+setInputValue(emailChangeInput, 'anna-new@example.com');
+emailChangeInput.closest('form').dispatchEvent(
+  new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+);
+await waitFor(
+  () => [...dom.window.document.querySelectorAll('.field-hint.ok')].some(
+    (node) =>
+      node.textContent ===
+      'A verification link was sent to the new address. It becomes active after you confirm it.',
+  ),
+  'email change reports a pending confirmation, not an instant change',
+);
+
 /* language control inside settings */
 const languageSection = [...dom.window.document.querySelectorAll('.settings-section')].find((s) =>
   s.querySelector('.settings-section-title')?.textContent === 'Language',
@@ -738,6 +801,20 @@ const deutschOption = [...languageSection.querySelectorAll('.option')].find((o) 
 deutschOption.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => text('.settings-section-title') === 'Profil', 'settings language switch → German');
 assert(window.localStorage.getItem('enough-lang') === 'de', 'settings language persists');
+// The email-change confirmation must also exist in German.
+const germanEmailRow = [...dom.window.document.querySelectorAll('.settings-row.clickable')].find(
+  (r) => r.textContent.includes('E-Mail ändern'),
+);
+germanEmailRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => text('.dialog-title') === 'E-Mail-Adresse ändern?',
+  'German email confirmation dialog opens first',
+);
+assert(
+  text('.dialog-text')?.includes('Bestätigungslink an die neue Adresse') === true,
+  'German email dialog explains the confirmation-link flow',
+);
+click('.dialog .btn-plain');
 // Back to English for the remaining assertions.
 const englishOption = [...languageSection.querySelectorAll('.option')].find((o) => o.textContent.includes('English'));
 englishOption.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
