@@ -157,7 +157,7 @@ while the app is running; light and dark are independent of the OS.
 
 ## Impressum anpassen
 
-Das öffentliche Impressum ist unter `#/impressum` erreichbar und wird auf den
+Das öffentliche Impressum ist unter `#/impressum` (Deutsch) bzw. `#/imprint` (Englisch) erreichbar und wird auf den
 Anmeldeseiten sowie in den Einstellungen verlinkt. Es funktioniert auch ohne
 eingerichtete Supabase-Verbindung.
 

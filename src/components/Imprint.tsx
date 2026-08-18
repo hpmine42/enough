@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { imprintConfig } from '../config/imprint';
 import { t, useLang } from '../i18n';
+import { navigate, useHashRoute } from '../lib/router';
 import { BackIcon } from './icons';
 import ThemeButton from './ThemeButton';
 
@@ -8,8 +10,27 @@ function isPlaceholder(value: string): boolean {
 }
 
 export default function Imprint() {
+  const route = useHashRoute();
   const [lang, setLang] = useLang();
   const { address, contact, register, editoriallyResponsible } = imprintConfig;
+
+  useEffect(() => {
+    if (route.startsWith('#/impressum') && lang !== 'de') {
+      setLang('de');
+    } else if (route.startsWith('#/imprint') && lang !== 'en') {
+      setLang('en');
+    }
+  }, [route, lang, setLang]);
+
+  const handleLangToggle = () => {
+    if (lang === 'en') {
+      setLang('de');
+      navigate('#/impressum');
+    } else {
+      setLang('en');
+      navigate('#/imprint');
+    }
+  };
 
   const hasRegisterEntry = Boolean(
     register.name || register.court || register.number,
@@ -36,7 +57,7 @@ export default function Imprint() {
           <button
             type="button"
             className="lang-button"
-            onClick={() => setLang(lang === 'en' ? 'de' : 'en')}
+            onClick={handleLangToggle}
             aria-label="Language / Sprache"
           >
             {lang === 'en' ? 'EN' : 'DE'}
@@ -48,6 +69,9 @@ export default function Imprint() {
         <p className="legal-kicker">{t('legal.legal')}</p>
         <h1>{t('legal.imprint')}</h1>
         <p className="legal-intro">{t('legal.pursuantTo')}</p>
+        <p className="legal-intro">
+          <strong>{t('legal.lastUpdated')}</strong>
+        </p>
 
         <section className="legal-section">
           <h2>{t('legal.provider')}</h2>

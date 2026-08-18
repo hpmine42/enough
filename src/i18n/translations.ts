@@ -87,6 +87,7 @@ export const translations = {
       legal: 'Legal',
       imprint: 'Imprint',
       pursuantTo: 'Information pursuant to Section 5 of the German Digital Services Act (DDG)',
+      lastUpdated: 'Last updated: 19 August 2026',
       templateNoticeTitle: 'Template — update before publishing',
       templateNotice:
         'Replace every value in square brackets in src/config/imprint.ts with your own details. Empty optional fields are hidden automatically.',
@@ -350,6 +351,7 @@ export const translations = {
       legal: 'Rechtliches',
       imprint: 'Impressum',
       pursuantTo: 'Angaben gemäß § 5 Digitale-Dienste-Gesetz (DDG)',
+      lastUpdated: 'Stand: 19. August 2026',
       templateNoticeTitle: 'Vorlage – vor Veröffentlichung anpassen',
       templateNotice:
         'Ersetze in src/config/imprint.ts alle Angaben in eckigen Klammern durch deine eigenen Daten. Leere optionale Felder werden automatisch ausgeblendet.',
