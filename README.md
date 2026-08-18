@@ -43,6 +43,11 @@ production UI and should not be modified or turned into the app.
   deletions, connection and profile changes
 - Accessibility: semantic controls, focus states, no tap highlights,
   `prefers-reduced-motion` support
+- Installable PWA: Web App Manifest + production service worker under the
+  GitHub Pages base path `/enough/`; standalone display, portrait orientation,
+  theme-colored status bar, app icons (any + maskable). The service worker
+  caches only the static app shell — never Supabase/auth/chat payloads. No
+  push notifications and no notification permission prompts.
 
 ## Setup
 
@@ -151,8 +156,31 @@ Nicht benötigte optionale Felder bleiben leer und werden dann nicht angezeigt.
 Welche Angaben im Einzelfall verpflichtend sind, hängt vom Betreiber und vom
 Angebot ab; die Vorlage ersetzt keine rechtliche Prüfung.
 
+## Progressive Web App
+
+enough. is installable on mobile (and desktop) as a standalone app:
+
+| Piece | Location |
+|---|---|
+| Web App Manifest | `public/manifest.webmanifest` |
+| Icons | `public/icons/` (+ `public/favicon.ico`) |
+| Service worker generator | `scripts/pwa-plugin.ts` (emits `dist/sw.js` at build) |
+| Client registration | `src/lib/pwa.ts` (production only) |
+
+Manifest `start_url` / `scope` use relative `./` paths so the same build works
+under `/enough/` on GitHub Pages and under `/` locally. The service worker is
+scoped to the Vite `base`, precaches only same-origin static assets (HTML/JS/
+CSS/icons/manifest), and leaves every cross-origin request (Supabase Auth,
+REST, Realtime) on the network. Each deploy gets a content-hashed cache name
+plus `skipWaiting` + `clients.claim`, so an old worker cannot pin users on a
+stale shell. Navigation uses network-first; hashed assets use cache-first.
+
+No push notifications are implemented and no notification permission is
+requested.
+
 ## Deployment
 
 GitHub Pages via `.github/workflows/deploy.yml` (base path `/enough/`). Only
 browser-safe publishable Supabase credentials are injected at build time from
-repository secrets.
+repository secrets. The production service worker and manifest are emitted
+into `dist/` by the build and deployed with the rest of the static site.

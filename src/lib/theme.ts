@@ -29,12 +29,13 @@ export function effectiveTheme(mode: ThemeMode): Theme {
 
 function render(theme: Theme): void {
   document.documentElement.classList.toggle('dark', theme === 'dark');
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) {
-    meta.setAttribute('content', theme === 'dark' ? '#191917' : '#f2f1ec');
-  }
+  // Keep every theme-color meta in sync (light + dark media variants and the
+  // installed-PWA status bar all read these tags).
+  const color = theme === 'dark' ? '#191917' : '#F2F1EC';
+  document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
+    meta.setAttribute('content', color);
+  });
 }
-
 function notifyThemeChange(mode: ThemeMode): void {
   window.dispatchEvent(
     new CustomEvent<ThemeMode>(THEME_CHANGE_EVENT, { detail: mode }),

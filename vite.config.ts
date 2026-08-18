@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { enoughPwa } from './scripts/pwa-plugin';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), enoughPwa()],
   // GitHub Pages serves this project at /enough/, so the built asset URLs
   // must be prefixed accordingly. Vite does NOT read VITE_BASE automatically;
   // it only reads the `base` option (or --base). The deploy workflow sets
