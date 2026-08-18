@@ -110,12 +110,14 @@ export default function Register() {
     const result = await signUp(email, password, name, displayName.trim());
     setBusy(false);
     if (result.error) {
-      // If the error is about username being taken, re-check and update state.
-      if (
-        result.error.toLowerCase().includes('username') ||
-        result.error.toLowerCase().includes('benutzername')
-      ) {
-        setUsernameState('taken');
+      // Do not infer a duplicate username from a translated backend error.
+      // Check the canonical server state instead, so copy changes cannot make
+      // the availability UI lie.
+      try {
+        if (await usernameExists(name)) setUsernameState('taken');
+      } catch {
+        // Preserve the original registration error if the follow-up check is
+        // unavailable; the form remains safely unsubmitted.
       }
       setError(result.error);
       return;

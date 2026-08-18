@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useRef } from 'react';
+import { t } from '../i18n';
 
 interface DialogProps {
   title: string;
@@ -70,7 +71,7 @@ export default function Dialog({
             disabled={busy || confirmDisabled}
             type="button"
           >
-            {busy ? '…' : confirmLabel}
+            {busy ? t('loading') : confirmLabel}
           </button>
         </div>
       </div>
