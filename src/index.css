@@ -432,6 +432,25 @@ textarea {
   padding-left: 31px;
 }
 
+/* Suchleiste: festes @ fett und deutlich vom Platzhalter/Suchtext abgesetzt.
+   - Gleiche Position (left:16px bleibt), nicht editierbar (span, pointer-events:none)
+   - Fett + Textfarbe statt muted → klarer Kontrast zu
+     normalgewichtetem Platzhalter (--muted) und normalgewichtetem Suchtext
+   - Funktioniert in Light & Dark (var(--text) passt sich der Theme an)
+   - Nur für die Suchleiste; Registrierung bleibt unverändert */
+.search-field .at-prefix {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.search-field .at-input {
+  font-weight: 400;
+}
+
+.search-field .at-input::placeholder {
+  font-weight: 400;
+}
+
 .at-status {
   position: absolute;
   right: 14px;
