@@ -231,11 +231,11 @@ export default function Home() {
     else load();
   }
 
-  async function handleDecline() {
+  async function handleDecline(blockPeer = false) {
     if (!declineTarget) return;
     setDeclineBusy(true);
     setError(null);
-    const err = await declineConnection(declineTarget.id);
+    const err = await declineConnection(declineTarget.id, blockPeer);
     setDeclineBusy(false);
     setDeclineTarget(null);
     if (err) setError(err);
@@ -413,9 +413,12 @@ export default function Home() {
           text={t('connection.declinedText')}
           confirmLabel={t('connection.decline')}
           cancelLabel={t('cancel')}
-          danger
           busy={declineBusy}
-          onConfirm={handleDecline}
+          onConfirm={() => handleDecline(false)}
+          extraAction={{
+            label: t('block.declineAndBlock'),
+            onClick: () => handleDecline(true),
+          }}
           onCancel={() => setDeclineTarget(null)}
         />
       )}

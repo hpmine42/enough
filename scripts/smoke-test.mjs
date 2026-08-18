@@ -7,6 +7,11 @@
  *
  * This is NOT a substitute for testing against the real Supabase project;
  * it verifies rendering, routing, localization, theme and state handling.
+ *
+ * Covered in addition to the base flows: re-request after decline
+ * (one-row-per-pair), decline-and-block, block-aware search, the
+ * blocked-users Settings subpage (EN/DE), unblocking, the blocked chat
+ * composer for both sides, and the auth-bound request/decline RPCs.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -72,6 +77,8 @@ if (process.env.SMOKE_RECOVERY) {
 /* A tiny in-memory "database" for the stub API. */
 let ensureMyNotesRpcCalls = 0;
 let removeMyNotesRpcCalls = 0;
+let sendRequestRpcCalls = 0;
+let declineRpcCalls = 0;
 
 const db = {
   profiles: [
@@ -94,6 +101,7 @@ const db = {
   chat_deletions: [],
   connection_reads: [],
   connection_unread: [],
+  user_blocks: [],
 };
 
 function jsonResponse(body, status = 200, headers = {}) {
@@ -228,6 +236,30 @@ globalThis.fetch = async (input, init = {}) => {
           !value.startsWith('eq.') || String(row[key]) === value.slice(3),
         ),
       );
+    // PostgREST `or` filters used by the app (the whole value is wrapped
+    // in parentheses by PostgREST):
+    //   "(and(col.eq.A,col.eq.B),and(col.eq.B,col.eq.A))"  (pair lookup)
+    //   "(col.eq.A,col.eq.B)"                              (either-side)
+    const orFilter = (rows, orParam) => {
+      if (!orParam) return rows;
+      const cleaned = orParam.replace(/^\(/, '').replace(/\)$/, '');
+      const andForm = cleaned.includes('and(');
+      const groups = andForm
+        ? cleaned
+            .split(/,(?=and\()/)
+            .map((g) => g.replace(/^and\(/, '').replace(/\)$/, ''))
+        : [cleaned];
+      return rows.filter((row) =>
+        groups.some((g) => {
+          const pairs = g.split(',');
+          const match = (pair) => {
+            const [key, value] = pair.split('.eq.');
+            return row[key] === value;
+          };
+          return andForm ? pairs.every(match) : pairs.some(match);
+        }),
+      );
+    };
     const headers = init.headers ?? {};
     const accept = typeof headers.get === 'function' ? headers.get('Accept') ?? '' : headers.Accept ?? '';
     const prefer = typeof headers.get === 'function' ? headers.get('Prefer') ?? '' : headers.Prefer ?? '';
@@ -283,6 +315,7 @@ globalThis.fetch = async (input, init = {}) => {
           if (id) rows = rows.filter((r) => r.id === id);
           if (a && b) rows = rows.filter((r) => r.user_a === a && r.user_b === b);
           else if (a) rows = rows.filter((r) => r.user_a === a || r.user_b === a);
+          rows = orFilter(rows, params.get('or'));
           return jsonResponse(rows);
         }
         if (method === 'POST') {
@@ -394,6 +427,33 @@ globalThis.fetch = async (input, init = {}) => {
         }
         break;
       }
+      case 'user_blocks': {
+        if (method === 'GET') {
+          let rows = applyEqFilters(db.user_blocks);
+          rows = orFilter(rows, params.get('or'));
+          return jsonResponse(rows);
+        }
+        if (method === 'POST') {
+          const row = {
+            id: `block-${db.user_blocks.length + 1}`,
+            created_at: new Date().toISOString(),
+            ...body,
+          };
+          db.user_blocks.push(row);
+          return jsonResponse([row]);
+        }
+        if (method === 'DELETE') {
+          db.user_blocks = db.user_blocks.filter(
+            (r) =>
+              ![...params.entries()].every(
+                ([key, value]) =>
+                  !value.startsWith('eq.') || String(r[key]) === value.slice(3),
+              ),
+          );
+          return jsonResponse([]);
+        }
+        break;
+      }
       case 'connection_unread': {
         if (method === 'GET') return jsonResponse(db.connection_unread);
         break;
@@ -440,6 +500,100 @@ globalThis.fetch = async (input, init = {}) => {
         const name = (body && (body.name ?? body.p_name)) || '';
         const taken = db.profiles.some((p) => p.username === name);
         return jsonResponse(taken);
+      }
+      case 'rpc/send_connection_request': {
+        // Mirrors the migration 0008 RPC: block enforcement + the
+        // one-row-per-pair request state machine.
+        sendRequestRpcCalls++;
+        const target = body && body.target;
+        if (!target) {
+          return jsonResponse({ code: 'P0001', message: 'Invalid target.' }, 400);
+        }
+        const blocked = db.user_blocks.some(
+          (r) =>
+            (r.blocker_id === 'user-1' && r.blocked_id === target) ||
+            (r.blocker_id === target && r.blocked_id === 'user-1'),
+        );
+        if (blocked) {
+          return jsonResponse(
+            { code: 'BLCKD', message: 'This user is blocked.' },
+            400,
+          );
+        }
+        const existing = db.connections.find(
+          (c) =>
+            (c.user_a === 'user-1' && c.user_b === target) ||
+            (c.user_a === target && c.user_b === 'user-1'),
+        );
+        if (existing) {
+          if (existing.status === 'accepted') {
+            return jsonResponse(
+              { code: 'P0001', message: 'Connection already exists.' },
+              400,
+            );
+          }
+          if (existing.status === 'pending' && existing.user_b === 'user-1') {
+            return jsonResponse(existing.id);
+          }
+          if (existing.status === 'pending' && existing.user_a === 'user-1') {
+            existing.created_at = new Date().toISOString();
+            return jsonResponse(existing.id);
+          }
+          if (
+            existing.status === 'declined' ||
+            existing.status === 'expired' ||
+            existing.status === 'ended'
+          ) {
+            existing.user_a = 'user-1';
+            existing.user_b = target;
+            existing.status = 'pending';
+            existing.created_at = new Date().toISOString();
+            return jsonResponse(existing.id);
+          }
+          return jsonResponse(
+            { code: 'P0001', message: 'Connection already exists.' },
+            400,
+          );
+        }
+        const row = {
+          id: `conn-${db.connections.length + 1}`,
+          user_a: 'user-1',
+          user_b: target,
+          status: 'pending',
+          created_at: new Date().toISOString(),
+        };
+        db.connections.push(row);
+        return jsonResponse(row.id);
+      }
+      case 'rpc/decline_connection': {
+        declineRpcCalls++;
+        const id = body && body.conn;
+        const blockPeer = Boolean(body && body.block_peer);
+        const row = db.connections.find((c) => c.id === id);
+        if (!row) {
+          return jsonResponse(
+            { code: 'P0001', message: 'Connection not found.' },
+            400,
+          );
+        }
+        if (row.user_b !== 'user-1') {
+          return jsonResponse(
+            { code: '42501', message: 'Only the recipient can decline.' },
+            400,
+          );
+        }
+        if (row.status === 'pending') {
+          row.status = 'declined';
+          if (blockPeer && row.user_a !== 'user-1') {
+            db.user_blocks.push({
+              id: `block-${db.user_blocks.length + 1}`,
+              blocker_id: 'user-1',
+              blocked_id: row.user_a,
+              created_at: new Date().toISOString(),
+            });
+          }
+        }
+        return new Response(null, { status: 204 });
       }
     }
     return jsonResponse({ error: `unhandled: ${table}` }, 404);
@@ -1070,6 +1224,20 @@ assert(
 
 /* deleting a chat hides it for this user only and keeps the cutoff after reconnect */
 click('.chat-header .icon-button:last-child');
+await waitFor(
+  () => dom.window.document.querySelector('.sheet') !== null,
+  'chat menu opens as a bottom sheet',
+);
+assert(
+  [...dom.window.document.querySelectorAll('.sheet-item')].some(
+    (item) => item.textContent === 'Block user',
+  ),
+  'chat menu offers blocking',
+);
+const deleteChatItem = [...dom.window.document.querySelectorAll('.sheet-item')].find(
+  (item) => item.textContent === 'Delete chat for me',
+);
+deleteChatItem.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => text('.dialog-title') === 'Delete chat?', 'accepted chat delete confirms');
 assert(
   text('.dialog-text')?.includes('disappears for you') === true,
@@ -1194,6 +1362,516 @@ await waitFor(
   () => text('.chat-row.request .chat-preview')?.includes('Request declined'),
   'declined request stays visible on home',
 );
+
+/* ------------------------------------------------------------------ */
+/* blocking & re-request flows                                         */
+/* ------------------------------------------------------------------ */
+
+// Clean the pair state left by the earlier flows so the one-row-per-pair
+// request state machine can be exercised in isolation.
+db.connections = db.connections.filter(
+  (c) => c.id !== 'conn-incoming' && c.id !== 'conn-decline',
+);
+
+/* scenario A/I: A requests → B declines → A re-requests → works */
+db.connections.push({
+  id: 'conn-requeue',
+  user_a: 'user-1',
+  user_b: 'user-2',
+  status: 'declined',
+  created_at: new Date().toISOString(),
+});
+setHash('#/chat/nowhere');
+await waitFor(
+  () => dom.window.document.querySelector('.chat-screen') !== null,
+  'chat route opened to force reload',
+);
+setHash('#/');
+await waitFor(
+  () =>
+    [...dom.window.document.querySelectorAll('.chat-row.request .chat-name')].some(
+      (n) => n.textContent === 'Benno Schmidt',
+    ),
+  'declined outgoing attempt appears on home',
+);
+click('.chat-row.request .chat');
+await waitFor(
+  () => text('.request-banner')?.includes('Request declined'),
+  'declined attempt opens in chat',
+);
+const againBtn = [...dom.window.document.querySelectorAll('.request-banner .btn-small')].find(
+  (b) => b.textContent.includes('Send request again'),
+);
+assert(Boolean(againBtn), 're-request button offered after decline');
+const rpcCallsBefore = sendRequestRpcCalls;
+againBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => db.connections.find((c) => c.id === 'conn-requeue')?.status === 'pending',
+  're-request after decline restores pending',
+);
+assert(
+  db.connections.filter(
+    (c) =>
+      (c.user_a === 'user-1' && c.user_b === 'user-2') ||
+      (c.user_a === 'user-2' && c.user_b === 'user-1'),
+  ).length === 1,
+  're-request reuses the pair row (no unique-constraint duplicate)',
+);
+assert(
+  sendRequestRpcCalls === rpcCallsBefore + 1,
+  're-request goes through the auth-bound RPC',
+);
+await waitFor(
+  () => text('.request-banner')?.includes('Request sent'),
+  'restored request shows the sent state',
+);
+const cancelAgain = [...dom.window.document.querySelectorAll('.request-banner .btn-small')].find(
+  (b) => b.textContent.includes('Cancel request'),
+);
+cancelAgain.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => db.connections.find((c) => c.id === 'conn-requeue') === undefined,
+  'cancel removes the restored attempt',
+);
+
+/* scenario B: A requests → B declines and blocks → block stored */
+db.connections.push({
+  id: 'conn-decline-block',
+  user_a: 'user-2',
+  user_b: 'user-1',
+  status: 'pending',
+  created_at: new Date().toISOString(),
+});
+setHash('#/chat/nowhere');
+await waitFor(
+  () => dom.window.document.querySelector('.chat-screen') !== null,
+  'chat route opened to force reload',
+);
+setHash('#/');
+await waitFor(
+  () =>
+    [...dom.window.document.querySelectorAll('.chat-row.request .chat-name')].some(
+      (n) => n.textContent === 'Benno Schmidt',
+    ),
+  'new incoming request appears on home',
+);
+click('.chat-row.request .chat');
+await waitFor(
+  () => text('.request-banner')?.includes('Connection request'),
+  'incoming request opens in chat',
+);
+const declineBtn2 = [...dom.window.document.querySelectorAll('.request-banner .btn-small')].find(
+  (b) => b.textContent.includes('Decline'),
+);
+declineBtn2.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(() => dom.window.document.querySelector('.dialog') !== null, 'decline dialog opens');
+assert(
+  text('.dialog-text')?.includes('14 days') === true,
+  'decline dialog explains the 14-day re-request rule',
+);
+assert(
+  [...dom.window.document.querySelectorAll('.dialog button')].some(
+    (b) => b.textContent === 'Decline and block',
+  ),
+  'decline dialog offers decline-and-block',
+);
+const declineCallsBefore = declineRpcCalls;
+dom.window.document
+  .querySelector('.dialog .dialog-extra')
+  .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => db.connections.find((c) => c.id === 'conn-decline-block')?.status === 'declined',
+  'decline-and-block → declined in DB',
+);
+await waitFor(
+  () =>
+    db.user_blocks.some(
+      (r) => r.blocker_id === 'user-1' && r.blocked_id === 'user-2',
+    ),
+  'decline-and-block stores the block row',
+);
+assert(
+  declineRpcCalls === declineCallsBefore + 1,
+  'decline goes through the auth-bound RPC',
+);
+
+/* scenario C: blocked user is visible in search (by-you direction) */
+setHash('#/settings');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
+  'settings open for block checks',
+);
+const blockSearchSection = [...dom.window.document.querySelectorAll('.settings-section')].find(
+  (section) => section.querySelector('.settings-section-title')?.textContent === 'Search people',
+);
+setInputValue(blockSearchSection.querySelector('input'), 'benno');
+await waitFor(
+  () =>
+    [...blockSearchSection.querySelectorAll('.chat-name')].some(
+      (name) => name.textContent === 'Benno Schmidt',
+    ),
+  'blocked user is still searchable',
+);
+await waitFor(
+  () =>
+    [...blockSearchSection.querySelectorAll('.chat-preview')].some(
+      (n) =>
+        n.textContent ===
+        'You have blocked this user. You can unblock them in Settings.',
+    ),
+  'search shows the by-you block notice',
+);
+assert(
+  [...blockSearchSection.querySelectorAll('.badge-soft')].some(
+    (b) => b.textContent === 'Blocked',
+  ),
+  'blocked search row carries the Blocked badge',
+);
+assert(
+  [...blockSearchSection.querySelectorAll('button')].some(
+    (b) => b.textContent === 'Unblock',
+  ),
+  'blocked search row offers Unblock',
+);
+assert(
+  blockSearchSection.querySelector('button.chat') === null,
+  'blocked search row has no request affordance',
+);
+
+/* scenario D: Settings → Blocked users lists the blocked peer */
+setHash('#/settings/blocked');
+await waitFor(
+  () =>
+    dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open'),
+  'blocked users subpage slides in',
+);
+assert(
+  text('.settings-subpanel-title') === 'Blocked users',
+  'subpage has its own title',
+);
+await waitFor(
+  () =>
+    [...dom.window.document.querySelectorAll('.settings-subpanel .settings-row-label')].some(
+      (l) => l.textContent === 'Benno Schmidt',
+    ),
+  'blocked user is listed with display name',
+);
+assert(
+  [...dom.window.document.querySelectorAll('.settings-subpanel .settings-row-sub')].some(
+    (s) => s.textContent === '@benno',
+  ),
+  'blocked user shows the username',
+);
+assert(
+  [...dom.window.document.querySelectorAll('.settings-subpanel .badge-soft')].some(
+    (b) => b.textContent === 'Blocked',
+  ),
+  'blocked user shows the Blocked status',
+);
+
+/* localization: the blocked-users page exists in German */
+setHash('#/settings');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') === false,
+  'back to the main settings page',
+);
+const germanLangSection = [...dom.window.document.querySelectorAll('.settings-section')].find(
+  (s) => s.querySelector('.settings-section-title')?.textContent === 'Language',
+);
+[...germanLangSection.querySelectorAll('.option')]
+  .find((o) => o.textContent.includes('Deutsch'))
+  .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => text('.settings-subpanel-title') === 'Blockierte Nutzer',
+  'subpage title in German',
+);
+setHash('#/settings/blocked');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open'),
+  'German subpage opens',
+);
+await waitFor(
+  () =>
+    [...dom.window.document.querySelectorAll('.settings-subpanel button')].some(
+      (b) => b.textContent === 'Freigeben',
+    ),
+  'unblock button in German',
+);
+assert(
+  [...dom.window.document.querySelectorAll('.settings-subpanel .badge-soft')].some(
+    (b) => b.textContent === 'Blockiert',
+  ),
+  'blocked badge in German',
+);
+setHash('#/settings');
+const enLangSection = [...dom.window.document.querySelectorAll('.settings-section')].find(
+  (s) => s.querySelector('.settings-section-title')?.textContent === 'Sprache',
+);
+[...enLangSection.querySelectorAll('.option')]
+  .find((o) => o.textContent.includes('English'))
+  .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => text('.settings-subpanel-title') === 'Blocked users',
+  'back to English',
+);
+
+/* scenario E: unblocking removes the block and updates the UI instantly */
+setHash('#/settings/blocked');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open'),
+  'blocked users page reopens',
+);
+const subpageUnblock = [...dom.window.document.querySelectorAll('.settings-subpanel button')].find(
+  (b) => b.textContent === 'Unblock',
+);
+subpageUnblock.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () =>
+    !db.user_blocks.some(
+      (r) => r.blocker_id === 'user-1' && r.blocked_id === 'user-2',
+    ),
+  'unblock removes the block row server-side',
+);
+await waitFor(
+  () => text('.settings-subpanel .settings-blocked-empty') === 'You have not blocked anyone.',
+  'blocked list updates immediately (empty state)',
+);
+
+/* scenario E (continued): after unblocking, requests work again */
+setHash('#/settings');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') === false,
+  'back to main settings after unblock',
+);
+const afterUnblockSection = [...dom.window.document.querySelectorAll('.settings-section')].find(
+  (section) => section.querySelector('.settings-section-title')?.textContent === 'Search people',
+);
+setInputValue(afterUnblockSection.querySelector('input'), 'benno');
+await waitFor(
+  () =>
+    [...afterUnblockSection.querySelectorAll('.chat-preview')].some(
+      (n) => n.textContent === '@benno',
+    ),
+  'unblocked user is requestable again (normal row)',
+);
+afterUnblockSection
+  .querySelector('button.chat')
+  .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => text('.request-banner')?.includes('Request declined'),
+  'declined chat opens after unblock',
+);
+const afterUnblockAgain = [...dom.window.document.querySelectorAll('.request-banner .btn-small')].find(
+  (b) => b.textContent.includes('Send request again'),
+);
+assert(Boolean(afterUnblockAgain), 're-request button is back after unblock');
+afterUnblockAgain.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => text('.request-banner')?.includes('Request sent'),
+  'unblocked user can be requested again',
+);
+const cancelAfterUnblock = [...dom.window.document.querySelectorAll('.request-banner .btn-small')].find(
+  (b) => b.textContent.includes('Cancel request'),
+);
+cancelAfterUnblock.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () =>
+    db.connections.filter(
+      (c) =>
+        (c.user_a === 'user-1' && c.user_b === 'user-2') ||
+        (c.user_a === 'user-2' && c.user_b === 'user-1'),
+    ).length === 0,
+  'cancel cleans the pair state',
+);
+
+/* blocked-by-them: the blocked user sees the notice, no request button */
+db.user_blocks.push({
+  id: 'block-bythem',
+  blocker_id: 'user-2',
+  blocked_id: 'user-1',
+  created_at: new Date().toISOString(),
+});
+setHash('#/');
+await waitFor(() => dom.window.document.querySelector('.home-screen') !== null, 'leave settings');
+setHash('#/settings');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
+  'settings reopen for blocked-by-them check',
+);
+const byThemSection = [...dom.window.document.querySelectorAll('.settings-section')].find(
+  (section) => section.querySelector('.settings-section-title')?.textContent === 'Search people',
+);
+setInputValue(byThemSection.querySelector('input'), 'benno');
+await waitFor(
+  () =>
+    [...byThemSection.querySelectorAll('.chat-preview')].some(
+      (n) =>
+        n.textContent ===
+        'This user has blocked you. You can send a new request once they unblock you.',
+    ),
+  'search shows the blocked-by-them notice',
+);
+assert(
+  byThemSection.querySelector('button.chat') === null &&
+    ![...byThemSection.querySelectorAll('button')].some(
+      (b) => b.textContent === 'Unblock',
+    ),
+  'blocked-by-them row has no request affordance and no unblock',
+);
+
+/* scenario F (client-side gate): a blocked requester gets no re-request
+   button in the declined chat — the server-side rejection itself is
+   covered by supabase/rls-tests.sql (SQLSTATE BLCKD). */
+db.connections.push({
+  id: 'conn-blocked-declined',
+  user_a: 'user-1',
+  user_b: 'user-2',
+  status: 'declined',
+  created_at: new Date().toISOString(),
+});
+setHash('#/');
+await waitFor(() => dom.window.document.querySelector('.home-screen') !== null, 'back home');
+setHash('#/chat/nowhere');
+await waitFor(
+  () => dom.window.document.querySelector('.chat-screen') !== null,
+  'chat route opened to force reload',
+);
+setHash('#/');
+await waitFor(
+  () =>
+    [...dom.window.document.querySelectorAll('.chat-row.request .chat-name')].some(
+      (n) => n.textContent === 'Benno Schmidt',
+    ),
+  'declined attempt appears on home',
+);
+click('.chat-row.request .chat');
+await waitFor(
+  () => text('.request-banner')?.includes('Request declined'),
+  'declined chat opens while blocked',
+);
+await waitFor(
+  () => text('.request-banner')?.includes('This user has blocked you.'),
+  'blocked requester sees the block notice in the banner',
+);
+assert(
+  ![...dom.window.document.querySelectorAll('.request-banner button')].some((b) =>
+    b.textContent.includes('Send request again'),
+  ),
+  'blocked requester gets no re-request button',
+);
+db.user_blocks = [];
+db.connections = db.connections.filter((c) => c.id !== 'conn-blocked-declined');
+setHash('#/');
+
+/* scenario H: blocking inside an existing chat disables the composer */
+db.connections.push({
+  id: 'conn-chatblock',
+  user_a: 'user-1',
+  user_b: 'user-2',
+  status: 'accepted',
+  created_at: new Date().toISOString(),
+});
+setHash('#/chat/nowhere');
+await waitFor(
+  () => dom.window.document.querySelector('.chat-screen') !== null,
+  'chat route opened to force reload',
+);
+setHash('#/');
+await waitFor(
+  () =>
+    [...dom.window.document.querySelectorAll('.chat-row .chat-name')].some(
+      (n) => n.textContent === 'Benno Schmidt',
+    ),
+  'accepted chat appears on home',
+);
+click('.chat-row .chat');
+await waitFor(() => text('.chat-peer-name') === 'Benno Schmidt', 'accepted chat opens');
+assert(
+  dom.window.document.querySelector('.composer-input')?.disabled === false,
+  'composer active before blocking',
+);
+click('.chat-header .icon-button:last-child');
+await waitFor(
+  () => dom.window.document.querySelector('.sheet') !== null,
+  'chat menu opens as bottom sheet',
+);
+const blockItem = [...dom.window.document.querySelectorAll('.sheet-item')].find(
+  (item) => item.textContent === 'Block user',
+);
+blockItem.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(() => text('.dialog-title') === 'Block @benno?', 'block confirmation dialog');
+assert(
+  text('.dialog-text')?.includes('until you unblock them') === true,
+  'block dialog explains the consequences',
+);
+click('.dialog .btn-primary');
+await waitFor(
+  () =>
+    db.user_blocks.some(
+      (r) => r.blocker_id === 'user-1' && r.blocked_id === 'user-2',
+    ),
+  'block stored in DB',
+);
+await waitFor(
+  () => dom.window.document.querySelector('.composer-input')?.disabled === true,
+  'blocked peer: composer disabled',
+);
+await waitFor(
+  () =>
+    text('.composer-disabled')?.includes(
+      'You have blocked this user. Unblock them to chat again.',
+    ),
+  'blocker sees the by-you chat note',
+);
+const chatUnblock = [...dom.window.document.querySelectorAll('.composer-disabled button')].find(
+  (b) => b.textContent === 'Unblock',
+);
+chatUnblock.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () =>
+    !db.user_blocks.some(
+      (r) => r.blocker_id === 'user-1' && r.blocked_id === 'user-2',
+    ),
+  'chat unblock removes the block row',
+);
+await waitFor(
+  () => dom.window.document.querySelector('.composer-input')?.disabled === false,
+  'composer re-enabled after unblock',
+);
+
+/* scenario H (other side): the blocked user's composer is disabled too */
+db.user_blocks.push({
+  id: 'block-chat-them',
+  blocker_id: 'user-2',
+  blocked_id: 'user-1',
+  created_at: new Date().toISOString(),
+});
+setHash('#/chat/nowhere');
+await waitFor(
+  () => dom.window.document.querySelector('.chat-screen') !== null,
+  'chat route opened to force reload',
+);
+setHash('#/chat/conn-chatblock');
+await waitFor(
+  () => dom.window.document.querySelector('.composer-input')?.disabled === true,
+  'blocked user: composer disabled',
+);
+await waitFor(
+  () =>
+    text('.composer-disabled')?.includes(
+      'You were blocked. You can chat again once this user unblocks you.',
+    ),
+  'blocked user sees the by-them chat note',
+);
+assert(
+  ![...dom.window.document.querySelectorAll('.composer-disabled button')].some(
+    (b) => b.textContent === 'Unblock',
+  ),
+  'blocked user gets no unblock button',
+);
+db.user_blocks = [];
+db.connections = db.connections.filter((c) => c.id !== 'conn-chatblock');
+setHash('#/');
 
 /* my notes: enabling shows the row immediately after leaving settings */
 setHash('#/settings');

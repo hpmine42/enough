@@ -10,11 +10,13 @@ import { useAuth } from '../context/AuthContext';
 import { navigate } from '../lib/router';
 import {
   acceptConnection,
+  blockUser,
   cancelConnectionRequest,
   declineConnection,
   deleteChatForMe,
   deleteMessageForEveryone,
   deleteMessageForMe,
+  getBlockState,
   getConnection,
   getMessagesPage,
   getProfiles,
@@ -24,6 +26,7 @@ import {
   saveReadState,
   sendConnectionRequest,
   sendMessage,
+  unblockUser,
 } from '../lib/api';
 import {
   displayName,
@@ -34,7 +37,7 @@ import {
 } from '../lib/helpers';
 import { supabase } from '../lib/supabase';
 import { getLang, t, useLang } from '../i18n';
-import { Connection, Message, Profile } from '../lib/types';
+import { BlockState, Connection, Message, Profile } from '../lib/types';
 import MessageBubble from './MessageBubble';
 import MessageComposer from './MessageComposer';
 import BottomSheet from './BottomSheet';
@@ -80,7 +83,10 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const [confirmTarget, setConfirmTarget] = useState<SheetTarget | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
+  const [deleteChatOpen, setDeleteChatOpen] = useState(false);
+  const [blockConfirmOpen, setBlockConfirmOpen] = useState(false);
   const [declineOpen, setDeclineOpen] = useState(false);
+  const [blockState, setBlockState] = useState<BlockState>('none');
 
   // scroll / read state
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -105,6 +111,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     setValid(true);
 
     (async () => {
+      setBlockState('none');
       const found = await getConnection(connectionId);
       if (!active) return;
       const isMine = found && (found.user_a === me || found.user_b === me);
@@ -120,6 +127,10 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       const profiles = await getProfiles([peerId, me]);
       if (active) {
         setPeer(isSelfConnection(found) ? profiles[me] ?? null : profiles[peerId] ?? null);
+      }
+      if (!isSelfConnection(found)) {
+        const state = await getBlockState(me, peerId);
+        if (active) setBlockState(state);
       }
 
       const deletions = await loadDeletionsForUser(me);
@@ -237,6 +248,43 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionId, valid, peer, hiddenUntil, me]);
+
+  /* Block state follows changes from the other device in real time. */
+  useEffect(() => {
+    if (!supabase || !valid || !conn || !me) return;
+    const peerId = otherUserId(conn, me);
+    if (peerId === me) return;
+    const client = supabase;
+    const refresh = () => {
+      getBlockState(me, peerId).then(setBlockState);
+    };
+    const channel = client
+      .channel(`chat-blocks-${connectionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_blocks',
+          filter: `blocker_id=eq.${peerId}`,
+        },
+        refresh,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_blocks',
+          filter: `blocked_id=eq.${peerId}`,
+        },
+        refresh,
+      )
+      .subscribe();
+    return () => {
+      client.removeChannel(channel);
+    };
+  }, [connectionId, valid, conn, me]);
 
   /* --------------------------- scroll / read --------------------------- */
 
@@ -388,7 +436,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   /* ------------------------------ actions ------------------------------ */
 
   async function handleSend(text: string) {
-    if (!conn) return;
+    if (!conn || blocked) return;
     setError(null);
     const { message, error: err } = await sendMessage(conn.id, me, text);
     if (err) {
@@ -418,15 +466,45 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     else setConn({ ...conn, status: 'accepted' });
   }
 
-  async function handleDecline() {
+  async function handleDecline(blockPeer = false) {
     if (!conn) return;
     setBusyId(conn.id);
     setError(null);
-    const err = await declineConnection(conn.id);
+    const err = await declineConnection(conn.id, blockPeer);
     setBusyId(null);
     setDeclineOpen(false);
     if (err) setError(err);
-    else setConn({ ...conn, status: 'declined' });
+    else {
+      setConn({ ...conn, status: 'declined' });
+      if (blockPeer) setBlockState('blockedByMe');
+    }
+  }
+
+  async function handleBlockUser() {
+    if (!conn || !peer) return;
+    setActionBusy(true);
+    setError(null);
+    const err = await blockUser(me, peer.id);
+    setActionBusy(false);
+    setBlockConfirmOpen(false);
+    if (err) {
+      setError(err);
+      return;
+    }
+    setBlockState('blockedByMe');
+  }
+
+  async function handleUnblock() {
+    if (!conn || !peer) return;
+    setBusyId(conn.id);
+    setError(null);
+    const err = await unblockUser(me, peer.id);
+    setBusyId(null);
+    if (err) {
+      setError(err);
+      return;
+    }
+    setBlockState('none');
   }
 
   async function handleCancelRequest() {
@@ -512,7 +590,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     setError(null);
     const err = await deleteChatForMe(me, conn.id);
     setActionBusy(false);
-    setChatMenuOpen(false);
+    setDeleteChatOpen(false);
     if (err) {
       setError(err);
       return;
@@ -545,6 +623,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const canChat = status === 'accepted';
   const ended = status === 'ended';
   const self = conn ? isSelfConnection(conn) : false;
+  const blocked = !self && blockState !== 'none';
   const peerUsername = peer?.username ?? '';
 
   const visibleMessages = useMemo(
@@ -733,7 +812,14 @@ export default function Chat({ connectionId }: { connectionId: string }) {
                 {t('connection.requestDeclined')}
                 {expiresAt ? ` · ${t('connection.requestDeclinedNote', { date: expiresAt })}` : ''}
               </span>
-              {conn?.user_a === me && (
+              {/* Either side may re-request: the original requester restores
+                  their attempt, the recipient reuses the dead row (the RPC
+                  keeps the one-row-per-pair model intact). */}
+              {blockState === 'blockedByThem' ? (
+                <span className="muted">{t('block.byThem')}</span>
+              ) : blockState === 'blockedByMe' ? (
+                <span className="muted">{t('block.byYou')}</span>
+              ) : (
                 <button
                   type="button"
                   className="btn-small"
@@ -748,7 +834,11 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           {status === 'expired' && (
             <div className="request-banner-line">
               <span className="muted">{t('connection.requestExpired')}</span>
-              {conn?.user_a === me && (
+              {blockState === 'blockedByThem' ? (
+                <span className="muted">{t('block.byThem')}</span>
+              ) : blockState === 'blockedByMe' ? (
+                <span className="muted">{t('block.byYou')}</span>
+              ) : (
                 <button
                   type="button"
                   className="btn-small"
@@ -808,21 +898,41 @@ export default function Chat({ connectionId }: { connectionId: string }) {
             </p>
           )}
 
-          {!canChat && (
-            <div className="composer-disabled" role="note">
-              {ended
-                ? t('chat.deletedAccountNote')
-                : isIncoming
-                  ? t('connection.requestInfo')
-                  : declined
-                    ? t('connection.requestDeclined')
-                    : status === 'expired'
-                      ? t('connection.requestExpired')
-                      : t('connection.requestSent')}
+          {blocked ? (
+            <div className="composer-disabled blocked" role="note">
+              <span>
+                {blockState === 'blockedByMe'
+                  ? t('block.blockedByYouChat')
+                  : t('block.blockedByThemChat')}
+              </span>
+              {blockState === 'blockedByMe' && (
+                <button
+                  type="button"
+                  className="btn-small"
+                  disabled={busyId === conn?.id}
+                  onClick={handleUnblock}
+                >
+                  {t('block.unblock')}
+                </button>
+              )}
             </div>
+          ) : (
+            !canChat && (
+              <div className="composer-disabled" role="note">
+                {ended
+                  ? t('chat.deletedAccountNote')
+                  : isIncoming
+                    ? t('connection.requestInfo')
+                    : declined
+                      ? t('connection.requestDeclined')
+                      : status === 'expired'
+                        ? t('connection.requestExpired')
+                        : t('connection.requestSent')}
+              </div>
+            )
           )}
 
-          <MessageComposer onSend={handleSend} disabled={!canChat} />
+          <MessageComposer onSend={handleSend} disabled={!canChat || blocked} />
         </>
       )}
 
@@ -850,6 +960,40 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           onCancel={() => setChatMenuOpen(false)}
         />
       ) : (
+        <BottomSheet
+          title={peer ? displayName(peer) : undefined}
+          cancelLabel={t('cancel')}
+          onClose={() => setChatMenuOpen(false)}
+          items={[
+            ...(blockState === 'blockedByMe'
+              ? [
+                  {
+                    key: 'unblock',
+                    label: t('block.unblock'),
+                    onSelect: () => {
+                      void handleUnblock();
+                    },
+                  },
+                ]
+              : [
+                  {
+                    key: 'block',
+                    label: t('block.blockUser'),
+                    danger: true,
+                    onSelect: () => setBlockConfirmOpen(true),
+                  },
+                ]),
+            {
+              key: 'delete',
+              label: t('chat.deleteChatForMe'),
+              danger: true,
+              onSelect: () => setDeleteChatOpen(true),
+            },
+          ]}
+        />
+      ))}
+
+      {deleteChatOpen && (
         <Dialog
           title={t('chat.deleteChatConfirmTitle')}
           text={t('chat.deleteChatConfirmText')}
@@ -858,9 +1002,22 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           danger
           busy={actionBusy}
           onConfirm={handleDeleteChat}
-          onCancel={() => setChatMenuOpen(false)}
+          onCancel={() => setDeleteChatOpen(false)}
         />
-      ))}
+      )}
+
+      {blockConfirmOpen && peer && (
+        <Dialog
+          title={t('block.blockTitle', { username: peer.username ?? '' })}
+          text={t('block.blockText')}
+          confirmLabel={t('block.blockUser')}
+          cancelLabel={t('cancel')}
+          danger
+          busy={actionBusy}
+          onConfirm={handleBlockUser}
+          onCancel={() => setBlockConfirmOpen(false)}
+        />
+      )}
 
       {sheetTarget && (
         <BottomSheet
@@ -908,9 +1065,12 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           text={t('connection.declinedText')}
           confirmLabel={t('connection.decline')}
           cancelLabel={t('cancel')}
-          danger
           busy={busyId === conn?.id}
-          onConfirm={handleDecline}
+          onConfirm={() => handleDecline(false)}
+          extraAction={{
+            label: t('block.declineAndBlock'),
+            onClick: () => handleDecline(true),
+          }}
           onCancel={() => setDeclineOpen(false)}
         />
       )}
