@@ -107,7 +107,9 @@ migration:
   RLS (added by migration 0005)
 - `public.connection_reads` — per-user read position (added, RLS)
 - `public.message_deletions` — per-user "delete for me" rows (added, RLS)
-- `public.chat_deletions` — per-user "delete chat for me" rows (added, RLS)
+- `public.chat_deletions` — per-user "delete chat for me" rows with
+  `hidden_until` so a later reconnect does not restore that user's history
+  (added, RLS)
 - `public.connection_unread` — security-invoker view for unread counts (added)
 
 Registration includes the username and display name in Supabase Auth user

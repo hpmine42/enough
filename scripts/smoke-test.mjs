@@ -313,6 +313,8 @@ globalThis.fetch = async (input, init = {}) => {
           let rows = db.messages.filter((r) => r.connection_id === cid);
           const before = filterParam('created_at','lt');
           if (before) rows = rows.filter((r) => r.created_at < before);
+          const after = filterParam('created_at', 'gt');
+          if (after) rows = rows.filter((r) => r.created_at > after);
           const sender = filterParam('sender_id','neq');
           if (sender) rows = rows.filter((r) => r.sender_id !== sender);
           if (countExact) {
@@ -356,8 +358,21 @@ globalThis.fetch = async (input, init = {}) => {
       case 'chat_deletions': {
         if (method === 'GET') return jsonResponse(applyEqFilters(db.chat_deletions));
         if (method === 'POST') {
-          db.chat_deletions.push(body);
+          const existing = db.chat_deletions.find(
+            (r) =>
+              r.connection_id === body.connection_id && r.user_id === body.user_id,
+          );
+          if (existing) Object.assign(existing, body);
+          else db.chat_deletions.push(body);
           return jsonResponse([body]);
+        }
+        if (method === 'PATCH') {
+          const row = db.chat_deletions.find(
+            (r) =>
+              r.connection_id === eq('connection_id') && r.user_id === eq('user_id'),
+          );
+          if (row) Object.assign(row, body);
+          return jsonResponse(row ? [row] : []);
         }
         if (method === 'DELETE') {
           db.chat_deletions = db.chat_deletions.filter(
@@ -1053,9 +1068,13 @@ assert(
   'delete for me preserves message content and stores per-user state',
 );
 
-/* a per-user deleted chat is restored by entering it through Settings search */
+/* deleting a chat hides it for this user only and keeps the cutoff after reconnect */
 click('.chat-header .icon-button:last-child');
 await waitFor(() => text('.dialog-title') === 'Delete chat?', 'accepted chat delete confirms');
+assert(
+  text('.dialog-text')?.includes('disappears for you') === true,
+  'delete dialog explains the own-view cutoff',
+);
 click('.dialog .btn-primary');
 await waitFor(
   () =>
@@ -1065,10 +1084,18 @@ await waitFor(
     ),
   'accepted chat is hidden only for the current user',
 );
+assert(
+  db.chat_deletions.some((row) => row.connection_id === 'conn-incoming' && row.user_id === 'user-1'),
+  'chat deletion is stored per user',
+);
+assert(
+  db.messages.some((message) => message.ciphertext === 'Hey Benno!' || message.ciphertext === ''),
+  'chat delete does not remove messages globally',
+);
 setHash('#/settings');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
-  'settings opens to rediscover deleted chat',
+  'settings opens to send a new request after delete',
 );
 const restoreSearchSection = [...dom.window.document.querySelectorAll('.settings-section')].find((section) =>
   section.querySelector('.settings-section-title')?.textContent === 'Search people',
@@ -1083,13 +1110,52 @@ await waitFor(
 restoreSearchSection.querySelector('.chat').dispatchEvent(
   new dom.window.MouseEvent('click', { bubbles: true }),
 );
-await waitFor(() => text('.chat-peer-name') === 'Benno Schmidt', 'search reopens deleted chat');
+await waitFor(
+  () => text('.request-banner')?.includes('Request sent'),
+  'search after delete sends a new connection request',
+);
+assert(
+  ![...dom.window.document.querySelectorAll('.message')].some((m) =>
+    m.textContent.includes('Hey Benno!'),
+  ),
+  'old history stays hidden for the deleting user after the new request',
+);
+assert(
+  db.chat_deletions.some((row) => row.connection_id === 'conn-incoming' && row.user_id === 'user-1'),
+  'reconnect does not clear the chat deletion cutoff',
+);
+const reconnected = db.connections.find((c) => c.id === 'conn-incoming');
+reconnected.status = 'accepted';
+setHash('#/');
+await waitFor(
+  () => [...dom.window.document.querySelectorAll('.chat-row .chat-name')].some(
+    (name) => name.textContent === 'Benno Schmidt',
+  ),
+  'accepted reconnect returns the chat to Home without a reload',
+);
+click('.chat-row .chat');
+await waitFor(() => text('.chat-peer-name') === 'Benno Schmidt', 'reconnected chat opens');
+await waitFor(
+  () =>
+    ![...dom.window.document.querySelectorAll('.message')].some((m) =>
+      m.textContent.includes('Hey Benno!'),
+    ),
+  'reconnected chat stays empty of the deleted history',
+);
+const reconnectComposer = dom.window.document.querySelector('.composer-input');
+setInputValue(reconnectComposer, 'New start');
+reconnectComposer.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+reconnectComposer.closest('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+await waitFor(
+  () => [...dom.window.document.querySelectorAll('.message')].some((m) => m.textContent.includes('New start')),
+  'new messages still work after reconnect',
+);
 click('.chat-header .icon-button:first-child');
 await waitFor(
   () => [...dom.window.document.querySelectorAll('.chat-row .chat-name')].some(
     (name) => name.textContent === 'Benno Schmidt',
   ),
-  'reopened chat returns to Home without a page reload',
+  'reconnected chat remains on Home after leaving',
 );
 
 /* decline flow with confirmation dialog (fresh incoming request) */

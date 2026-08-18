@@ -10,8 +10,9 @@ import {
   getProfiles,
   getReadState,
   getUnreadCounts,
+  CHAT_HIDDEN_EVENT,
+  isHiddenByChatDeletion,
   loadDeletionsForUser,
-  restoreChatForMe,
 } from '../lib/api';
 import {
   displayName,
@@ -72,16 +73,31 @@ export default function Home() {
   const load = useCallback(async () => {
     if (!me) return;
     const conns = await getMyConnections(me);
-    const deleted = (await loadDeletionsForUser(me)).chats;
-    // Chat deletion is "delete for me": hidden, but restored by a new message.
-    const visible = conns.filter((c) => !deleted.has(c.id));
+    const deletions = await loadDeletionsForUser(me);
+    const lastAll = await getLastMessages(conns.map((c) => c.id));
+    const visible = conns.filter((c) => {
+      const until = deletions.chatUntil.get(c.id);
+      if (!until) return true;
+      const status = effectiveStatus(c);
+      if (status === 'pending' || status === 'declined' || status === 'expired') {
+        return true;
+      }
+      const last = lastAll[c.id];
+      if (last && !isHiddenByChatDeletion(last.created_at, until)) return true;
+      return !isHiddenByChatDeletion(c.created_at, until);
+    });
     setConnections(visible);
 
     const ids = visible.map((c) => otherUserId(c, me));
     const profiles = await getProfiles(ids);
     setOthers(profiles);
 
-    const last = await getLastMessages(visible.map((c) => c.id));
+    const last: Record<string, Message> = {};
+    for (const c of visible) {
+      const msg = lastAll[c.id];
+      const until = deletions.chatUntil.get(c.id);
+      if (msg && !isHiddenByChatDeletion(msg.created_at, until)) last[c.id] = msg;
+    }
     setLastMessages(last);
 
     const readState = await getReadState(me);
@@ -132,16 +148,9 @@ export default function Home() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
-        async (payload) => {
+        (payload) => {
           const msg = payload.new as Message | undefined;
-          if (!msg) return;
-          // A genuinely new incoming message revives a chat deleted only for
-          // this user. Normal visible chats are a harmless no-op here. Own
-          // messages from another tab/device still refresh ordering.
-          if (msg.sender_id !== me) {
-            await restoreChatForMe(me, msg.connection_id);
-          }
-          load();
+          if (msg) load();
         },
       )
       .on(

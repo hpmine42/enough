@@ -9,7 +9,7 @@ still opens but database-backed features degrade or remain unavailable.
 
 1. Open your Supabase project → **SQL Editor**.
 2. Run the full contents of every file in `supabase/migrations/` in numeric
-   order (`0001` → `0005`). Each migration is idempotent and safe to run again
+   order (`0001` → `0006`). Each migration is idempotent and safe to run again
    after pulling a frontend update.
 3. Optional but recommended: run `supabase/rls-tests.sql` to verify the
    authorization model with your two existing test users.
@@ -49,6 +49,9 @@ normal connection requests.
     `@username deleted their account` system message into each accepted chat,
     marks those chats `ended` (blocking further messages), then removes the
     profile (freeing the username) and the auth user.
+- `0006_chat_deletion_hidden_until.sql` — adds `chat_deletions.hidden_until`
+  so a later reconnect of the same pair does not restore history the deleting
+  user already hid. Messages stay in the table for the other participant.
 - `0005_my_notes_rpc.sql` — creates `public.ensure_my_notes()` and
   `public.remove_my_notes()`. Both functions take no IDs from the browser and
   operate only on `auth.uid()`'s self-connection. This is required when the

@@ -198,7 +198,7 @@ export const translations = {
       deleteChatForMe: 'Delete chat for me',
       deleteChatConfirmTitle: 'Delete chat?',
       deleteChatConfirmText:
-        'The chat is deleted for you. The other person keeps their copy.',
+        'If you delete this chat, the entire previous conversation disappears for you. The other person keeps their history. A later new connection does not restore the history that was removed for you.',
       chatDeleted: 'The chat was deleted for you.',
       newMessages: 'New messages',
       myNotesClearTitle: 'Clear this chat and disable My Notes?',
@@ -437,7 +437,7 @@ export const translations = {
       deleteChatForMe: 'Chat für mich löschen',
       deleteChatConfirmTitle: 'Chat löschen?',
       deleteChatConfirmText:
-        'Der Chat wird für dich gelöscht. Die andere Person behält ihren Verlauf.',
+        'Wenn du diesen Chat löschst, verschwindet der gesamte bisherige Chatverlauf für dich. Beim anderen Benutzer bleibt der Verlauf erhalten. Eine spätere neue Verbindung stellt den für dich entfernten Verlauf nicht wieder her.',
       chatDeleted: 'Der Chat wurde für dich gelöscht.',
       newMessages: 'Neue Nachrichten',
       myNotesClearTitle: 'Diesen Chat leeren und Meine Notizen deaktivieren?',
