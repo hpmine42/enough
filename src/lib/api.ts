@@ -191,8 +191,24 @@ export async function sendConnectionRequest(
   if (findError) return errorMessage(findError, 'request find existing');
 
   if (existing) {
-    if (existing.status === 'accepted') {
+    const deletedForMe = (await loadDeletions(me)).chatUntil.has(existing.id);
+    if (existing.status === 'accepted' && !deletedForMe) {
       return t('errors.connectionExists');
+    }
+    if (existing.status === 'accepted' && deletedForMe) {
+      // Same pair row is reused. Start a fresh request without touching
+      // messages or the other user's deletion state.
+      const { error } = await supabase
+        .from('connections')
+        .update({
+          status: 'pending',
+          user_a: me,
+          user_b: otherId,
+          created_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id);
+      if (error) return errorMessage(error, 'request after chat delete');
+      return null;
     }
     if (existing.user_a === me) {
       // My outgoing attempt: restore it as a fresh pending request.
@@ -271,6 +287,7 @@ export async function getMessagesPage(
   before?: string,
   beforeId?: string,
   limit = 40,
+  hiddenUntil?: string | null,
 ): Promise<{ messages: Message[]; hasMore: boolean }> {
   if (!supabase) return { messages: [], hasMore: false };
   let query = supabase
@@ -280,6 +297,9 @@ export async function getMessagesPage(
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
     .limit(limit + 1);
+  if (hiddenUntil) {
+    query = query.gt('created_at', hiddenUntil);
+  }
   if (before) {
     query = query.or(
       `created_at.lt.${before},and(created_at.eq.${before},id.lt.${beforeId ?? ''})`,
@@ -349,18 +369,61 @@ export async function deleteMessageForEveryone(
 /* per-user deletion state (delete for me)                             */
 /* ------------------------------------------------------------------ */
 
+export const CHAT_HIDDEN_EVENT = 'enough-chat-hidden';
+
+export function isHiddenByChatDeletion(
+  createdAt: string | undefined,
+  hiddenUntil: string | null | undefined,
+): boolean {
+  if (!createdAt || !hiddenUntil) return false;
+  return createdAt <= hiddenUntil;
+}
+
+interface StoredChatDeletion {
+  id: string;
+  hiddenUntil: string;
+}
+
+interface StoredDeletions {
+  messages: string[];
+  chats: StoredChatDeletion[];
+}
+
+function normalizeStoredChats(raw: unknown): StoredChatDeletion[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => {
+      if (typeof entry === 'string') {
+        return { id: entry, hiddenUntil: new Date().toISOString() };
+      }
+      if (
+        entry &&
+        typeof entry === 'object' &&
+        typeof (entry as StoredChatDeletion).id === 'string'
+      ) {
+        const row = entry as StoredChatDeletion;
+        return {
+          id: row.id,
+          hiddenUntil: row.hiddenUntil || new Date().toISOString(),
+        };
+      }
+      return null;
+    })
+    .filter((row): row is StoredChatDeletion => Boolean(row));
+}
+
 const deletionStorage = {
-  read(me: string): { messages: string[]; chats: string[] } {
+  read(me: string): StoredDeletions {
     try {
       const raw = window.localStorage.getItem(`enough-deletions-${me}`);
       if (raw) {
         const parsed = JSON.parse(raw) as {
           messages?: string[];
-          chats?: string[];
+          chats?: unknown;
         };
         return {
           messages: parsed.messages ?? [],
-          chats: parsed.chats ?? [],
+          chats: normalizeStoredChats(parsed.chats),
         };
       }
     } catch {
@@ -368,7 +431,7 @@ const deletionStorage = {
     }
     return { messages: [], chats: [] };
   },
-  write(me: string, value: { messages: string[]; chats: string[] }): void {
+  write(me: string, value: StoredDeletions): void {
     try {
       window.localStorage.setItem(`enough-deletions-${me}`, JSON.stringify(value));
     } catch {
@@ -377,41 +440,61 @@ const deletionStorage = {
   },
 };
 
-let deletionsCache: { me: string; messages: Set<string>; chats: Set<string> } | null =
-  null;
-
-async function loadDeletions(me: string): Promise<{
+export interface UserDeletions {
   messages: Set<string>;
   chats: Set<string>;
-}> {
+  chatUntil: Map<string, string>;
+}
+
+let deletionsCache: { me: string } & UserDeletions | null = null;
+
+function mergeChatUntil(
+  local: StoredChatDeletion[],
+  dbRows: ChatDeletion[],
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const row of local) map.set(row.id, row.hiddenUntil);
+  for (const row of dbRows) {
+    const until = row.hidden_until || row.created_at;
+    if (until) map.set(row.connection_id, until);
+  }
+  return map;
+}
+
+async function loadDeletions(me: string): Promise<UserDeletions> {
   const local = deletionStorage.read(me);
   if (!supabase) {
-    return {
+    const chatUntil = mergeChatUntil(local.chats, []);
+    const merged: UserDeletions = {
       messages: new Set(local.messages),
-      chats: new Set(local.chats),
+      chats: new Set(chatUntil.keys()),
+      chatUntil,
     };
+    deletionsCache = { me, ...merged };
+    return merged;
   }
   const [msgRes, chatRes] = await Promise.all([
     supabase.from('message_deletions').select('message_id').eq('user_id', me),
-    supabase.from('chat_deletions').select('connection_id').eq('user_id', me),
+    supabase
+      .from('chat_deletions')
+      .select('connection_id, hidden_until, created_at')
+      .eq('user_id', me),
   ]);
   const dbMessages = (msgRes.data ?? []) as Pick<MessageDeletion, 'message_id'>[];
-  const dbChats = (chatRes.data ?? []) as Pick<ChatDeletion, 'connection_id'>[];
-  // Merge DB rows (source of truth) with the local fallback set.
-  const merged = {
+  const dbChats = (chatRes.data ?? []) as ChatDeletion[];
+  const chatUntil = mergeChatUntil(local.chats, dbChats);
+  const merged: UserDeletions = {
     messages: new Set([...local.messages, ...dbMessages.map((m) => m.message_id)]),
-    chats: new Set([...local.chats, ...dbChats.map((c) => c.connection_id)]),
+    chats: new Set(chatUntil.keys()),
+    chatUntil,
   };
-  deletionsCache = { me, messages: merged.messages, chats: merged.chats };
+  deletionsCache = { me, ...merged };
   return merged;
 }
 
 /** Always re-fetch from the database so deletions made elsewhere (or by
  *  another mounted screen) are visible; merges the local fallback set. */
-export async function loadDeletionsForUser(me: string): Promise<{
-  messages: Set<string>;
-  chats: Set<string>;
-}> {
+export async function loadDeletionsForUser(me: string): Promise<UserDeletions> {
   return loadDeletions(me);
 }
 
@@ -440,17 +523,47 @@ export async function deleteChatForMe(
   me: string,
   connectionId: string,
 ): Promise<string | null> {
+  const hiddenUntil = new Date().toISOString();
   const local = deletionStorage.read(me);
-  if (!local.chats.includes(connectionId)) local.chats.push(connectionId);
+  const existing = local.chats.find((c) => c.id === connectionId);
+  if (existing) existing.hiddenUntil = hiddenUntil;
+  else local.chats.push({ id: connectionId, hiddenUntil });
   deletionStorage.write(me, local);
-  if (deletionsCache?.me === me) deletionsCache.chats.add(connectionId);
+  if (deletionsCache?.me === me) {
+    deletionsCache.chats.add(connectionId);
+    deletionsCache.chatUntil.set(connectionId, hiddenUntil);
+  }
   if (supabase) {
-    const { error } = await supabase
-      .from('chat_deletions')
-      .insert({ connection_id: connectionId, user_id: me });
-    if (error && error.code !== '23505') {
-      return errorMessage(error, 'chat delete for me');
+    const { error } = await supabase.from('chat_deletions').upsert(
+      {
+        connection_id: connectionId,
+        user_id: me,
+        hidden_until: hiddenUntil,
+      },
+      { onConflict: 'connection_id,user_id' },
+    );
+    if (error) {
+      // Fallback for backends that only allow insert (pre-0006).
+      const inserted = await supabase
+        .from('chat_deletions')
+        .insert({
+          connection_id: connectionId,
+          user_id: me,
+          hidden_until: hiddenUntil,
+        });
+      if (inserted.error && inserted.error.code !== '23505') {
+        return errorMessage(error, 'chat delete for me');
+      }
     }
+  }
+  try {
+    window.dispatchEvent(
+      new CustomEvent(CHAT_HIDDEN_EVENT, {
+        detail: { connectionId, userId: me, hiddenUntil },
+      }),
+    );
+  } catch {
+    /* ignore */
   }
   return null;
 }
@@ -460,9 +573,12 @@ export async function restoreChatForMe(
   connectionId: string,
 ): Promise<void> {
   const local = deletionStorage.read(me);
-  local.chats = local.chats.filter((c) => c !== connectionId);
+  local.chats = local.chats.filter((c) => c.id !== connectionId);
   deletionStorage.write(me, local);
-  if (deletionsCache?.me === me) deletionsCache.chats.delete(connectionId);
+  if (deletionsCache?.me === me) {
+    deletionsCache.chats.delete(connectionId);
+    deletionsCache.chatUntil.delete(connectionId);
+  }
   if (supabase) {
     await supabase
       .from('chat_deletions')
@@ -591,6 +707,7 @@ export async function checkSchemaCompatibility(): Promise<void> {
     { table: 'messages', column: 'kind' },
     { table: 'connection_reads', column: 'user_id' },
     { table: 'connection_unread', column: 'unread' },
+    { table: 'chat_deletions', column: 'hidden_until' },
   ];
   const client = supabase;
   const missing: string[] = [];

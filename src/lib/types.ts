@@ -59,6 +59,7 @@ export interface ChatDeletion {
   connection_id: string;
   user_id: string;
   created_at?: string;
+  hidden_until?: string;
 }
 
 export interface UnreadCount {

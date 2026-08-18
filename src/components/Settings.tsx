@@ -9,7 +9,6 @@ import {
   getMyConnections,
   loadDeletionsForUser,
   removeMyNotes,
-  restoreChatForMe,
   searchUsers,
   sendConnectionRequest,
 } from '../lib/api';
@@ -432,10 +431,19 @@ export default function Settings() {
         (c.user_a === other.id && c.user_b === me),
     );
     if (existing) {
-      // If this chat was deleted for me, restore that exact connection.
       const deletions = await loadDeletionsForUser(me);
       if (deletions.chats.has(existing.id)) {
-        await restoreChatForMe(me, existing.id);
+        // Keep the cutoff. Reuse the pair row so the other person keeps
+        // history and this user starts from an empty view after accept.
+        if (existing.status === 'accepted' || existing.status === 'ended') {
+          setActionBusyId(other.id);
+          const err = await sendConnectionRequest(me, other.id);
+          setActionBusyId(null);
+          if (err) {
+            setSearchError(err);
+            return;
+          }
+        }
       }
       navigate(`#/chat/${existing.id}`);
       return;

@@ -18,6 +18,7 @@ import {
   getConnection,
   getMessagesPage,
   getProfiles,
+  isHiddenByChatDeletion,
   loadDeletionsForUser,
   removeMyNotes,
   saveReadState,
@@ -59,6 +60,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const [peer, setPeer] = useState<Profile | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [deletedForMe, setDeletedForMe] = useState<Set<string>>(new Set());
+  const [hiddenUntil, setHiddenUntil] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [valid, setValid] = useState(true);
   const [hasMore, setHasMore] = useState(false);
@@ -120,14 +122,17 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         setPeer(isSelfConnection(found) ? profiles[me] ?? null : profiles[peerId] ?? null);
       }
 
+      const deletions = await loadDeletionsForUser(me);
+      const until = deletions.chatUntil.get(connectionId) ?? null;
       const { messages: page, hasMore: more } = await getMessagesPage(
         connectionId,
         undefined,
         undefined,
         PAGE_SIZE,
+        until,
       );
-      const deletions = await loadDeletionsForUser(me);
       if (active) {
+        setHiddenUntil(until);
         setMessages(page);
         setHasMore(more);
         setDeletedForMe(deletions.messages);
@@ -159,6 +164,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         },
         (payload) => {
           const msg = payload.new as Message;
+          if (isHiddenByChatDeletion(msg.created_at, hiddenUntil)) return;
           setMessages((prev) => {
             if (prev.some((m) => m.id === msg.id)) return prev;
             if (!atBottomRef.current) {
@@ -230,7 +236,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       client.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, valid, peer]);
+  }, [connectionId, valid, peer, hiddenUntil, me]);
 
   /* --------------------------- scroll / read --------------------------- */
 
@@ -334,6 +340,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       first.created_at,
       first.id,
       PAGE_SIZE,
+      hiddenUntil,
     );
     const el = scrollRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
@@ -541,8 +548,13 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const peerUsername = peer?.username ?? '';
 
   const visibleMessages = useMemo(
-    () => messages.filter((m) => !deletedForMe.has(m.id)),
-    [messages, deletedForMe],
+    () =>
+      messages.filter(
+        (m) =>
+          !deletedForMe.has(m.id) &&
+          !isHiddenByChatDeletion(m.created_at, hiddenUntil),
+      ),
+    [messages, deletedForMe, hiddenUntil],
   );
 
   // Keep the DOM-index mapping in sync with the rendered message list.
