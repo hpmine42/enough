@@ -35,7 +35,8 @@ type ErrorKey =
   | 'errors.permissionDenied'
   | 'errors.emailNotConfirmed'
   | 'errors.emailNotFound'
-  | 'errors.wrongPassword';
+  | 'errors.wrongPassword'
+  | 'errors.blockedRequest';
 
 const keyOf = (k: ErrorKey): TranslationKey => k as unknown as TranslationKey;
 
@@ -106,6 +107,10 @@ export function errorMessage(error: unknown, context?: string): string {
   if (code === 'P0001') {
     // Raised by DB triggers, e.g. messaging into a non-active connection.
     return t('chat.unavailable');
+  }
+  if (code === 'BLCKD') {
+    // Raised by the block guards / RPCs when a block forbids the action.
+    return t(keyOf('errors.blockedRequest'));
   }
   if (code === '42501') {
     return t(keyOf('errors.permissionDenied'));

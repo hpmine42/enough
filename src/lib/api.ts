@@ -2,6 +2,8 @@ import { supabase } from './supabase';
 import { errorMessage } from './errors';
 import { t } from '../i18n';
 import {
+  BlockRelation,
+  BlockState,
   ChatDeletion,
   Connection,
   ConnectionRead,
@@ -171,9 +173,12 @@ export async function getProfiles(
 
 /**
  * Send (or re-send) a connection request.
- * If a non-accepted attempt between the pair already exists, the outgoing
- * side is reset to pending (connection restoration). An incoming pending
- * request cannot be duplicated.
+ *
+ * Primary path is the auth-bound RPC `send_connection_request` (migration
+ * 0008), which implements the request state machine in the database:
+ * re-request after decline/expiry works in both directions, the
+ * one-row-per-pair model stays intact (no unique-constraint conflicts)
+ * and blocked pairs are rejected server-side.
  */
 export async function sendConnectionRequest(
   me: string,
@@ -181,6 +186,14 @@ export async function sendConnectionRequest(
 ): Promise<string | null> {
   if (!supabase) return t('errors.network');
 
+  // Fast client-side block check (the database enforces this as well;
+  // this only avoids the failing request in the first place).
+  const block = await getBlockState(me, otherId);
+  if (block === 'blockedByThem') return t('block.byThem');
+  if (block === 'blockedByMe') return t('block.byYou');
+
+  // Preserve the existing UX for already-accepted pairs: a deleted chat
+  // is revealed instead of re-requested, an existing chat is reported.
   const { data: existing, error: findError } = await supabase
     .from('connections')
     .select('*')
@@ -197,10 +210,45 @@ export async function sendConnectionRequest(
     }
     if (existing.status === 'accepted' && deletedForMe) {
       // Do NOT set accepted → pending — RLS blocks browser clients from
-      // downgrading an accepted connection (42501).  The caller is
+      // downgrading an accepted connection (42501). The caller is
       // responsible for calling revealChatForMe() so the chat reappears
       // in the Home list while hidden_until keeps old messages hidden.
       return null;
+    }
+    // A live incoming request already exists: the caller opens the chat
+    // to accept it instead of duplicating anything.
+    if (existing.status === 'pending' && existing.user_b === me) {
+      return null;
+    }
+  }
+
+  const { data: rpcId, error: rpcError } = await supabase.rpc(
+    'send_connection_request',
+    { target: otherId },
+  );
+  if (!rpcError && typeof rpcId === 'string' && rpcId) {
+    return null;
+  }
+  if (rpcError && !isMissingRequestRpc(rpcError)) {
+    if ((rpcError as { code?: string }).code === 'BLCKD') {
+      return t('errors.blockedRequest');
+    }
+    if ((rpcError as { code?: string }).code === 'P0001') {
+      return t('errors.connectionExists');
+    }
+    return errorMessage(rpcError, 'request RPC');
+  }
+
+  // Compatibility fallback for backends without migration 0008. The
+  // legacy logic restores the caller's own dead attempt and reuses a
+  // dead attempt of the other side (delete + insert) so a declined
+  // request never blocks a re-request in either direction.
+  if (existing) {
+    if (existing.status === 'accepted') {
+      return t('errors.connectionExists');
+    }
+    if (existing.status === 'pending') {
+      return null; // incoming pending request — handled by the caller
     }
     if (existing.user_a === me) {
       // My outgoing attempt: restore it as a fresh pending request.
@@ -211,6 +259,27 @@ export async function sendConnectionRequest(
       if (error) return errorMessage(error, 'request restore');
       return null;
     }
+    if (existing.status === 'declined' || existing.status === 'expired') {
+      // Their dead attempt: a declined/expired row never held messages,
+      // so it is safe to remove and re-create it as my outgoing request.
+      const { error: deleteError } = await supabase
+        .from('connections')
+        .delete()
+        .eq('id', existing.id);
+      if (deleteError) return errorMessage(deleteError, 'request reset');
+      const { error } = await supabase.from('connections').insert({
+        user_a: me,
+        user_b: otherId,
+        status: 'pending',
+      });
+      if (error) {
+        if (error.code === '23505') return t('errors.connectionExists');
+        return errorMessage(error, 'request insert');
+      }
+      return null;
+    }
+    // `ended` rows may hold chat history — never delete them in the
+    // fallback path (the RPC above handles them correctly).
     return t('errors.connectionExists');
   }
 
@@ -239,16 +308,54 @@ export async function acceptConnection(
   return null;
 }
 
+/**
+ * Decline an incoming request. With `blockPeer` the requester is blocked
+ * in the same database step (migration 0008 RPC), so they cannot send
+ * another request until the block is removed.
+ */
 export async function declineConnection(
   connectionId: string,
+  blockPeer = false,
 ): Promise<string | null> {
   if (!supabase) return t('errors.network');
+
+  const { error: rpcError } = await supabase.rpc('decline_connection', {
+    conn: connectionId,
+    block_peer: blockPeer,
+  });
+  if (!rpcError) return null;
+  if (!isMissingRequestRpc(rpcError)) {
+    if ((rpcError as { code?: string }).code === 'BLCKD') {
+      return t('errors.blockedRequest');
+    }
+    return errorMessage(rpcError, 'request decline');
+  }
+
+  // Compatibility fallback for backends without migration 0008: plain
+  // decline. Decline+block needs the block table from 0008, so a
+  // requested block that cannot be stored is logged, not faked.
   const { error } = await supabase
     .from('connections')
     .update({ status: 'declined' })
     .eq('id', connectionId)
     .eq('status', 'pending');
   if (error) return errorMessage(error, 'request decline');
+
+  if (blockPeer) {
+    const { data: row } = await supabase
+      .from('connections')
+      .select('user_a, user_b')
+      .eq('id', connectionId)
+      .maybeSingle();
+    if (row) {
+      const { error: blockError } = await supabase
+        .from('user_blocks')
+        .insert({ blocker_id: row.user_b, blocked_id: row.user_a });
+      if (blockError && blockError.code !== '23505') {
+        errorMessage(blockError, 'user block insert (legacy decline+block)');
+      }
+    }
+  }
   return null;
 }
 
@@ -262,6 +369,119 @@ export async function cancelConnectionRequest(
     .delete()
     .eq('id', connectionId);
   if (error) return errorMessage(error, 'request cancel');
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* blocking                                                            */
+/* ------------------------------------------------------------------ */
+
+function isMissingRequestRpc(error: unknown): boolean {
+  const e = error as { code?: string; message?: string } | null;
+  const message = e?.message?.toLowerCase() ?? '';
+  return (
+    e?.code === 'PGRST202' ||
+    e?.code === '42883' ||
+    (message.includes('function') &&
+      (message.includes('send_connection_request') ||
+        message.includes('decline_connection')) &&
+      (message.includes('not find') || message.includes('does not exist')))
+  );
+}
+
+/**
+ * Block relation between the current user and one peer. The database
+ * (RLS + guards) is the authority; this only drives the UI.
+ */
+export async function getBlockState(
+  me: string,
+  other: string,
+): Promise<BlockState> {
+  if (!supabase || !other || other === me) return 'none';
+  const { data, error } = await supabase
+    .from('user_blocks')
+    .select('blocker_id, blocked_id')
+    .or(
+      `and(blocker_id.eq.${me},blocked_id.eq.${other}),and(blocker_id.eq.${other},blocked_id.eq.${me})`,
+    )
+    .limit(2);
+  if (error || !data) return 'none';
+  let blockedByMe = false;
+  let blockedByThem = false;
+  for (const row of data as { blocker_id: string; blocked_id: string }[]) {
+    if (row.blocker_id === me) blockedByMe = true;
+    else blockedByThem = true;
+  }
+  // Mutual blocks: the caller can remove their own side, so the UI
+  // treats it as blockedByMe (with the Unblock action available).
+  if (blockedByMe) return 'blockedByMe';
+  if (blockedByThem) return 'blockedByThem';
+  return 'none';
+}
+
+/** All block relations of the current user (both directions). */
+export async function getBlockRelations(me: string): Promise<BlockRelation> {
+  const blockedIds = new Set<string>();
+  const blockedByIds = new Set<string>();
+  if (!supabase) return { blockedIds, blockedByIds };
+  const { data, error } = await supabase
+    .from('user_blocks')
+    .select('blocker_id, blocked_id')
+    .or(`blocker_id.eq.${me},blocked_id.eq.${me}`);
+  if (error || !data) return { blockedIds, blockedByIds };
+  for (const row of data as { blocker_id: string; blocked_id: string }[]) {
+    if (row.blocker_id === me) blockedIds.add(row.blocked_id);
+    else blockedByIds.add(row.blocker_id);
+  }
+  return { blockedIds, blockedByIds };
+}
+
+/** Users the current user has blocked, newest block first. */
+export async function getBlockedUsers(
+  me: string,
+): Promise<{ blockedId: string; createdAt: string }[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('user_blocks')
+    .select('blocked_id, created_at')
+    .eq('blocker_id', me)
+    .order('created_at', { ascending: false });
+  if (error) return [];
+  return (data ?? []).map(
+    (row: { blocked_id: string; created_at: string }) => ({
+      blockedId: row.blocked_id,
+      createdAt: row.created_at,
+    }),
+  );
+}
+
+/** Block another user. The RLS insert policy enforces blocker = caller. */
+export async function blockUser(
+  me: string,
+  otherId: string,
+): Promise<string | null> {
+  if (!supabase) return t('errors.network');
+  const { error } = await supabase
+    .from('user_blocks')
+    .insert({ blocker_id: me, blocked_id: otherId });
+  if (error && error.code !== '23505') {
+    return errorMessage(error, 'user block insert');
+  }
+  return null;
+}
+
+/** Remove the caller's own block. The blocked user cannot do this (RLS). */
+export async function unblockUser(
+  me: string,
+  otherId: string,
+): Promise<string | null> {
+  if (!supabase) return t('errors.network');
+  const { error } = await supabase
+    .from('user_blocks')
+    .delete()
+    .eq('blocker_id', me)
+    .eq('blocked_id', otherId);
+  if (error) return errorMessage(error, 'user block delete');
   return null;
 }
 
@@ -743,6 +963,7 @@ export async function checkSchemaCompatibility(): Promise<void> {
     { table: 'connection_unread', column: 'unread' },
     { table: 'chat_deletions', column: 'hidden_until' },
     { table: 'chat_deletions', column: 'revealed' },
+    { table: 'user_blocks', column: 'blocked_id' },
   ];
   const client = supabase;
   const missing: string[] = [];

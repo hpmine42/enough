@@ -6,13 +6,18 @@ import {
   acceptConnection,
   cancelConnectionRequest,
   ensureMyNotes,
+  getBlockRelations,
+  getBlockedUsers,
   getMyConnections,
+  getProfiles,
   loadDeletionsForUser,
   removeMyNotes,
   revealChatForMe,
   searchUsers,
   sendConnectionRequest,
+  unblockUser,
 } from '../lib/api';
+import { supabase } from '../lib/supabase';
 import { displayName, normalizeUsername } from '../lib/helpers';
 import { setLang, t, useLang } from '../i18n';
 import { Lang } from '../i18n/translations';
@@ -108,6 +113,7 @@ function Row({
 export default function Settings() {
   const route = useHashRoute();
   const open = route.startsWith('#/settings');
+  const blockedView = route.startsWith('#/settings/blocked');
   const {
     user,
     profile,
@@ -158,6 +164,12 @@ export default function Settings() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
+
+  // blocking
+  const [blockedIds, setBlockedIds] = useState<Set<string>>(new Set());
+  const [blockedByIds, setBlockedByIds] = useState<Set<string>>(new Set());
+  const [blockedUsers, setBlockedUsers] = useState<Profile[]>([]);
+  const [blockBusyId, setBlockBusyId] = useState<string | null>(null);
 
   // account
   const [signOutOpen, setSignOutOpen] = useState(false);
@@ -245,6 +257,81 @@ export default function Settings() {
 
     return () => {
       active = false;
+    };
+  }, [me, open]);
+
+  // Block relations (both directions) + the blocked-users list.
+  useEffect(() => {
+    let active = true;
+    if (!me) {
+      setBlockedIds(new Set());
+      setBlockedByIds(new Set());
+      setBlockedUsers([]);
+      return;
+    }
+    getBlockRelations(me).then((rel) => {
+      if (!active) return;
+      setBlockedIds(rel.blockedIds);
+      setBlockedByIds(rel.blockedByIds);
+    });
+    getBlockedUsers(me).then(async (list) => {
+      const profiles = await getProfiles(list.map((b) => b.blockedId));
+      if (!active) return;
+      setBlockedUsers(
+        list
+          .map((b) => profiles[b.blockedId])
+          .filter((p): p is Profile => Boolean(p)),
+      );
+    });
+    return () => {
+      active = false;
+    };
+  }, [me, open]);
+
+  // Realtime: blocks made elsewhere (another device) update Settings and
+  // the blocked-users page immediately.
+  useEffect(() => {
+    if (!supabase || !me || !open) return;
+    const client = supabase;
+    const reload = () => {
+      getBlockRelations(me).then((rel) => {
+        setBlockedIds(rel.blockedIds);
+        setBlockedByIds(rel.blockedByIds);
+      });
+      getBlockedUsers(me).then(async (list) => {
+        const profiles = await getProfiles(list.map((b) => b.blockedId));
+        setBlockedUsers(
+          list
+            .map((b) => profiles[b.blockedId])
+            .filter((p): p is Profile => Boolean(p)),
+        );
+      });
+    };
+    const channel = client
+      .channel('settings-user-blocks')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_blocks',
+          filter: `blocker_id=eq.${me}`,
+        },
+        reload,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_blocks',
+          filter: `blocked_id=eq.${me}`,
+        },
+        reload,
+      )
+      .subscribe();
+    return () => {
+      client.removeChannel(channel);
     };
   }, [me, open]);
 
@@ -479,6 +566,24 @@ export default function Settings() {
     if (!err) setConnections(await getMyConnections(me));
   }
 
+  async function handleUnblock(target: Profile) {
+    if (!me || blockBusyId === target.id) return;
+    setBlockBusyId(target.id);
+    const err = await unblockUser(me, target.id);
+    setBlockBusyId(null);
+    if (err) {
+      setSearchError(err);
+      return;
+    }
+    // The server removed the block — update both lists immediately.
+    setBlockedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(target.id);
+      return next;
+    });
+    setBlockedUsers((prev) => prev.filter((u) => u.id !== target.id));
+  }
+
   function statusOf(otherId: string): Connection | undefined {
     return connections.find(
       (c) =>
@@ -600,6 +705,37 @@ export default function Settings() {
               {!searching &&
                 results.map((r) => {
                   const conn = statusOf(r.id);
+                  const blockedByMe = blockedIds.has(r.id);
+                  const blockedByThem = blockedByIds.has(r.id);
+                  if (blockedByMe || blockedByThem) {
+                    // A block overrides the normal request affordance.
+                    return (
+                      <div
+                        key={r.id}
+                        className="chat settings-search-row blocked-search-row"
+                      >
+                        <div className="chat-text">
+                          <div className="chat-name">{displayName(r)}</div>
+                          <div className="chat-preview">
+                            {blockedByMe ? t('block.byYou') : t('block.byThem')}
+                          </div>
+                        </div>
+                        <div className="chat-trailing">
+                          <span className="badge-soft">{t('block.status')}</span>
+                          {blockedByMe && (
+                            <button
+                              type="button"
+                              className="btn-small"
+                              disabled={blockBusyId === r.id}
+                              onClick={() => handleUnblock(r)}
+                            >
+                              {t('block.unblock')}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
                     <button
                       key={r.id}
@@ -628,6 +764,19 @@ export default function Settings() {
                 })}
             </div>
           )}
+        </Section>
+
+        {/* BLOCKED USERS */}
+        <Section title={t('block.title')}>
+          <Row
+            label={t('block.title')}
+            sub={t('block.hint')}
+            onClick={() => navigate('#/settings/blocked')}
+          >
+            {blockedIds.size > 0 && (
+              <span className="badge-soft">{blockedIds.size}</span>
+            )}
+          </Row>
         </Section>
 
         {/* LANGUAGE */}
@@ -857,6 +1006,50 @@ export default function Settings() {
             {t('settingsScreen.github')}
           </a>
         </footer>
+      </div>
+
+      {/* BLOCKED USERS SUBPAGE — slides in like the settings overlay */}
+      <div
+        className={`settings-subpanel${blockedView ? ' open' : ''}`}
+        aria-hidden={!blockedView}
+      >
+        <header className="settings-header">
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => navigate('#/settings')}
+            aria-label={t('back')}
+          >
+            <BackIcon size={22} />
+          </button>
+          <div className="settings-subpanel-title">{t('block.title')}</div>
+          <ThemeButton />
+        </header>
+        <div className="settings-scroll">
+          {blockedUsers.length === 0 ? (
+            <p className="muted settings-blocked-empty">{t('block.empty')}</p>
+          ) : (
+            blockedUsers.map((p) => (
+              <div key={p.id} className="settings-row">
+                <div className="settings-row-main">
+                  <div className="settings-row-label">{displayName(p)}</div>
+                  <div className="settings-row-sub">@{p.username}</div>
+                </div>
+                <div className="settings-row-control blocked-row-control">
+                  <span className="badge-soft">{t('block.status')}</span>
+                  <button
+                    type="button"
+                    className="btn-small"
+                    disabled={blockBusyId === p.id}
+                    onClick={() => handleUnblock(p)}
+                  >
+                    {t('block.unblock')}
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       {emailConfirmOpen && (

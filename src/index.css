@@ -911,6 +911,67 @@ textarea {
   cursor: default;
 }
 
+/* search result whose peer is blocked (either direction) */
+.blocked-search-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.blocked-search-row .chat-trailing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* settings subpage (blocked users) — mirrors the overlay's slide-in */
+.settings-subpanel {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(56px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.3s ease,
+    visibility 0s linear 0.3s;
+}
+
+.settings-subpanel.open {
+  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.3s ease,
+    visibility 0s;
+}
+
+.settings-subpanel-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-blocked-empty {
+  padding: 20px 18px;
+}
+
+.blocked-row-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .chat-trailing {
   flex-shrink: 0;
   font-size: 13px;
@@ -1477,6 +1538,15 @@ textarea {
   text-align: center;
   border-top: 1px solid var(--border);
   background: var(--bg);
+}
+
+.composer-disabled.blocked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  line-height: 1.45;
 }
 
 .send {

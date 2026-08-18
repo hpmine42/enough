@@ -173,9 +173,30 @@ export const translations = {
       requestCanceled: 'Request canceled',
       declinedTitle: 'Decline request?',
       declinedText:
-        'You cannot message each other after declining. The request attempt stays visible for 14 days.',
+        'If you decline, this person can send another request within the next 14 days. “Decline and block” prevents further requests until you unblock them.',
       accepted: 'Accepted',
       ended: 'Connection ended',
+    },
+
+    // blocking
+    block: {
+      title: 'Blocked users',
+      hint: 'Manage who can send you requests and messages.',
+      empty: 'You have not blocked anyone.',
+      status: 'Blocked',
+      unblock: 'Unblock',
+      blockUser: 'Block user',
+      blockTitle: 'Block @{username}?',
+      blockText:
+        'This person can no longer message you or send connection requests until you unblock them.',
+      declineAndBlock: 'Decline and block',
+      byYou: 'You have blocked this user. You can unblock them in Settings.',
+      byThem:
+        'This user has blocked you. You can send a new request once they unblock you.',
+      blockedByYouChat:
+        'You have blocked this user. Unblock them to chat again.',
+      blockedByThemChat:
+        'You were blocked. You can chat again once this user unblocks you.',
     },
 
     // chat
@@ -260,6 +281,7 @@ export const translations = {
       sessionExpired: 'Your session expired. Please log in again.',
       chatDeleteFailed: 'The chat could not be deleted.',
       notesFailed: 'My Notes could not be set up.',
+      blockedRequest: 'This is not possible because of a block.',
     },
   },
 
@@ -412,9 +434,31 @@ export const translations = {
       requestCanceled: 'Anfrage zurückgezogen',
       declinedTitle: 'Anfrage ablehnen?',
       declinedText:
-        'Ihr könnt euch danach nicht schreiben. Die Anfrage bleibt 14 Tage sichtbar.',
+        'Wenn du ablehnst, kann diese Person innerhalb der nächsten 14 Tage erneut anfragen. Mit „Ablehnen und blockieren“ kann sie dir erst wieder Anfragen senden, wenn du sie freigibst.',
       accepted: 'Verbunden',
       ended: 'Verbindung beendet',
+    },
+
+    // blocking
+    block: {
+      title: 'Blockierte Nutzer',
+      hint: 'Verwalte, wer dir Anfragen und Nachrichten senden darf.',
+      empty: 'Du hast niemanden blockiert.',
+      status: 'Blockiert',
+      unblock: 'Freigeben',
+      blockUser: 'Nutzer blockieren',
+      blockTitle: '@{username} blockieren?',
+      blockText:
+        'Diese Person kann dir bis zur Freigabe keine Nachrichten oder Verbindungsanfragen mehr senden.',
+      declineAndBlock: 'Ablehnen und blockieren',
+      byYou:
+        'Du hast diesen Nutzer blockiert. Du kannst ihn in den Einstellungen wieder freigeben.',
+      byThem:
+        'Dieser Nutzer hat dich blockiert. Du kannst ihm erst wieder eine Anfrage senden, wenn er dich freigibt.',
+      blockedByYouChat:
+        'Du hast diesen Nutzer blockiert. Gib ihn frei, um wieder zu schreiben.',
+      blockedByThemChat:
+        'Du wurdest blockiert. Du kannst erst wieder schreiben, wenn dieser Nutzer dich freigibt.',
     },
 
     chat: {
@@ -496,6 +540,7 @@ export const translations = {
       sessionExpired: 'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.',
       chatDeleteFailed: 'Der Chat konnte nicht gelöscht werden.',
       notesFailed: 'Meine Notizen konnten nicht eingerichtet werden.',
+      blockedRequest: 'Das ist wegen einer Blockierung nicht möglich.',
     },
   },
 } as const;

@@ -9,6 +9,11 @@ interface DialogProps {
   danger?: boolean;
   busy?: boolean;
   confirmDisabled?: boolean;
+  /** Optional second action, e.g. "Decline and block" next to "Decline". */
+  extraAction?: {
+    label: string;
+    onClick: () => void;
+  };
   onConfirm: () => void;
   onCancel: () => void;
   children?: ReactNode;
@@ -23,6 +28,7 @@ export default function Dialog({
   danger,
   busy,
   confirmDisabled,
+  extraAction,
   onConfirm,
   onCancel,
   children,
@@ -73,6 +79,16 @@ export default function Dialog({
           >
             {busy ? t('loading') : confirmLabel}
           </button>
+          {extraAction && (
+            <button
+              className="btn-primary danger dialog-extra"
+              onClick={extraAction.onClick}
+              disabled={busy || confirmDisabled}
+              type="button"
+            >
+              {extraAction.label}
+            </button>
+          )}
         </div>
       </div>
     </div>

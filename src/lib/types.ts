@@ -67,3 +67,25 @@ export interface UnreadCount {
   connection_id: string;
   unread: number;
 }
+
+/** One user blocking another (blocker blocks blocked). */
+export interface UserBlock {
+  id?: string;
+  blocker_id: string;
+  blocked_id: string;
+  created_at?: string;
+}
+
+/**
+ * Block relation between the current user and a peer. Blocking is a
+ * separate security dimension from the connection status and is always
+ * enforced in the database; this state only drives the UI.
+ */
+export type BlockState = 'none' | 'blockedByMe' | 'blockedByThem';
+
+export interface BlockRelation {
+  /** Users the current user has blocked. */
+  blockedIds: Set<string>;
+  /** Users who have blocked the current user. */
+  blockedByIds: Set<string>;
+}

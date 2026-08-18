@@ -9,7 +9,7 @@ still opens but database-backed features degrade or remain unavailable.
 
 1. Open your Supabase project → **SQL Editor**.
 2. Run the full contents of every file in `supabase/migrations/` in numeric
-   order (`0001` → `0006`). Each migration is idempotent and safe to run again
+   order (`0001` → `0008`). Each migration is idempotent and safe to run again
    after pulling a frontend update.
 3. Optional but recommended: run `supabase/rls-tests.sql` to verify the
    authorization model with your two existing test users.
@@ -57,6 +57,27 @@ normal connection requests.
   operate only on `auth.uid()`'s self-connection. This is required when the
   normal connection-insert policy correctly permits only pending requests;
   weakening that policy to make My Notes work would let users bypass consent.
+- `0008_user_blocks.sql` — user blocking:
+  - creates `public.user_blocks` (`blocker_id`, `blocked_id`, `created_at`,
+    unique pair, no self-blocks) with RLS: both involved users may read the
+    row, only the blocker may create/delete it (no UPDATE policy at all),
+  - adds a DB trigger that rejects new connection rows and transitions into
+    `pending`/`accepted` between a blocked pair (`declined`/`expired`/`ended`
+    transitions stay allowed so decline+block, expiry cleanup and account
+    deletion keep working),
+  - extends the existing message-insert guard: no messages in either
+    direction while a block exists; trusted system events (name changes,
+    accepted events, the deleted-account notice) set a transaction-local GUC
+    so they keep working between blocked users,
+  - creates `public.send_connection_request(target)` — the authoritative
+    request state machine: restores a declined/expired attempt of the caller,
+    reuses a dead attempt of the other side (no duplicate rows, no
+    unique-constraint conflicts), keeps a live incoming request untouched,
+    restarts the 14-day window, and rejects blocked pairs with SQLSTATE
+    `BLCKD`,
+  - creates `public.decline_connection(conn, block_peer)` — decline an
+    incoming request and optionally block the requester in one step
+    (recipient-only, idempotent).
 
 Run all of these after `0001` in numeric order. They are idempotent.
 
@@ -82,6 +103,11 @@ Run all of these after `0001` in numeric order. They are idempotent.
   self-connection (`user_a = user_b = auth.uid()`). Setup/removal goes through
   auth-bound `security definer` functions so normal users still cannot create
   arbitrary accepted connections. The functions accept no user-supplied IDs.
+- **Blocking is a separate security dimension**, not a connection status:
+  `user_blocks` rows never change `connections.status`. Instead, DB triggers
+  and the request RPCs enforce that a blocked pair cannot create/restore
+  requests or send messages while a block exists. Removing the block restores
+  normal behavior without any status migration.
 
 ## RLS model (new objects)
 
@@ -91,9 +117,13 @@ Run all of these after `0001` in numeric order. They are idempotent.
 | `message_deletions` | own rows | own rows **and** message in own connection | — | own rows |
 | `chat_deletions` | own rows | own rows **and** connection involves me | — | own rows |
 | `connection_unread` | via security-invoker RLS (own rows only) | — | — | — |
+| `user_blocks` | rows where I am blocker **or** blocked | blocker = me | — | blocker = me |
 
-`messages` keeps its existing RLS; the new guard trigger adds a second,
-DB-level check that the sender is `auth.uid()` and the connection is accepted.
+`messages` keeps its existing RLS; the guard trigger adds DB-level checks
+that the sender is `auth.uid()`, the connection is accepted, and no block
+exists between the participants. `connections` keeps its existing RLS; the
+new block guard trigger adds a DB-level check that no new connection (or
+transition into `pending`/`accepted`) is possible between a blocked pair.
 
 ## Test plan (after applying the migration)
 
@@ -107,3 +137,10 @@ Run `supabase/rls-tests.sql` (uses the two existing test users). It verifies:
 - Delete-for-me and read-state writes are restricted to own data and own
   connections.
 - The unread view never leaks another user's rows.
+- Blocking: the blocked user can read but not delete the block, cannot
+  fabricate a block on someone else's behalf, cannot create or restore a
+  connection request (direct SQL and via the RPC), cannot send messages in
+  either direction while blocked — while system events still work.
+- Re-request state machine: after a decline the requester can re-request via
+  `send_connection_request()`; after a decline+block they cannot until the
+  block is removed, after which the request works again.

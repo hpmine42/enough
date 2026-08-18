@@ -34,6 +34,11 @@ production UI and should not be modified or turned into the app.
   (email/password change, delete account), version/GitHub footer
 - Connections: live search, requests with accept / decline (custom dialog) /
   cancel, 14-day expiration enforced by the database, re-request after decline
+  (works in both directions via the `send_connection_request` RPC)
+- Blocking: decline-and-block on incoming requests, block from an open chat,
+  blocked-users management in Settings (subpage), block-aware search and
+  request flows, disabled composer while blocked — all enforced in the
+  database (RLS + triggers + RPCs), never only in the UI
 - Chat: grouped bubbles, compact timestamps, long-press bottom sheet
   (copy / delete for me / delete for everyone within 24 h), per-user chat
   deletion, display-name change events, My Notes self-chat
@@ -111,6 +116,16 @@ migration:
   `hidden_until` so a later reconnect does not restore that user's history
   (added, RLS)
 - `public.connection_unread` — security-invoker view for unread counts (added)
+- `public.user_blocks` — one row per (blocker, blocked) pair with `created_at`
+  (added, RLS; unique pair, no self-blocks). Blocking is a separate security
+  dimension: it never changes `connections.status`; DB triggers reject new
+  requests and messages between a blocked pair instead.
+- `public.send_connection_request(target)` — auth-bound RPC implementing the
+  request state machine (restore after decline/expiry in both directions,
+  14-day window restart, block enforcement) (added by migration 0008)
+- `public.decline_connection(conn, block_peer)` — auth-bound RPC to decline
+  an incoming request and optionally block the requester in one step
+  (added by migration 0008)
 
 Registration includes the username and display name in Supabase Auth user
 metadata. The existing `auth.users` trigger creates the `profiles` row inside

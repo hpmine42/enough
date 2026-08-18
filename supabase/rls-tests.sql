@@ -174,5 +174,212 @@ begin
   raise notice 'RLS tests passed for users % and %.', a, b;
 end $$;
 
+-- =====================================================================
+-- Blocking (migration 0008): authorization checks
+-- =====================================================================
+do $$
+declare
+  a uuid; b uuid;
+  conn_id uuid;
+begin
+  select id into a from public.profiles order by created_at asc limit 1;
+  select id into b from public.profiles order by created_at asc offset 1 limit 1;
+  if a is null or b is null then
+    raise exception 'Need at least two profiles for RLS tests.';
+  end if;
+
+  -- Cleanup from previous runs.
+  perform public.__rls_test_set_user(a);
+  delete from public.user_blocks where blocker_id = a;
+  perform public.__rls_test_set_user(b);
+  delete from public.user_blocks where blocker_id = b;
+
+  -- ---- block lifecycle -------------------------------------------------
+  -- A blocks B.
+  perform public.__rls_test_set_user(a);
+  insert into public.user_blocks (blocker_id, blocked_id) values (a, b);
+
+  -- B can read the relation (needed to explain the block in the UI).
+  perform public.__rls_test_set_user(b);
+  if not exists (
+    select 1 from public.user_blocks where blocker_id = a and blocked_id = b
+  ) then
+    raise exception 'FAIL: B cannot see that A blocked them';
+  end if;
+
+  -- B cannot remove the block (only the blocker may).
+  delete from public.user_blocks where blocker_id = a and blocked_id = b;
+  if not exists (
+    select 1 from public.user_blocks where blocker_id = a and blocked_id = b
+  ) then
+    raise exception 'FAIL: blocked user removed the block';
+  end if;
+
+  -- B cannot fabricate a block "by A" (manipulating other users' blocks).
+  begin
+    insert into public.user_blocks (blocker_id, blocked_id) values (a, b);
+    raise exception 'FAIL: B inserted a block as A';
+  exception when insufficient_privilege or unique_violation then
+    null;
+  end;
+
+  -- ---- connection guard ------------------------------------------------
+  -- B cannot create a new connection request to A while blocked
+  -- (scenario F: direct API write must be rejected server-side).
+  begin
+    insert into public.connections (user_a, user_b, status)
+    values (b, a, 'pending');
+    raise exception 'FAIL: blocked user created a connection';
+  exception when others then
+    if sqlstate not in ('BLCKD', '42501') then
+      raise exception 'FAIL: unexpected sqlstate % (%)', sqlstate, sqlerrm;
+    end if;
+  end;
+
+  -- B cannot restore a declined attempt to pending while blocked.
+  perform public.__rls_test_set_user(a);
+  delete from public.user_blocks where blocker_id = a and blocked_id = b;
+  perform public.__rls_test_set_user(b);
+  insert into public.connections (user_a, user_b, status)
+  values (b, a, 'pending') on conflict do nothing;
+  perform public.__rls_test_set_user(a);
+  update public.connections set status = 'declined'
+   where user_a = b and user_b = a and status = 'pending';
+  insert into public.user_blocks (blocker_id, blocked_id) values (a, b);
+  perform public.__rls_test_set_user(b);
+  begin
+    update public.connections
+       set status = 'pending', created_at = now()
+     where user_a = b and user_b = a and status = 'declined';
+    raise exception 'FAIL: blocked user restored a request';
+  exception when others then
+    if sqlstate not in ('BLCKD', '42501') then
+      raise exception 'FAIL: unexpected sqlstate % (%)', sqlstate, sqlerrm;
+    end if;
+  end;
+
+  -- ---- message guard ---------------------------------------------------
+  -- Unblock, accept the pair, then block again mid-chat (scenario G).
+  perform public.__rls_test_set_user(a);
+  delete from public.user_blocks where blocker_id = a and blocked_id = b;
+  update public.connections set status = 'accepted'
+   where user_a = b and user_b = a;
+  insert into public.user_blocks (blocker_id, blocked_id) values (a, b);
+
+  -- B cannot send a message into the blocked conversation.
+  perform public.__rls_test_set_user(b);
+  begin
+    insert into public.messages (connection_id, sender_id, ciphertext)
+    select id, b, 'should fail'
+      from public.connections where user_a = b and user_b = a;
+    raise exception 'FAIL: blocked user sent a message';
+  exception when others then
+    if sqlstate not in ('BLCKD', '42501') then
+      raise exception 'FAIL: unexpected sqlstate % (%)', sqlstate, sqlerrm;
+    end if;
+  end;
+
+  -- A cannot message into it either while the block exists (the block
+  -- pauses the conversation for both sides; A controls the unblock).
+  perform public.__rls_test_set_user(a);
+  begin
+    insert into public.messages (connection_id, sender_id, ciphertext)
+    select id, a, 'should fail'
+      from public.connections where user_a = b and user_b = a;
+    raise exception 'FAIL: message into blocked conversation succeeded';
+  exception when others then
+    if sqlstate not in ('BLCKD', '42501') then
+      raise exception 'FAIL: unexpected sqlstate % (%)', sqlstate, sqlerrm;
+    end if;
+  end;
+
+  -- System events (display-name change) still work between blocked users.
+  begin
+    update public.profiles set display_name = 'name while blocked'
+     where id = a;
+  exception when others then
+    raise exception 'FAIL: name change between blocked users failed: %', sqlerrm;
+  end;
+
+  -- ---- request RPC state machine ----------------------------------------
+  -- A unblocks B, B's declined attempt is restored via the RPC.
+  perform public.__rls_test_set_user(a);
+  delete from public.user_blocks where blocker_id = a and blocked_id = b;
+  update public.connections set status = 'declined'
+   where user_a = b and user_b = a;
+  perform public.__rls_test_set_user(b);
+  perform public.send_connection_request(a);
+  if not exists (
+    select 1 from public.connections
+     where user_a = b and user_b = a and status = 'pending'
+  ) then
+    raise exception 'FAIL: re-request after decline did not restore pending';
+  end if;
+
+  -- Decline-and-block via the RPC (scenario B), then B cannot re-request.
+  select c.id into conn_id
+    from public.connections c
+   where c.user_a = b and c.user_b = a and c.status = 'pending';
+  perform public.__rls_test_set_user(a);
+  perform public.decline_connection(conn_id, true);
+  if not exists (
+    select 1 from public.connections where id = conn_id and status = 'declined'
+  ) then
+    raise exception 'FAIL: decline did not mark the request declined';
+  end if;
+  if not exists (
+    select 1 from public.user_blocks where blocker_id = a and blocked_id = b
+  ) then
+    raise exception 'FAIL: decline-and-block did not create the block';
+  end if;
+  perform public.__rls_test_set_user(b);
+  begin
+    perform public.send_connection_request(a);
+    raise exception 'FAIL: blocked user re-requested via RPC';
+  exception when others then
+    if sqlstate <> 'BLCKD' then
+      raise exception 'FAIL: unexpected sqlstate % (%)', sqlstate, sqlerrm;
+    end if;
+  end;
+
+  -- Only the recipient may decline; B cannot decline on A's behalf.
+  perform public.__rls_test_set_user(b);
+  begin
+    perform public.decline_connection(conn_id, false);
+    raise exception 'FAIL: non-recipient declined a request';
+  exception when others then
+    if sqlstate <> '42501' then
+      raise exception 'FAIL: unexpected sqlstate % (%)', sqlstate, sqlerrm;
+    end if;
+  end;
+
+  -- Unblock → B can request again (scenario E).
+  perform public.__rls_test_set_user(a);
+  delete from public.user_blocks where blocker_id = a and blocked_id = b;
+  perform public.__rls_test_set_user(b);
+  perform public.send_connection_request(a);
+  if not exists (
+    select 1 from public.connections
+     where user_a = b and user_b = a and status = 'pending'
+  ) then
+    raise exception 'FAIL: request after unblock did not work';
+  end if;
+
+  -- ---- restore the (a → b, accepted) state for re-runs -----------------
+  -- The exact base RLS policies of the connections table are
+  -- deployment-specific, so the restore is best-effort: every block
+  -- check above has already passed when this runs.
+  perform public.__rls_test_set_user(a);
+  begin
+    update public.connections
+       set user_a = a, user_b = b, status = 'accepted', created_at = now()
+     where user_a = b and user_b = a;
+  exception when others then
+    raise notice 'enough.: pair state restore skipped (%); reset the test pair manually before re-running.', sqlerrm;
+  end;
+
+  raise notice 'Block RLS tests passed for users % and %.', a, b;
+end $$;
+
 -- Cleanup helper.
 drop function if exists public.__rls_test_set_user(uuid);
