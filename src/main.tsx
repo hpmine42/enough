@@ -4,6 +4,7 @@ import App from './App';
 import { AuthProvider } from './context/AuthContext';
 import { PreferencesProvider } from './context/PreferencesContext';
 import { checkSchemaCompatibility } from './lib/api';
+import { registerServiceWorker } from './lib/pwa';
 import { bootstrapTheme, watchSystemTheme } from './lib/theme';
 import './index.css';
 
@@ -24,3 +25,6 @@ createRoot(document.getElementById('root') as HTMLElement).render(
 
 // Developer aid: warn when the DB migration is missing (see docs/MIGRATIONS.md).
 checkSchemaCompatibility();
+
+// Production-only: installable PWA shell. Never requests notification permission.
+registerServiceWorker();

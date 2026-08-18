@@ -6,8 +6,23 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-visual"
     />
-    <meta name="theme-color" content="#F2F1EC" />
+    <meta name="theme-color" content="#F2F1EC" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#191917" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="enough." />
+    <meta name="application-name" content="enough." />
+    <meta name="description" content="A deliberately minimal, one-to-one text messenger. Less, but enough." />
     <title>enough.</title>
+    <!-- Relative so GitHub Pages /enough/ and local / both resolve correctly. -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="./icons/favicon-16.png" />
+    <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <script>
       // Apply the persisted theme before first paint to avoid a flash of the
       // wrong theme. Mode: 'light' | 'dark' | 'system' (default).
@@ -19,6 +34,12 @@
           else if (mode === 'dark') dark = true;
           else dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
           if (dark) document.documentElement.classList.add('dark');
+          // Keep the installed-app status bar in sync before React mounts.
+          var color = dark ? '#191917' : '#F2F1EC';
+          var metas = document.querySelectorAll('meta[name="theme-color"]');
+          for (var i = 0; i < metas.length; i++) {
+            metas[i].setAttribute('content', color);
+          }
         } catch (e) {}
       })();
     </script>
