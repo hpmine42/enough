@@ -135,6 +135,7 @@ export default function Settings() {
 
   // email
   const [emailEditing, setEmailEditing] = useState(false);
+  const [emailConfirmOpen, setEmailConfirmOpen] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -208,13 +209,12 @@ export default function Settings() {
       setEmailNotice(null);
       return;
     }
-    // Toggle on: open the form.
+    // Toggle on: like the password change, explain the flow first (the new
+    // address only becomes active after confirming the emailed link). The
+    // actual form opens from the confirmation dialog.
     setEmailNotice(null);
     setEmailError(null);
-    setEmailEditing(true);
-    setTimeout(() => {
-      accountRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 50);
+    setEmailConfirmOpen(true);
   }
 
   useEffect(() => {
@@ -849,6 +849,23 @@ export default function Settings() {
           </a>
         </footer>
       </div>
+
+      {emailConfirmOpen && (
+        <Dialog
+          title={t('settingsScreen.emailChangeConfirmTitle')}
+          text={t('settingsScreen.emailChangeConfirmText')}
+          confirmLabel={t('confirm')}
+          cancelLabel={t('cancel')}
+          onConfirm={() => {
+            setEmailConfirmOpen(false);
+            setEmailEditing(true);
+            setTimeout(() => {
+              accountRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 50);
+          }}
+          onCancel={() => setEmailConfirmOpen(false)}
+        />
+      )}
 
       {pwConfirmOpen && (
         <Dialog

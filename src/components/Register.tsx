@@ -185,6 +185,10 @@ export default function Register() {
             {usernameHint}
           </p>
         )}
+        {/* Permanent, subtle note: the username is fixed after sign-up, so it
+            should be chosen deliberately — unlike the hints above this is not
+            a validation state and always stays visible. */}
+        <p className="field-hint muted">{t('auth.usernamePermanent')}</p>
         <input
           className="input"
           type="text"

@@ -460,6 +460,12 @@ textarea {
   color: var(--ok);
 }
 
+/* always-on helper note (e.g. permanent username hint) — presentational
+   twin of .field-hint, just without the error color so it stays subtle */
+.field-hint.muted {
+  color: var(--muted);
+}
+
 /* ---------- home ---------- */
 
 .home-screen {
