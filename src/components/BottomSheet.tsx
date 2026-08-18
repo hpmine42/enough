@@ -1,4 +1,4 @@
-import { ReactNode, useEffect } from 'react';
+import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
 interface SheetItem {
   key: string;
@@ -16,6 +16,16 @@ interface BottomSheetProps {
   onClose: () => void;
 }
 
+function closeDurationMs() {
+  if (
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  ) {
+    return 0;
+  }
+  return 180;
+}
+
 /** Bottom sheet opened by long-pressing a message (or other in-app actions). */
 export default function BottomSheet({
   title,
@@ -23,24 +33,46 @@ export default function BottomSheet({
   cancelLabel,
   onClose,
 }: BottomSheetProps) {
+  const [closing, setClosing] = useState(false);
+  const pendingSelect = useRef<(() => void) | null>(null);
+
+  const requestClose = useCallback(
+    (after?: () => void) => {
+      if (closing) return;
+      pendingSelect.current = after ?? null;
+      setClosing(true);
+    },
+    [closing],
+  );
+
+  useEffect(() => {
+    if (!closing) return;
+    const t = window.setTimeout(() => {
+      pendingSelect.current?.();
+      pendingSelect.current = null;
+      onClose();
+    }, closeDurationMs());
+    return () => window.clearTimeout(t);
+  }, [closing, onClose]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') requestClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [requestClose]);
 
   return (
     <div
-      className="sheet-backdrop"
+      className={`sheet-backdrop${closing ? ' closing' : ''}`}
       role="presentation"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) requestClose();
       }}
     >
       <div
-        className="sheet"
+        className={`sheet${closing ? ' closing' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label={title ?? cancelLabel}
@@ -51,10 +83,9 @@ export default function BottomSheet({
             <button
               key={item.key}
               className={`sheet-item${item.danger ? ' danger' : ''}`}
-              disabled={item.disabled}
+              disabled={item.disabled || closing}
               onClick={() => {
-                onClose();
-                item.onSelect();
+                requestClose(item.onSelect);
               }}
               type="button"
             >
@@ -63,7 +94,12 @@ export default function BottomSheet({
             </button>
           ))}
         </div>
-        <button className="sheet-cancel" onClick={onClose} type="button">
+        <button
+          className="sheet-cancel"
+          onClick={() => requestClose()}
+          type="button"
+          disabled={closing}
+        >
           {cancelLabel}
         </button>
       </div>

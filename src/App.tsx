@@ -74,7 +74,7 @@ export default function App() {
           <Home />
         )}
       </div>
-      {settingsMatch && <Settings />}
+      <Settings />
     </>
   );
 }
