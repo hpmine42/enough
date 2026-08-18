@@ -1095,7 +1095,7 @@ assert(
 setHash('#/settings');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
-  'settings opens to send a new request after delete',
+  'settings opens to reopen deleted chat',
 );
 const restoreSearchSection = [...dom.window.document.querySelectorAll('.settings-section')].find((section) =>
   section.querySelector('.settings-section-title')?.textContent === 'Search people',
@@ -1110,37 +1110,34 @@ await waitFor(
 restoreSearchSection.querySelector('.chat').dispatchEvent(
   new dom.window.MouseEvent('click', { bubbles: true }),
 );
+// Tapping the search result opens the existing accepted connection directly.
+// No status change to pending — avoids the RLS 42501 error.
 await waitFor(
-  () => text('.request-banner')?.includes('Request sent'),
-  'search after delete sends a new connection request',
+  () => text('.chat-peer-name') === 'Benno Schmidt',
+  'search after delete opens the chat directly (no permission error)',
+);
+assert(
+  text('.request-banner') === null,
+  'no request banner — connection stays accepted',
 );
 assert(
   ![...dom.window.document.querySelectorAll('.message')].some((m) =>
     m.textContent.includes('Hey Benno!'),
   ),
-  'old history stays hidden for the deleting user after the new request',
+  'old history stays hidden behind the cutoff',
 );
 assert(
-  db.chat_deletions.some((row) => row.connection_id === 'conn-incoming' && row.user_id === 'user-1'),
-  'reconnect does not clear the chat deletion cutoff',
-);
-const reconnected = db.connections.find((c) => c.id === 'conn-incoming');
-reconnected.status = 'accepted';
-setHash('#/');
-await waitFor(
-  () => [...dom.window.document.querySelectorAll('.chat-row .chat-name')].some(
-    (name) => name.textContent === 'Benno Schmidt',
+  db.chat_deletions.some(
+    (row) =>
+      row.connection_id === 'conn-incoming' &&
+      row.user_id === 'user-1' &&
+      row.revealed === true,
   ),
-  'accepted reconnect returns the chat to Home without a reload',
+  'chat_deletion row is marked revealed (cutoff preserved)',
 );
-click('.chat-row .chat');
-await waitFor(() => text('.chat-peer-name') === 'Benno Schmidt', 'reconnected chat opens');
-await waitFor(
-  () =>
-    ![...dom.window.document.querySelectorAll('.message')].some((m) =>
-      m.textContent.includes('Hey Benno!'),
-    ),
-  'reconnected chat stays empty of the deleted history',
+assert(
+  dom.window.document.querySelector('.composer-input')?.disabled === false,
+  'composer is active after reopening an accepted chat',
 );
 const reconnectComposer = dom.window.document.querySelector('.composer-input');
 setInputValue(reconnectComposer, 'New start');
@@ -1148,14 +1145,16 @@ reconnectComposer.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: '
 reconnectComposer.closest('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
 await waitFor(
   () => [...dom.window.document.querySelectorAll('.message')].some((m) => m.textContent.includes('New start')),
-  'new messages still work after reconnect',
+  'new messages work after reopening the deleted chat',
 );
 click('.chat-header .icon-button:first-child');
 await waitFor(
-  () => [...dom.window.document.querySelectorAll('.chat-row .chat-name')].some(
-    (name) => name.textContent === 'Benno Schmidt',
-  ),
-  'reconnected chat remains on Home after leaving',
+  () =>
+    dom.window.document.querySelector('.home-screen') !== null &&
+    [...dom.window.document.querySelectorAll('.chat-row .chat-name')].some(
+      (name) => name.textContent === 'Benno Schmidt',
+    ),
+  'revealed chat reappears on Home without a reload',
 );
 
 /* decline flow with confirmation dialog (fresh incoming request) */

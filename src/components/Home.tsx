@@ -78,6 +78,9 @@ export default function Home() {
     const visible = conns.filter((c) => {
       const until = deletions.chatUntil.get(c.id);
       if (!until) return true;
+      // A revealed chat reappears in the list (empty for the deleter,
+      // old history stays hidden behind hidden_until).
+      if (deletions.revealed.has(c.id)) return true;
       const status = effectiveStatus(c);
       if (status === 'pending' || status === 'declined' || status === 'expired') {
         return true;

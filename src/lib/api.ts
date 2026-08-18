@@ -196,18 +196,10 @@ export async function sendConnectionRequest(
       return t('errors.connectionExists');
     }
     if (existing.status === 'accepted' && deletedForMe) {
-      // Same pair row is reused. Start a fresh request without touching
-      // messages or the other user's deletion state.
-      const { error } = await supabase
-        .from('connections')
-        .update({
-          status: 'pending',
-          user_a: me,
-          user_b: otherId,
-          created_at: new Date().toISOString(),
-        })
-        .eq('id', existing.id);
-      if (error) return errorMessage(error, 'request after chat delete');
+      // Do NOT set accepted → pending — RLS blocks browser clients from
+      // downgrading an accepted connection (42501).  The caller is
+      // responsible for calling revealChatForMe() so the chat reappears
+      // in the Home list while hidden_until keeps old messages hidden.
       return null;
     }
     if (existing.user_a === me) {
@@ -382,6 +374,7 @@ export function isHiddenByChatDeletion(
 interface StoredChatDeletion {
   id: string;
   hiddenUntil: string;
+  revealed?: boolean;
 }
 
 interface StoredDeletions {
@@ -405,6 +398,7 @@ function normalizeStoredChats(raw: unknown): StoredChatDeletion[] {
         return {
           id: row.id,
           hiddenUntil: row.hiddenUntil || new Date().toISOString(),
+          revealed: row.revealed ?? false,
         };
       }
       return null;
@@ -444,6 +438,7 @@ export interface UserDeletions {
   messages: Set<string>;
   chats: Set<string>;
   chatUntil: Map<string, string>;
+  revealed: Set<string>;
 }
 
 let deletionsCache: { me: string } & UserDeletions | null = null;
@@ -451,24 +446,30 @@ let deletionsCache: { me: string } & UserDeletions | null = null;
 function mergeChatUntil(
   local: StoredChatDeletion[],
   dbRows: ChatDeletion[],
-): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const row of local) map.set(row.id, row.hiddenUntil);
-  for (const row of dbRows) {
-    const until = row.hidden_until || row.created_at;
-    if (until) map.set(row.connection_id, until);
+): { until: Map<string, string>; revealed: Set<string> } {
+  const until = new Map<string, string>();
+  const revealed = new Set<string>();
+  for (const row of local) {
+    until.set(row.id, row.hiddenUntil);
+    if (row.revealed) revealed.add(row.id);
   }
-  return map;
+  for (const row of dbRows) {
+    const t = row.hidden_until || row.created_at;
+    if (t) until.set(row.connection_id, t);
+    if (row.revealed) revealed.add(row.connection_id);
+  }
+  return { until, revealed };
 }
 
 async function loadDeletions(me: string): Promise<UserDeletions> {
   const local = deletionStorage.read(me);
   if (!supabase) {
-    const chatUntil = mergeChatUntil(local.chats, []);
+    const { until: chatUntil, revealed } = mergeChatUntil(local.chats, []);
     const merged: UserDeletions = {
       messages: new Set(local.messages),
       chats: new Set(chatUntil.keys()),
       chatUntil,
+      revealed,
     };
     deletionsCache = { me, ...merged };
     return merged;
@@ -477,16 +478,17 @@ async function loadDeletions(me: string): Promise<UserDeletions> {
     supabase.from('message_deletions').select('message_id').eq('user_id', me),
     supabase
       .from('chat_deletions')
-      .select('connection_id, hidden_until, created_at')
+      .select('connection_id, hidden_until, created_at, revealed')
       .eq('user_id', me),
   ]);
   const dbMessages = (msgRes.data ?? []) as Pick<MessageDeletion, 'message_id'>[];
   const dbChats = (chatRes.data ?? []) as ChatDeletion[];
-  const chatUntil = mergeChatUntil(local.chats, dbChats);
+  const { until: chatUntil, revealed } = mergeChatUntil(local.chats, dbChats);
   const merged: UserDeletions = {
     messages: new Set([...local.messages, ...dbMessages.map((m) => m.message_id)]),
     chats: new Set(chatUntil.keys()),
     chatUntil,
+    revealed,
   };
   deletionsCache = { me, ...merged };
   return merged;
@@ -526,12 +528,17 @@ export async function deleteChatForMe(
   const hiddenUntil = new Date().toISOString();
   const local = deletionStorage.read(me);
   const existing = local.chats.find((c) => c.id === connectionId);
-  if (existing) existing.hiddenUntil = hiddenUntil;
-  else local.chats.push({ id: connectionId, hiddenUntil });
+  if (existing) {
+    existing.hiddenUntil = hiddenUntil;
+    existing.revealed = false;
+  } else {
+    local.chats.push({ id: connectionId, hiddenUntil, revealed: false });
+  }
   deletionStorage.write(me, local);
   if (deletionsCache?.me === me) {
     deletionsCache.chats.add(connectionId);
     deletionsCache.chatUntil.set(connectionId, hiddenUntil);
+    deletionsCache.revealed.delete(connectionId);
   }
   if (supabase) {
     const { error } = await supabase.from('chat_deletions').upsert(
@@ -539,6 +546,7 @@ export async function deleteChatForMe(
         connection_id: connectionId,
         user_id: me,
         hidden_until: hiddenUntil,
+        revealed: false,
       },
       { onConflict: 'connection_id,user_id' },
     );
@@ -578,11 +586,37 @@ export async function restoreChatForMe(
   if (deletionsCache?.me === me) {
     deletionsCache.chats.delete(connectionId);
     deletionsCache.chatUntil.delete(connectionId);
+    deletionsCache.revealed.delete(connectionId);
   }
   if (supabase) {
     await supabase
       .from('chat_deletions')
       .delete()
+      .eq('connection_id', connectionId)
+      .eq('user_id', me);
+  }
+}
+
+/**
+ * Re-show a previously deleted chat in the Home list while keeping the
+ * hidden_until cutoff.  Old messages remain hidden; new messages work
+ * normally.  Called when the user rediscoveres the same person via search.
+ */
+export async function revealChatForMe(
+  me: string,
+  connectionId: string,
+): Promise<void> {
+  const local = deletionStorage.read(me);
+  const entry = local.chats.find((c) => c.id === connectionId);
+  if (entry) entry.revealed = true;
+  deletionStorage.write(me, local);
+  if (deletionsCache?.me === me) {
+    deletionsCache.revealed.add(connectionId);
+  }
+  if (supabase) {
+    await supabase
+      .from('chat_deletions')
+      .update({ revealed: true })
       .eq('connection_id', connectionId)
       .eq('user_id', me);
   }
@@ -708,6 +742,7 @@ export async function checkSchemaCompatibility(): Promise<void> {
     { table: 'connection_reads', column: 'user_id' },
     { table: 'connection_unread', column: 'unread' },
     { table: 'chat_deletions', column: 'hidden_until' },
+    { table: 'chat_deletions', column: 'revealed' },
   ];
   const client = supabase;
   const missing: string[] = [];
