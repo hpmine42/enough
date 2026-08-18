@@ -666,11 +666,13 @@ textarea {
   inset: 0;
   z-index: 40;
   background: var(--bg);
-  transform: translateX(100%);
+  transform: translateX(56px);
+  opacity: 0;
   visibility: hidden;
   pointer-events: none;
   transition:
     transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.3s ease,
     visibility 0s linear 0.3s;
   display: flex;
   flex-direction: column;
@@ -678,10 +680,12 @@ textarea {
 
 .settings-overlay.open {
   transform: translateX(0);
+  opacity: 1;
   visibility: visible;
   pointer-events: auto;
   transition:
     transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.3s ease,
     visibility 0s;
 }
 
@@ -1010,6 +1014,11 @@ textarea {
   animation: fade-in 0.18s ease-out;
 }
 
+.sheet-backdrop.closing {
+  pointer-events: none;
+  animation: fade-out 0.18s ease-in forwards;
+}
+
 .dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -1059,6 +1068,12 @@ textarea {
   }
 }
 
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
 @keyframes dialog-in {
   from {
     opacity: 0;
@@ -1076,6 +1091,10 @@ textarea {
   border-radius: 18px 18px 0 0;
   padding: 10px 16px calc(env(safe-area-inset-bottom) + 14px);
   animation: sheet-in 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.sheet.closing {
+  animation: sheet-out 0.18s ease-in forwards;
 }
 
 .sheet-title {
@@ -1142,6 +1161,13 @@ textarea {
 
 @keyframes sheet-in {
   from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+
+@keyframes sheet-out {
+  to {
     opacity: 0;
     transform: translateY(24px);
   }
