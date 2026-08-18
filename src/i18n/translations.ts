@@ -94,6 +94,7 @@ export const translations = {
       representedBy: 'Represented by',
       contact: 'Contact',
       email: 'Email',
+      phone: 'Phone',
       registerEntry: 'Register entry',
       registerCourt: 'Register court',
       registerNumber: 'Register number',

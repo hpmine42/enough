@@ -246,7 +246,7 @@ export default function Settings() {
     return () => {
       active = false;
     };
-  }, [me]);
+  }, [me, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -421,13 +421,18 @@ export default function Settings() {
   }
 
   async function openConversation(other: Profile) {
-    const existing = connections.find(
+    // Connections may have been changed from Chat or Home while Settings was
+    // mounted. Re-read before navigating: a stale, deleted connection ID
+    // would otherwise send the user to a conversation that no longer exists.
+    const freshConnections = await getMyConnections(me);
+    setConnections(freshConnections);
+    const existing = freshConnections.find(
       (c) =>
         (c.user_a === me && c.user_b === other.id) ||
         (c.user_a === other.id && c.user_b === me),
     );
     if (existing) {
-      // If this chat was deleted for me, restore it so it shows in the list.
+      // If this chat was deleted for me, restore that exact connection.
       const deletions = await loadDeletionsForUser(me);
       if (deletions.chats.has(existing.id)) {
         await restoreChatForMe(me, existing.id);

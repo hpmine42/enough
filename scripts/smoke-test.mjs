@@ -220,6 +220,14 @@ globalThis.fetch = async (input, init = {}) => {
       return v.startsWith(`${op}.`) ? v.slice(op.length + 1) : null;
     };
     const eq = (key) => filterParam(key, 'eq');
+    // Model PostgREST's ordinary equality filters for every table. Keeping
+    // deletion/read endpoints unfiltered hid incorrect client queries.
+    const applyEqFilters = (rows) =>
+      rows.filter((row) =>
+        [...params.entries()].every(([key, value]) =>
+          !value.startsWith('eq.') || String(row[key]) === value.slice(3),
+        ),
+      );
     const headers = init.headers ?? {};
     const accept = typeof headers.get === 'function' ? headers.get('Accept') ?? '' : headers.Accept ?? '';
     const prefer = typeof headers.get === 'function' ? headers.get('Prefer') ?? '' : headers.Prefer ?? '';
@@ -338,7 +346,7 @@ globalThis.fetch = async (input, init = {}) => {
         break;
       }
       case 'message_deletions': {
-        if (method === 'GET') return jsonResponse(db.message_deletions);
+        if (method === 'GET') return jsonResponse(applyEqFilters(db.message_deletions));
         if (method === 'POST') {
           db.message_deletions.push(body);
           return jsonResponse([body]);
@@ -346,7 +354,7 @@ globalThis.fetch = async (input, init = {}) => {
         break;
       }
       case 'chat_deletions': {
-        if (method === 'GET') return jsonResponse(db.chat_deletions);
+        if (method === 'GET') return jsonResponse(applyEqFilters(db.chat_deletions));
         if (method === 'POST') {
           db.chat_deletions.push(body);
           return jsonResponse([body]);
@@ -360,7 +368,7 @@ globalThis.fetch = async (input, init = {}) => {
         break;
       }
       case 'connection_reads': {
-        if (method === 'GET') return jsonResponse(db.connection_reads);
+        if (method === 'GET') return jsonResponse(applyEqFilters(db.connection_reads));
         if (method === 'POST') {
           const existing = db.connection_reads.find(
             (r) => r.connection_id === body.connection_id && r.user_id === body.user_id,
@@ -1232,12 +1240,18 @@ await waitFor(
   'My Notes appears again immediately after leaving settings',
 );
 const notesRowAgain = [...dom.window.document.querySelectorAll('.chat-row .chat')].find((r) => r.textContent.includes('My Notes'));
-notesRowAgain.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-await waitFor(() => text('.chat-peer-name') === 'My Notes', 're-enabled My Notes chat opens');
-await waitFor(
-  () => text('.chat-empty') === 'No messages yet.',
-  'My Notes is empty after re-enabling',
-);
+if (!notesRowAgain) {
+  // Keep later, independent account-flow coverage running when an earlier
+  // assertion fails instead of masking it with a TypeError.
+  assert(false, 're-enabled My Notes row is actionable');
+} else {
+  notesRowAgain.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await waitFor(() => text('.chat-peer-name') === 'My Notes', 're-enabled My Notes chat opens');
+  await waitFor(
+    () => text('.chat-empty') === 'No messages yet.',
+    'My Notes is empty after re-enabling',
+  );
+}
 setHash('#/settings');
 await waitFor(() => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'), 'settings open for delete account');
 const deleteAccountBtn = [...dom.window.document.querySelectorAll('.settings-row')].find((r) =>
