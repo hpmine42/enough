@@ -1248,8 +1248,23 @@ textarea {
   margin-top: 4px;
   cursor: default;
   touch-action: manipulation;
+}
+
+/*
+ * A message is an action surface, not a document selection surface. Keep
+ * this scoped to the bubble and explicitly cover every rendered markdown
+ * element so browser-specific user-select inheritance cannot re-enable
+ * selection for headings, links, code, lists, or the timestamp.
+ *
+ * This deliberately does not disable selection on .messages, the app, or
+ * the standalone PWA body. The copy action uses its own clipboard/fallback
+ * path and is unaffected by this rule.
+ */
+.message,
+.message * {
   -webkit-user-select: none;
   user-select: none;
+  -webkit-touch-callout: none;
 }
 
 @keyframes msg-in {
@@ -1991,17 +2006,5 @@ textarea {
 
   body {
     overscroll-behavior-y: none;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-
-  /* Re-enable selection where it matters (messages, inputs). */
-  input,
-  textarea,
-  [contenteditable='true'],
-  .message,
-  .md-root {
-    user-select: text;
-    -webkit-user-select: text;
   }
 }
