@@ -5,6 +5,59 @@ as SQL files you run yourself in the Supabase dashboard (SQL editor) or with the
 Supabase CLI. **Apply all migrations, not only `0001`.** Without them the app
 still opens but database-backed features degrade or remain unavailable.
 
+## Verified deployment state (after `0009`)
+
+The files in `supabase/migrations/` (`0001`–`0009`) are the **versioned
+backend and security history** of this project. This section documents the
+**live production state** as it was inspected and verified after the
+successful deployment of `0009`:
+
+- The original Supabase **base schema** (`profiles`, `connections`, `messages`
+  and their base constraints/triggers, including the `auth.users → profiles`
+  signup trigger) originates from an **external Supabase template that is not
+  part of this repository**.
+- Before `0009`, the live project additionally carried **permissive template
+  policies** on the core tables. These came from that external template —
+  **not** from the repository migrations `0001`–`0008` (every policy defined
+  by `0001`–`0008` is restrictive and still intended).
+- During the deployment of `0009`, these permissive template policies were
+  removed **once and manually, after live inspection**. This manual step is
+  not (and cannot be) part of a migration file, because `0009` deliberately
+  drops and re-creates **only the policies it defines itself**: it
+  intentionally does not remove unknown third-party/template policies under
+  unknown names (permissive policies are OR-ed, which is exactly why the
+  manual inspection was required — see the `0009` migration header).
+
+The production state was verified after the `0009` deployment through direct
+live queries. Confirmed:
+
+- **RLS is enabled** on all relevant tables.
+- The **new policies from `0009`** are present on `profiles`, `connections`
+  and `messages`.
+- The **old permissive template policies are removed**.
+- The **relevant security triggers** are present (the guard triggers:
+  `guard_message_insert`, `guard_message_update`, `guard_profile_update`,
+  `guard_connection_update`, `guard_blocked_connection_write`).
+- The **relevant security-definer RPCs** are present (`check_username_taken`,
+  `delete_own_account`, `ensure_my_notes`, `remove_my_notes`,
+  `send_connection_request`, `decline_connection`).
+- The **required grants for `authenticated`** on `profiles`, `connections`
+  and `messages` are present.
+
+**The current production state is therefore correct and verified.**
+
+Two documented consequences for the future:
+
+- A completely fresh Supabase environment **cannot be reproduced from this
+  repository alone**: the external base schema and the one-time manual removal
+  of the template policies lie outside the migrations. Full reproducibility
+  (e.g. a new staging or disaster-recovery project) would additionally require
+  a **versioned schema baseline or a database dump of the external base
+  schema**.
+- There is **currently no need for a migration `0010`** on the production
+  database: the live state is verified correct and all existing migrations
+  are idempotent.
+
 ## How to run
 
 1. Open your Supabase project → **SQL Editor**.
