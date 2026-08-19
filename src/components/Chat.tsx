@@ -519,12 +519,23 @@ export default function Chat({ connectionId }: { connectionId: string }) {
 
   async function handleRequestAgain() {
     if (!conn || !peer) return;
+    const prevConn = conn;
     setBusyId(conn.id);
     setError(null);
+    // Immediate visual feedback: optimistically transition state to pending outgoing request.
+    setConn({
+      ...conn,
+      user_a: me,
+      user_b: peer.id,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    });
     const err = await sendConnectionRequest(me, peer.id);
     setBusyId(null);
-    if (err) setError(err);
-    else {
+    if (err) {
+      setConn(prevConn);
+      setError(err);
+    } else {
       const fresh = await getConnection(conn.id);
       if (fresh) setConn(fresh);
     }
@@ -778,7 +789,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
                     disabled={busyId === conn?.id}
                     onClick={handleAccept}
                   >
-                    {t('connection.accept')}
+                    {busyId === conn?.id ? t('loading') : t('connection.accept')}
                   </button>
                   <button
                     type="button"
@@ -802,7 +813,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
                 disabled={busyId === conn?.id}
                 onClick={handleCancelRequest}
               >
-                {t('connection.cancelRequest')}
+                {busyId === conn?.id ? t('loading') : t('connection.cancelRequest')}
               </button>
             </div>
           )}
@@ -826,7 +837,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
                   disabled={busyId === conn?.id}
                   onClick={handleRequestAgain}
                 >
-                  {t('connection.requestAgain')}
+                  {busyId === conn?.id ? t('loading') : t('connection.requestAgain')}
                 </button>
               )}
             </div>
@@ -845,7 +856,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
                   disabled={busyId === conn?.id}
                   onClick={handleRequestAgain}
                 >
-                  {t('connection.requestAgain')}
+                  {busyId === conn?.id ? t('loading') : t('connection.requestAgain')}
                 </button>
               )}
             </div>
