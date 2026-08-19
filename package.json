@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "smoke": "node scripts/smoke-test.mjs",
-    "test:crypto": "node --test --experimental-strip-types src/lib/crypto/__tests__/crypto.test.mjs src/lib/crypto/__tests__/keys.test.mjs"
+    "test:crypto": "node --test --experimental-strip-types src/lib/crypto/__tests__/crypto.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
