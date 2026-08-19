@@ -21,7 +21,7 @@ export async function getMyProfile(id: string): Promise<Profile | null> {
   if (!supabase) return null;
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, username, display_name, created_at')
+    .select('id, username, display_name, created_at, identity_public_key')
     .eq('id', id)
     .single();
   if (error) return null;
@@ -104,7 +104,7 @@ export async function searchUsers(
   if (!supabase) return [];
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, username, display_name')
+    .select('id, username, display_name, identity_public_key')
     .ilike('username', `${query}%`)
     .neq('id', me)
     .limit(10);
@@ -127,6 +127,55 @@ export async function updateMyDisplayName(
   // error on RLS-filtered writes) — surface it instead of pretending it saved.
   if (!data || data.length === 0) return t('errors.displayNameFailed');
   return null;
+}
+
+/**
+ * Publish the user's public identity key for E2EE.
+ * Only the public key (base64, 32 bytes) is ever sent; private keys
+ * remain non-extractable in IndexedDB and are never serialized.
+ * The column `profiles.identity_public_key` is nullable for backward
+ * compatibility; this update is idempotent per user.
+ */
+export async function updateMyIdentityPublicKey(
+  me: string,
+  publicKeyBase64: string,
+): Promise<string | null> {
+  if (!supabase) return t('errors.network');
+  if (!publicKeyBase64 || typeof publicKeyBase64 !== 'string') {
+    return 'Invalid public key.';
+  }
+  // Basic sanity: base64 should decode to 32 bytes. Avoid sending garbage
+  // that would break peer key agreement later.
+  try {
+    const bytes = atob(publicKeyBase64);
+    if (bytes.length !== 32) return 'Invalid public key length.';
+  } catch {
+    return 'Invalid public key encoding.';
+  }
+  // Only the public key field is sent — never private material.
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ identity_public_key: publicKeyBase64 })
+    .eq('id', me)
+    .select('id');
+  if (error) return errorMessage(error, 'profile identity_public_key update');
+  if (!data || data.length === 0) return t('errors.generic');
+  return null;
+}
+
+/**
+ * Fetch the current user's public identity key from their profile.
+ * Returns null if not set or on error.
+ */
+export async function getMyIdentityPublicKey(me: string): Promise<string | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('identity_public_key')
+    .eq('id', me)
+    .maybeSingle();
+  if (error || !data) return null;
+  return (data as { identity_public_key: string | null }).identity_public_key ?? null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -161,7 +210,7 @@ export async function getProfiles(
   if (!supabase || ids.length === 0) return {};
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, username, display_name')
+    .select('id, username, display_name, identity_public_key')
     .in('id', ids);
   if (error) return {};
   const map: Record<string, Profile> = {};
@@ -958,6 +1007,7 @@ export async function checkSchemaCompatibility(): Promise<void> {
   if (!supabase) return;
   const probes: Array<{ table: string; column: string }> = [
     { table: 'profiles', column: 'display_name' },
+    { table: 'profiles', column: 'identity_public_key' },
     { table: 'messages', column: 'kind' },
     { table: 'connection_reads', column: 'user_id' },
     { table: 'connection_unread', column: 'unread' },
