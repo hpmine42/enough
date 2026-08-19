@@ -9,7 +9,7 @@ still opens but database-backed features degrade or remain unavailable.
 
 1. Open your Supabase project → **SQL Editor**.
 2. Run the full contents of every file in `supabase/migrations/` in numeric
-   order (`0001` → `0008`). Each migration is idempotent and safe to run again
+   order (`0001` → `0009`). Each migration is idempotent and safe to run again
    after pulling a frontend update.
 3. Optional but recommended: run `supabase/rls-tests.sql` to verify the
    authorization model with your two existing test users.
@@ -78,6 +78,28 @@ normal connection requests.
   - creates `public.decline_connection(conn, block_peer)` — decline an
     incoming request and optionally block the requester in one step
     (recipient-only, idempotent).
+- `0009_explicit_base_rls.sql` — v0.2: explicit, reproducible base RLS for
+  the three core tables (previously only present in the untracked project
+  template):
+  - enables RLS on `profiles` / `connections` / `messages` (idempotent),
+  - `messages`: SELECT only for participants of the connection; INSERT
+    policy mirroring `guard_message_insert`; UPDATE only for the sender;
+    a new BEFORE UPDATE trigger (`guard_message_update`) enforces the
+    delete-for-everyone semantics server-side — only `deleted_at` (null →
+    now, once, within 24 h) and clearing `ciphertext` are allowed, all other
+    columns are immutable; no direct DELETE for client roles,
+  - `profiles`: SELECT for all authenticated users (search); INSERT own
+    profile; UPDATE only own profile and only `display_name`
+    (`guard_profile_update`); no direct DELETE,
+  - `connections`: SELECT only for participants; INSERT only the caller's
+    own outgoing `pending` request (no self-requests); UPDATE only for
+    participants with a `guard_connection_update` state machine (recipient
+    accepts/declines, requester re-opens); DELETE only the caller's own
+    pending request,
+  - explicit `grant`/`revoke` on the three tables for `anon`/`authenticated`,
+  - re-creates `send_connection_request` and `delete_own_account` to set a
+    transaction-local trusted flag so their privileged connection writes
+    pass the new state machine.
 
 Run all of these after `0001` in numeric order. They are idempotent.
 
@@ -119,11 +141,12 @@ Run all of these after `0001` in numeric order. They are idempotent.
 | `connection_unread` | via security-invoker RLS (own rows only) | — | — | — |
 | `user_blocks` | rows where I am blocker **or** blocked | blocker = me | — | blocker = me |
 
-`messages` keeps its existing RLS; the guard trigger adds DB-level checks
-that the sender is `auth.uid()`, the connection is accepted, and no block
-exists between the participants. `connections` keeps its existing RLS; the
-new block guard trigger adds a DB-level check that no new connection (or
-transition into `pending`/`accepted`) is possible between a blocked pair.
+`messages` and `connections` base RLS is defined explicitly in `0009` (see
+above); the `0001`/`0008` guard triggers add DB-level checks on top: the
+message insert guard enforces that the sender is `auth.uid()`, the
+connection is accepted, and no block exists between the participants; the
+connection guard enforces that no new connection (or transition into
+`pending`/`accepted`) is possible between a blocked pair.
 
 ## Test plan (after applying the migration)
 
@@ -133,7 +156,10 @@ Run `supabase/rls-tests.sql` (uses the two existing test users). It verifies:
 - A cannot accept a request addressed to B; B cannot create a request as A.
 - Messaging works in accepted connections; message insert into declined
   connections is rejected by the database.
-- A can delete their own message for everyone; B cannot.
+- A can delete their own message for everyone; B cannot; an uninvolved user
+  cannot; content cannot be edited; immutable columns (`sender_id`,
+  `connection_id`, …) cannot be changed; delete-for-everyone is rejected
+  after 24 h.
 - Delete-for-me and read-state writes are restricted to own data and own
   connections.
 - The unread view never leaks another user's rows.
