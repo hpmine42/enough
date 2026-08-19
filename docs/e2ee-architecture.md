@@ -401,6 +401,10 @@ src/lib/crypto/
   identity.ts       Identity-Key-Generierung, Speichern, Laden, Export des Public-Anteils
   prekeys.ts        Signed PreKey + One-Time PreKeys (generieren, signieren, persistieren)
   serialization.ts  Oeffentliche Schluessel <-> Base64/Uint8Array (ohne private Anteile!)
+  key-agreement.ts  (E2EE-2A) X25519 Shared Secret als nicht-exportierbarer HKDF-CryptoKey
+  kdf.ts            (E2EE-2A) HKDF-SHA-256 (Message-Key-Ableitung, Domain Separation)
+  symmetric.ts      (E2EE-2A) AES-256-GCM encrypt/decrypt mit 96-Bit-Random-Nonce und AAD
+  primitives.ts     (E2EE-2A) Barrel der Primitive-Schicht (nicht aus index.ts exportiert)
   errors.ts         Eigene Crypto-Fehler (ohne geheime Inhalte in message/stack)
   __tests__/        Tests (Storage, Identity, Serialization, Security)
   README.md         Developer-Doku
@@ -439,6 +443,7 @@ src/lib/crypto/
 
 - **2026-08-19 — E2EE-1A:** Initiale Architektur-Entscheidung. Empfehlung: Web-Crypto-basierter Identity/Storage-Layer, keine produktive Nachrichtenverschluesselung in E2EE-1.
 - **2026-08-19 — E2EE-1C:** Security-Review der implementierten Infrastruktur (Details siehe §19).
+- **2026-08-19 — E2EE-2A:** Lokale Primitive-Schicht (X25519 -> HKDF-SHA-256 -> AES-256-GCM) additiv ergaenzt, ohne produktive Integration (Details siehe §20).
 
 ---
 
@@ -651,3 +656,114 @@ $ npm run test:crypto
    - eine Testabdeckung fuer die Session-/Ratchet-Schicht auf dem Niveau der vorliegenden Tests (reale Export-Fehlschlag-Pruefungen, User-Isolation, Race-Conditions, Corruption) vorhanden sein,
    - `sendMessage()`-Verschluesselung und `getMessagesPage()`-Entschluesselung hinter dem bestehenden Crypto-Layer eingefuegt werden, ohne die bestehende API-Struktur zu zerbrechen.
 3. Solange keine der in (1) genannten Bibliotheken sauber integrierbar ist, bleibt der produktive Nachrichtenfluss Klartext (wie bisher).
+
+---
+
+## 20. E2EE-2A — Primitive Layer
+
+**Phase:** E2EE-2A (Crypto-Session-Primitives, Phase 1)
+**Status:** implementiert, **nicht produktiv angebunden**
+**Kurzfassung:** `Primitive only; not a Signal/X3DH/Double-Ratchet implementation.`
+
+### 20.1 Zweck
+
+E2EE-2A liefert ausschliesslich die **lokale kryptografische Grundschicht**, auf
+der ein spaeteres, etabliertes Session-Protokoll (PQXDH + Double Ratchet, siehe
+[`e2ee-session-architecture.md`](./e2ee-session-architecture.md), Gate-Status in
+[`e2ee-implementation-feasibility.md`](./e2ee-implementation-feasibility.md))
+aufsetzen kann:
+
+```
+   X25519 Shared Secret          key-agreement.ts   deriveSharedSecret()
+            |
+            v
+      HKDF-SHA-256                kdf.ts            deriveMessageKey() / deriveKeyBytes()
+            |
+            v
+     AES-256-GCM Key
+            |
+            v
+   lokale encrypt / decrypt       symmetric.ts      encryptBytes() / decryptBytes()
+            |
+            v
+        Tests                     __tests__/primitives.test.mjs
+```
+
+Alle Primitive stammen aus der **nativen Web Crypto API**. Es wurde **keine
+neue Abhaengigkeit** installiert, keine eigene Kurvenarithmetik, keine eigene
+AEAD-Implementierung und kein eigenes Protokoll geschrieben.
+
+### 20.2 Module (additiv)
+
+```
+src/lib/crypto/
+  key-agreement.ts  X25519 Diffie-Hellman -> nicht-exportierbarer HKDF-CryptoKey
+  kdf.ts            HKDF-SHA-256: deriveMessageKey (AES-256-GCM), deriveKeyBytes, hkdfInfo, generateSalt
+  symmetric.ts      AES-256-GCM: encryptBytes/decryptBytes (96-Bit-Random-Nonce, optionale AAD)
+  primitives.ts     Barrel der Primitive-Schicht (bewusst NICHT aus index.ts re-exportiert)
+```
+
+Bestehende Helfer werden wiederverwendet, nicht dupliziert:
+`serialization.ts` (`bytesToBase64` / `base64ToBytes` / `toBufferSource`),
+`errors.ts` (`CryptoError`), `keys.ts` (`generateIdentityKeyPair` /
+`importPublicKey`). `identity.ts`, `prekeys.ts`, `storage.ts`, `index.ts`,
+`types.ts` und die IndexedDB-Struktur bleiben unveraendert.
+
+### 20.3 Kryptografische Parameter
+
+| Baustein | Parameter |
+|---|---|
+| **X25519** | Web Crypto `deriveBits`, 32-Byte Shared Secret. Privater Schluessel MUSS `extractable: false` sein (wird geprueft). Ergebnis wird sofort als **nicht-exportierbarer `HKDF`-CryptoKey** importiert; der Byte-Puffer wird genullt. All-Zero-Ergebnis (Small-Order-Punkt) wird abgelehnt. |
+| **HKDF** | SHA-256, ein Extract-and-Expand-Schritt pro Aufruf. Kein Key-Schedule, keine Chain/Root-Keys. |
+| **Salt** | **oeffentlich, nicht geheim**, pro Ableitung frisch via `generateSalt()` (32 Byte). Kein fester globaler "Geheim-Salt" — das waere Security-Theater. Leerer Salt ist nur zugelassen, weil RFC 5869 ihn definiert (Known-Answer-Tests). |
+| **Domain Separation** | ueber `info`: `hkdfInfo(label)` erzeugt `enough.e2ee.primitive.v1/<label>`. Der Namespace macht explizit, dass dies **nicht** die spaeteren Protokoll-Labels sind. |
+| **AES-256-GCM** | 256-Bit-Schluessel (`extractable: false`), 128-Bit-Tag, **96-Bit-Nonce pro Aufruf frisch** aus `crypto.getRandomValues()`. Es gibt bewusst **keine** API, um beim Verschluesseln einen Nonce vorzugeben (Nonce-Reuse-Schutz). Nonce ist oeffentlich und wird mit dem Ciphertext gefuehrt. |
+| **AAD** | optional (`aad?: Uint8Array`), authentifiziert aber nicht verschluesselt. Das **produktive AAD-Format ist noch nicht festgelegt** (spaeter z. B. `protocolVersion`, `connectionId`, `senderDeviceId`, `recipientDeviceId`). |
+| **Container** | `{ version: 1, nonce, ciphertext }` (Base64) — **nur konzeptionell/Test**, ausdruecklich **kein** `messages`-DB-Format und kein Wire-Format. |
+
+### 20.4 Standardisierte Testvektoren
+
+- **X25519:** RFC 7748 §6.1 (Alice/Bob-Vektor, erwartetes Shared Secret
+  `4a5d9d5b…161742`) — geprueft ohne Export des Secrets, ueber Vergleich der
+  HKDF-Ableitungen.
+- **HKDF-SHA-256:** RFC 5869 Test Case 1, 2 und 3.
+- **AES-256-GCM:** McGrew/Viega GCM-Spezifikation, AES-256 Test Case 13, 14
+  und 16 (Test Case 16 inklusive AAD) — jeweils gegen `decryptBytes()`.
+
+Es wurden keine eigenen "Expected Values" erfunden.
+
+### 20.5 Security-Grenzen dieser Phase
+
+- Private Keys, Shared Secrets und AES-Keys existieren ausschliesslich als
+  **nicht-exportierbare `CryptoKey`-Objekte** im Browser. `exportKey()` wird in
+  der Primitive-Schicht nirgends aufgerufen.
+- Kein `console.*` in den neuen Modulen; `CryptoError`-Meldungen enthalten kein
+  Schluessel-, Nonce- oder Klartextmaterial.
+- Kein Zugriff auf Supabase, Netzwerk, IndexedDB, `localStorage`,
+  `sessionStorage`, Cookies, URLs oder React-State aus der Primitive-Schicht.
+- **Keine produktive Integration:** `src/lib/api.ts` (inkl. `sendMessage()` /
+  `getMessagesPage()`), `Chat.tsx`, `MessageBubble.tsx`, `MessageComposer.tsx`,
+  das `messages`-Schema, die RLS-Struktur und die Supabase-Migrationen sind
+  unveraendert. Die neuen Funktionen werden ausschliesslich von Tests benutzt
+  und landen (mangels Import) nicht im Produktions-Bundle.
+
+### 20.6 Ausdruecklich NICHT implementiert
+
+X3DH · PQXDH · Double Ratchet · Triple Ratchet · Session Establishment ·
+Forward Secrecy · Post-Compromise Security · Replay-Schutz auf
+Protokollebene · Key Verification / Safety Numbers · Multi-Device ·
+Offline Session Negotiation · Key-Backup/Recovery · produktive
+Nachrichtenverschluesselung.
+
+Keine dieser Eigenschaften entsteht als Nebenprodukt der Primitive-Schicht.
+Ein einzelnes X25519-DH mit statischen Identity-Keys liefert insbesondere
+**keine** Forward Secrecy — dafuer ist zwingend ein Ratchet-Protokoll noetig
+(E2EE-2B+).
+
+### 20.7 Validierung
+
+```
+npm run test:crypto   -> 87 Tests (46 bestehend + 41 neu), 0 Fehler
+npm run build         -> tsc --noEmit + vite build: PASS
+npm run smoke         -> PASS
+```

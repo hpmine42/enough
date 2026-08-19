@@ -134,3 +134,75 @@ from an **X25519** key — Ed25519 must never be written there.
   change (`id`/`username`/`created_at` and all other columns are immutable).
   The new column inherits those policies — no new permissive policy is
   introduced. If X25519 is unavailable, no alternative key is stored.
+
+---
+
+# E2EE-2A — Primitive Layer (additive, NOT wired into the app)
+
+> **Primitive only; not a Signal/X3DH/PQXDH/Double-Ratchet implementation.**
+
+E2EE-2A adds the local cryptographic building blocks that a future, vetted
+session protocol can sit on top of. It changes nothing about the existing
+E2EE-1 identity/prekey infrastructure and nothing about the message flow:
+`sendMessage()` still writes plaintext to `messages.ciphertext`.
+
+```
+X25519 shared secret  →  HKDF-SHA-256  →  AES-256-GCM key  →  local encrypt/decrypt  →  tests
+```
+
+## Modules
+
+| File | Contents |
+|---|---|
+| `key-agreement.ts` | `deriveSharedSecret(myPrivateKey, peerPublicKey)` — X25519 only. Returns a **non-extractable `HKDF` CryptoKey**; the 32 raw secret bytes are never handed to callers (the transient buffer is zeroed). Rejects extractable private keys, non-X25519 keys, wrong key roles and degenerate (all-zero) results. |
+| `kdf.ts` | `deriveMessageKey(sharedSecret, salt, info)` → non-extractable AES-256-GCM key; `deriveKeyBytes(...)` → raw octets (KATs / future protocol use); `importKeyMaterial(ikm)`, `generateSalt(n = 32)`, `hkdfInfo(label)`. |
+| `symmetric.ts` | `encryptBytes(key, plaintext, aad?)` → `{ nonce, ciphertext }`; `decryptBytes(key, ciphertext, nonce, aad?)`; `generateNonce()`, `generateLocalAesKey()`, `importAesKey(raw)`, plus a **test-only** `{ version, nonce, ciphertext }` container. |
+| `primitives.ts` | Barrel for the three modules above. **Deliberately not re-exported from `index.ts`** so the "no production integration" boundary is mechanically testable. |
+
+Reused (not duplicated): `serialization.ts` (`bytesToBase64`, `base64ToBytes`,
+`toBufferSource`), `errors.ts` (`CryptoError`), `keys.ts`
+(`generateIdentityKeyPair`, `importPublicKey`).
+
+## Parameters and rules
+
+- **X25519** via `crypto.subtle.deriveBits`; private keys stay
+  `extractable: false` and are never exported.
+- **HKDF-SHA-256**, one extract-and-expand step per call. No key schedule, no
+  chain/root keys, no ratchet.
+- **Salt is public**, freshly random per derivation (`generateSalt()`). There
+  is no fixed global "secret salt" — that would be security theatre. An empty
+  salt is accepted only because RFC 5869 defines it (needed for the KATs).
+- **Domain separation via `info`**: `hkdfInfo('label')` yields
+  `enough.e2ee.primitive.v1/label`. The `primitive.v1` namespace makes clear
+  these are not the final protocol labels.
+- **AES-256-GCM**, 128-bit tag, **fresh 96-bit random nonce on every
+  `encryptBytes()` call** — the API intentionally offers no way to supply a
+  nonce for encryption, so a nonce can never be reused with the same key. The
+  nonce is public and is stored/transmitted with the ciphertext.
+- **AAD** is supported and tested (`aad?: Uint8Array`); the production AAD
+  format (protocol version, connection id, device ids, …) is **not** frozen
+  in this phase.
+- The `{ version: 1, nonce, ciphertext }` container is a **conceptual test
+  format only** — not the `messages` DB format, not a wire format.
+
+## Test vectors
+
+- X25519: **RFC 7748 §6.1**
+- HKDF-SHA-256: **RFC 5869 Test Cases 1, 2, 3**
+- AES-256-GCM: **McGrew/Viega GCM spec, AES-256 Test Cases 13, 14, 16** (16 with AAD)
+
+No hand-invented expected values.
+
+## Boundary (enforced by tests in `__tests__/primitives.test.mjs`)
+
+- `index.ts` exposes **none** of the primitives; `src/lib/api.ts` references
+  none of them; `sendMessage()` keeps its plaintext insert.
+- No `console.*`, no `localStorage`/`sessionStorage`/cookies/URLs, no Supabase,
+  no network, no IndexedDB in the primitive modules.
+- No `exportKey()` anywhere in the primitive layer; every key is created
+  non-extractable.
+- **Not implemented (and must not appear as a side effect):** X3DH, PQXDH,
+  Double Ratchet, Triple Ratchet, session establishment, forward secrecy,
+  post-compromise security, protocol-level replay protection, key
+  verification, multi-device, offline session negotiation, key backup.
+  A single static-key X25519 DH provides **no** forward secrecy.
