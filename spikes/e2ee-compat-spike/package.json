@@ -1,0 +1,20 @@
+{
+  "name": "enough-e2ee-compat-spike",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Isolated E2EE-2.5 compatibility spike. Test code only — NO production E2EE integration. Must not be imported by the app.",
+  "scripts": {
+    "test": "node --test --experimental-strip-types test/spike.test.mjs",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@noble/post-quantum": "^0.7.0",
+    "mlkem-wasm": "^0.0.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.4.3"
+  }
+}

@@ -2,8 +2,8 @@
 
 **Document Type:** Technical Specification & Architectural Decision Record (ADR)  
 **Phase:** E2EE-2 (Session- & Protocol-Architecture)  
-**Date:** 2026-08-19  
-**Status:** Approved Architectural Baseline for E2EE-3 Implementation  
+**Date:** 2026-08-19 (revised 2026-08-19 by the E2EE-2.5 feasibility review)  
+**Status:** Approved Architectural Baseline — **E2EE-3 implementation gated (NO-GO)** pending a vetted protocol engine; see [`docs/e2ee-implementation-feasibility.md`](./e2ee-implementation-feasibility.md)  
 **Target Application:** `enough.` (React 18 / TypeScript / Vite / Supabase / GitHub Pages PWA)
 
 ---
@@ -73,8 +73,8 @@ We evaluated whether to use a **Standard Double Ratchet** (with PQXDH handshake)
 |---|---|---|
 | **Security: Harvest-Now-Decrypt-Later** | ✅ **Full Protection.** PQXDH binds ML-KEM-768 shared secret into initial session root key $SK$. Quantum eavesdroppers recording traffic cannot decrypt sessions. | ✅ **Full Protection.** |
 | **Security: Post-Compromise Security (PCS)** | ✅ **Classical PCS** achieved within 1 communication roundtrip via X25519 DH ratchet. | ✅ **Post-Quantum PCS** achieved per turn. |
-| **Per-Message Wire Overhead** | **~48 Bytes** (32-byte ephemeral X25519 public key + 16-byte AEAD tag + sequence numbers). | **~2,300 Bytes** (32B DH + 1,184B Kyber-768 public key + 1,088B Kyber-768 ciphertext + tags). **48× larger!** |
-| **Browser Bundle Size Impact** | **0 KB added** (Runs natively on browser `crypto.subtle` hardware acceleration). | **+180 KB to +350 KB** for continuous WASM lattice polynomial math in every message pipeline. |
+| **Per-Message Wire Overhead** | **~56–60 Bytes** in a minimal binary framing (32-byte ephemeral X25519 public key + 8–12 bytes counters `PN`/`N` + 16-byte AEAD tag). In the JSON+Base64 container specified in §8 this grows to **~190–260 Bytes** on the wire. *(Corrected in E2EE-2.5: the previous "~48 Bytes" ignored the counters and the container's ~2.4× base64 expansion.)* | **~2,300 Bytes** (32B DH + 1,184B Kyber-768 public key + 1,088B Kyber-768 ciphertext + tags). **~40× larger!** |
+| **Browser Bundle Size Impact** | **≈ +15 KB gzip** — Curve25519/AES/HKDF run natively on `crypto.subtle`, but ML-KEM-768 is **not** available in any browser's Web Crypto today and requires a WASM library (`mlkem-wasm`, 15.2 KB gzip measured). *(Corrected in E2EE-2.5: the previous "0 KB added" was wrong.)* | **+180 KB to +350 KB** for continuous WASM lattice polynomial math in every message pipeline. |
 | **Compute & Battery on Mobile Web** | **Sub-millisecond** native C++ WebCrypto execution; zero battery drain. | Significant CPU cycles on mobile devices for continuous lattice matrix operations. |
 | **IndexedDB State Footprint** | **~1.5 KB** per active peer session. | **~18 KB to 30 KB** per session due to buffered ephemeral KEM key pairs. |
 | **Specification & Industry Maturity** | **Universal Standard** (Signal, WhatsApp, Matrix 2.0, Wire). | **Experimental** (No standardized IETF RFC; academic proposals only). |
@@ -98,9 +98,9 @@ We conducted an exhaustive technical audit of existing implementations in the co
 4. **`2key-ratchet` / `triple-double`:**
    - *Audit Finding:* Inactive, unmaintained, uses P-256 (secp256r1) instead of Curve25519. **Rejected.**
 5. **Web Crypto API Native Baseline:**
-   - *Audit Finding:* Modern browsers (Chrome $\ge 137$, Firefox $\ge 130$, Safari $\ge 17$) natively support **Ed25519**, **X25519**, **AES-GCM**, and **HKDF** via `SubtleCrypto` with `non-extractable` hardware/sandbox key isolation.
+   - *Audit Finding:* Modern browsers (Chrome $\ge 137$, Firefox $\ge 129$, Safari $\ge 17$) natively support **Ed25519**, **X25519**, **AES-GCM**, and **HKDF** via `SubtleCrypto` with `non-extractable` hardware/sandbox key isolation. **Confirmed in E2EE-2.5 spike testing.** However, **no browser ships ML-KEM-768 in Web Crypto** (status 2026-08: WICG draft "Modern Algorithms in the Web Cryptography API", no stable implementation; only Node ≥ 24.7). *(Corrected in E2EE-2.5.)*
 
-**Implementation Strategy:** We use the native Web Crypto API for all Curve25519 and symmetric primitives, augmented with a spec-compliant, zero-dependency constant-time ML-KEM-768 module for PQXDH, executing behind a clean Protocol Adapter.
+**Implementation Strategy (corrected in E2EE-2.5):** We use the native Web Crypto API for all Curve25519 and symmetric primitives. ML-KEM-768 is provided by an **external, tested library** — primary candidate `mlkem-wasm` (WASM; core: formally verified `mlkem-native`), validated alternative `@noble/post-quantum` — **not** by a self-written module. All cryptographic protocol operations execute behind a clean Protocol Adapter. **The protocol core (PQXDH handshake + Double Ratchet state machine) has no vetted browser implementation as of 2026-08 — see [`docs/e2ee-implementation-feasibility.md`](./e2ee-implementation-feasibility.md) for the full review and the E2EE-3 gate decision (currently NO-GO).**
 
 ---
 
@@ -247,6 +247,22 @@ We conducted an exhaustive technical audit of existing implementations in the co
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+> **E2EE-2.5 correction (identity key model):** The PQXDH specification uses a
+> **single Curve25519 identity key** that participates in DH1/DH2 *and* signs
+> via **XEdDSA**. Web Crypto offers X25519 and Ed25519 only as *separate*
+> keys and does **not** implement XEdDSA, and `X25519(IK_a.priv, …)` with an
+> Ed25519 key object is impossible. enough. therefore uses a **split identity**:
+> an Ed25519 **signing** identity key (as above, non-extractable) plus an
+> X25519 **DH identity** key, whose public half is published and
+> **cross-signed by the Ed25519 identity key**. DH1/DH2 use the X25519 DH
+> identity keys; all signatures (SPK, PQ prekeys, future device attestations)
+> use the Ed25519 key. **This is a deliberate, documented deviation** from
+> Signal's single-key XEdDSA model — cryptographically sound (the DH identity
+> key is bound into the trust anchor by signature and into the session by the
+> PQXDH associated data), but it must not be described as byte-compatible with
+> Signal clients. Final parameterization (encodings, signature inputs) is an
+> E2EE-3 prerequisite ADR.
+
 ### 4.2 Cryptographic Peer Relationship vs. Connection-ID
 
 - **Connection-ID Decoupling:** `connections.id` is an application-level database identifier for tracking chat metadata and request statuses (`pending`, `accepted`, `declined`, `ended`).
@@ -280,6 +296,25 @@ The public device prekey bundle follows the exact Signal PQXDH specification:
 │ `one_time_prekey` ($OPK$)│ Base64 (Raw) │ 32 bytes     │ X25519 One-Time PreKey (Single)│
 └──────────────────────────┴──────────────┴──────────────┴────────────────────────────────┘
 ```
+
+> **E2EE-2.5 correction (PQXDH spec conformance):** Per PQXDH Rev 3, the bundle
+> must **always** contain a post-quantum prekey: the server hands out a signed
+> **one-time** PQ prekey (`PQOPK`) when available, otherwise the signed
+> **last-resort** PQ prekey (`PQSPK`), which is rotated periodically (like the
+> SPK) and signed with $IK$. A **classical-only fallback (DH1–DH3 without PQ)
+> is not part of PQXDH** and removes the harvest-now-decrypt-later protection
+> from the affected sessions. Consequences for this design:
+> 1. `crypto_pq_prekeys` stores one-time PQ prekeys **plus** the server also
+>    returns the device's current last-resort `PQSPK` (stored alongside
+>    `crypto_signed_prekeys`, with its own signature) when no one-time PQ
+>    prekey remains.
+> 2. The "OTK Pool Depleted" failure mode (§14) is re-defined: a depleted
+>    one-time pool falls back to **last-resort prekeys** (PQ protection kept),
+>    never to a classical-only handshake.
+> 3. The bundle flag distinguishing one-time vs last-resort PQ prekey must be
+>    transmitted so the responder knows which private key to load and which
+>    keys to delete after use (one-time keys are deleted; last-resort keys are
+>    retained until rotation).
 
 ---
 
@@ -529,9 +564,21 @@ The future content stored in `messages.ciphertext` is an authenticated JSON cont
 
 ### 8.2 Canonical Associated Data (AD) Specification
 
-To prevent **Ciphertext Transplantation** (moving ciphertext across chats or connections), the message metadata is cryptographically bound into the AEAD Associated Data:
+To prevent **Ciphertext Transplantation** (moving ciphertext across chats or connections), the message metadata is cryptographically bound into the AEAD Associated Data.
 
-$$AD = \text{MagicPrefix} \ || \ \text{Version} \ || \ \text{SenderDeviceID} \ || \ \text{RecipientDeviceID} \ || \ \text{ConnectionID} \ || \ \text{MessageKind} \ || \ \text{HeaderBytes}$$
+> **E2EE-2.5 correction (PQXDH spec conformance):** PQXDH requires the initial
+> message's AD to contain **both parties' identity keys** and — because
+> ML-KEM does not bind the prekey into its ciphertext — the **encoded PQ
+> prekey** (`EncodeKEM(PQPK_B)`), to prevent KEM re-encapsulation attacks
+> (PQXDH §4.12). Application metadata is permitted as an *addition*, not a
+> replacement. The AD composition therefore becomes:
+
+$$AD = \underbrace{\text{EncodeEC}(IK_A^{dh}) \ || \ \text{EncodeEC}(IK_B^{dh}) \ || \ \text{EncodeKEM}(PQPK_B)}_{\text{PQXDH-mandated (initial message only)}} \ || \ \text{MagicPrefix} \ || \ \text{Version} \ || \ \text{SenderDeviceID} \ || \ \text{RecipientDeviceID} \ || \ \text{ConnectionID} \ || \ \text{MessageKind} \ || \ \text{HeaderBytes}$$
+
+For subsequent Double Ratchet messages, the PQXDH-mandated prefix is replaced
+by the session's fixed identity-binding prefix (pinned once at session setup),
+and the DR header bytes stay inside the AD per the Double Ratchet specification
+(`DECRYPT(mk, ciphertext, CONCAT(AD, header))`).
 
 If an adversary replays ciphertext from Chat A into Chat B, the mismatched `connection_id` causes AES-256-GCM authentication tag verification to fail immediately.
 
@@ -570,8 +617,14 @@ Realtime WebSocket delivery can deliver messages out of order ($M_1 \to M_3 \to 
 When a message arrives with counter $N > N_r$:
 1. The receiving ratchet advances its Receiving Chain Key ($CK_r$) forward $N - N_r$ steps.
 2. For each intermediate step $i \in [N_r, N - 1]$:
-   - Derive Message Key: $MK_i = \text{HMAC-SHA256}(CK_r, \text{"MessageKey"})$
-   - Advance Chain Key: $CK_r = \text{HMAC-SHA256}(CK_r, \text{"ChainKey"})$
+   - Derive Message Key: $MK_i = \text{HMAC-SHA256}(CK_r, \texttt{0x01})$
+   - Advance Chain Key: $CK_r = \text{HMAC-SHA256}(CK_r, \texttt{0x02})$
+
+   *(E2EE-2.5 correction: the Double Ratchet specification defines KDF_CK with
+   the single-byte constants 0x01 / 0x02 — the previous ASCII labels
+   "MessageKey"/"ChainKey" were a deviation from the spec. A MAX_SKIP bound
+   for skipped-message-keys storage is mandatory per spec and must be defined
+   in E2EE-3.)*
    - Store $MK_i$ in IndexedDB `skipped_keys` under key: `${userId}:${peerDeviceId}:${DHr}:${i}`.
 3. Derive $MK_N$ to decrypt message $N$, and update $N_r = N + 1$.
 4. When delayed message $M_2$ (counter $i$) arrives later:
@@ -668,7 +721,7 @@ $$\text{34821 90214 55102 91823 88120 44910 11928 39201 44819 02931 84729 10492}
 │ **Browser Data Wiped**           │ App initializes fresh device identity. Peer detects identity│
 │                                  │ change and verifies safety number.                          │
 ├──────────────────────────────────┼─────────────────────────────────────────────────────────────┤
-│ **OTK Pool Depleted**            │ Fallback to $DH_1..DH_3$ (SPK-only); schedules pool refill. │
+│ **OTK Pool Depleted**            │ *(E2EE-2.5 corrected)* Fall back to the signed **last-resort PQ + SPK** prekeys (PQ protection retained per PQXDH); schedules one-time pool refill. Classical-only fallback removed. │
 ├──────────────────────────────────┼─────────────────────────────────────────────────────────────┤
 │ **Account Deletion**             │ Calls `deleteUserCryptoState()`, erasing all local keys.    │
 └──────────────────────────────────┴─────────────────────────────────────────────────────────────┘
@@ -743,14 +796,26 @@ $$\text{34821 90214 55102 91823 88120 44910 11928 39201 44819 02931 84729 10492}
 
 ## 18. Final Recommendation & E2EE-3 Readiness
 
-### Definitive Conclusion
+### Definitive Conclusion (revised by E2EE-2.5)
 
-- **The Protocol:** Signal PQXDH (Post-Quantum Key Agreement) + Double Ratchet (X25519 + AES-256-GCM + HKDF).
-- **The Implementation:** Native W3C Web Crypto API for Curve25519/symmetric operations + audited constant-time ML-KEM-768 for post-quantum key encapsulation.
-- **The Browser Path:** Full compatibility with React 18, Vite 6, and GitHub Pages PWA without Node.js polyfills or native binary bloat.
+- **The Protocol:** Signal PQXDH (Post-Quantum Key Agreement) + Double Ratchet (X25519 + AES-256-GCM + HKDF). *AES-256-GCM is spec-permitted but differs from Signal's own AES-CBC+HMAC wire choice — documented deviation, no Signal-client interop intended.*
+- **The Implementation:** Native W3C Web Crypto API for Curve25519/symmetric operations + **external tested ML-KEM-768 library** (`mlkem-wasm`, WASM core formally verified via mlkem-native; alternative `@noble/post-quantum`). **No self-written ML-KEM module.** *(Corrected in E2EE-2.5 — Web Crypto does not provide ML-KEM in any browser.)*
+- **The Browser Path:** Full compatibility with React 18, Vite 6, and GitHub Pages PWA without Node.js polyfills or native binary bloat — **verified by the E2EE-2.5 compatibility spike** (build, base path `/enough/`, bundle sizes measured).
 - **The Session Lifecycle:** Complete end-to-end specification with atomic One-Time PreKey claims via PostgreSQL `FOR UPDATE SKIP LOCKED`.
-- **The Supabase Model:** Additive tables (`crypto_devices`, `crypto_signed_prekeys`, `crypto_one_time_prekeys`, `crypto_pq_prekeys`) secured by strict RLS.
-- **The Local State:** IndexedDB `enough-crypto` with isolated user namespaces and `non-extractable` hardware/browser key protection.
-- **The Implementation Boundary:** Strict isolation via `UI` $\to$ `MessageService` $\to$ `E2EESessionManager` $\to$ `ProtocolAdapter` $\to$ `CryptoImplementation`.
+- **The Supabase Model:** Additive tables (`crypto_devices`, `crypto_signed_prekeys`, `crypto_one_time_prekeys`, `crypto_pq_prekeys`) secured by strict RLS — extended by a signed last-resort PQ prekey (PQXDH conformance, see §5 correction).
+- **The Local State:** IndexedDB `enough-crypto` with isolated user namespaces and `non-extractable` hardware/browser key protection. *PQ prekey seeds are stored as raw bytes by necessity (library limitation) — identity keys remain non-extractable.*
+- **The Implementation Boundary:** Strict isolation via `UI` $\to$ `MessageService` $\to$ `E2EESessionManager` $\to$ `ProtocolAdapter` $\to$ `CryptoImplementation`. The typed adapter seam exists at `spikes/e2ee-compat-spike/protocol-adapter.types.ts` (design only, no implementation).
 
-**Ready for E2EE-3 Implementation.**
+**~~Ready for E2EE-3 Implementation.~~**
+
+> ### ⛔ E2EE-2.5 Gate Decision: **NO-GO for E2EE-3**
+>
+> No vetted, browser-capable implementation of the **PQXDH handshake and the
+> Double Ratchet state machine** exists as of 2026-08 (full candidate audit:
+> [`docs/e2ee-implementation-feasibility.md`](./e2ee-implementation-feasibility.md)).
+> Signals offizielles libsignal ist Node-only und AGPL; alle Browser-Kandidaten
+> sind ungeprüft, inaktiv oder protokollfremd. Eine Eigenimplementierung des
+> Protokollkerns ist untersagt. E2EE-3 beginnt erst, wenn die Frage
+> *"Welche geprüfte Implementierung führt die Protokolloperationen aus?"*
+> mit einer konkreten Bibliothek beantwortet werden kann.
+> Primitives (WebCrypto + `mlkem-wasm`) sind verifiziert und GO.
