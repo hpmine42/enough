@@ -21,6 +21,7 @@ import {
 } from '../lib/api';
 import { t } from '../i18n';
 import { Profile } from '../lib/types';
+import { initCrypto, isE2eeSupported, deleteUserCryptoState } from '../lib/crypto';
 
 interface SignUpResult {
   error: string | null;
@@ -64,6 +65,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(p);
   }, []);
 
+  /**
+   * Initialize local E2EE identity for the signed-in user.
+   * Receives the current Supabase user id so crypto state is correctly
+   * isolated per account on shared devices.
+   * Errors are caught — E2EE-1 never breaks login; if crypto isn't available
+   * (old browser, restricted context) we log a generic warning and continue.
+   * We deliberately do NOT log any key material or bundle contents.
+   */
+  const ensureCryptoReady = useCallback((userId: string) => {
+    if (!isE2eeSupported() || !userId) return;
+    initCrypto(userId).catch(() => {
+      // Fail closed-silent: message flow continues in plaintext mode.
+      // A future UI phase can surface this to the user.
+      console.warn('enough.: E2EE initialization failed; continuing in plaintext mode.');
+    });
+  }, []);
+
   useEffect(() => {
     if (!supabase) {
       setLoading(false);
@@ -85,6 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       if (sessionUser) {
         loadProfile(sessionUser.id);
+        ensureCryptoReady(sessionUser.id);
       } else {
         setProfile(null);
       }
@@ -96,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(sessionUser);
       if (sessionUser) {
         loadProfile(sessionUser.id);
+        ensureCryptoReady(sessionUser.id);
         if (hasImplicitRecoveryCallback) setRecovery(true);
       }
       setLoading(false);
@@ -244,17 +264,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const deleteAccount = useCallback(async (): Promise<string | null> => {
-    if (!supabase) return t('errors.network');
+    if (!supabase || !user) return t('errors.network');
+    // Capture the user id before sign-out so we can clean up the local
+    // crypto state for exactly this account (not every account that ever
+    // signed in on this device).
+    const deletedUserId = user.id;
     const err = await deleteOwnAccount();
     if (err) return err;
-    // The account is gone server-side, so there is nothing left to revoke —
-    // clear the local session only, then reset the in-memory state.
+    // The account is gone server-side. Remove the local crypto identity
+    // for this account so no orphaned half-identity remains on the device.
+    // This is a best-effort local cleanup; failures are non-fatal because
+    // the server-side deletion is already committed.
+    if (isE2eeSupported()) {
+      try { await deleteUserCryptoState(deletedUserId); } catch { /* swallow */ }
+    }
+    // Clear the local session only, then reset the in-memory state.
     await supabase.auth.signOut({ scope: 'local' });
     setUser(null);
     setProfile(null);
     setRecovery(false);
     return null;
-  }, []);
+  }, [user]);
 
   const refreshProfile = useCallback(async () => {
     if (!user) return;
