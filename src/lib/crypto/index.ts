@@ -23,16 +23,6 @@ export {
 } from './identity.ts';
 
 export {
-  generateIdentityKeyPair,
-  exportPublicKey,
-  importPublicKey,
-  saveIdentityKeyPair,
-  loadIdentityKeyPair,
-  getX25519PublicKeyBase64,
-  deleteX25519Identity,
-} from './keys.ts';
-
-export {
   ensureSignedPreKey,
   getSignedPreKey,
   refillOneTimePreKeys,
@@ -86,12 +76,6 @@ import {
   getOneTimePreKeyCount,
   refillOneTimePreKeys,
 } from './prekeys.ts';
-import {
-  generateIdentityKeyPair as generateX25519KeyPair,
-  loadIdentityKeyPair as loadX25519KeyPair,
-  saveIdentityKeyPair as saveX25519KeyPair,
-  exportPublicKey as exportX25519PublicKey,
-} from './keys.ts';
 import type { PublicIdentityBundle } from './types.ts';
 
 /**
@@ -157,20 +141,6 @@ export async function initCrypto(userId: string): Promise<PublicIdentityBundle> 
         }
       }
     }
-    // Ensure X25519 identity keypair also exists for the E2EE-1 foundation.
-    // This is the "identity" described in the PR scope (X25519 for key
-    // agreement). It is stored separately from the Ed25519 signing identity
-    // above, both scoped per userId.
-    try {
-      const existingX = await loadX25519KeyPair(userId);
-      if (!existingX) {
-        const kp = await generateX25519KeyPair();
-        await saveX25519KeyPair(userId, kp);
-      }
-    } catch {
-      // X25519 generation failure must not break the main Ed25519 flow.
-      // The caller (AuthContext) will handle fallback and not leak keys.
-    }
     return bundle;
   })();
 
@@ -180,29 +150,4 @@ export async function initCrypto(userId: string): Promise<PublicIdentityBundle> 
   } finally {
     initLocks.delete(userId);
   }
-}
-
-/**
- * Get the X25519 public identity key for a user as a base64 string
- * suitable for `profiles.identity_public_key`.
- * Returns null if no X25519 identity exists yet.
- * This is the key that should be published to Supabase.
- */
-export async function getX25519IdentityPublicKeyBase64(userId: string): Promise<string | null> {
-  const kp = await loadX25519KeyPair(userId);
-  if (!kp) return null;
-  return exportX25519PublicKey(kp.publicKey);
-}
-
-/**
- * Ensure an X25519 identity exists for the user and return its public
- * base64. Generates and persists if missing. Used by profile sync.
- */
-export async function ensureX25519Identity(userId: string): Promise<string> {
-  let kp = await loadX25519KeyPair(userId);
-  if (!kp) {
-    kp = await generateX25519KeyPair();
-    await saveX25519KeyPair(userId, kp);
-  }
-  return exportX25519PublicKey(kp.publicKey);
 }

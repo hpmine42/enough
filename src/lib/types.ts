@@ -3,14 +3,6 @@ export interface Profile {
   username: string;
   display_name?: string | null;
   created_at?: string;
-  /**
-   * E2EE public identity key — base64-encoded 32-byte raw public key.
-   * Nullable for backward compatibility; populated client-side after
-   * `initCrypto(userId)` generates a non-extractable identity keypair
-   * in IndexedDB and uploads only the public half. Private keys never
-   * leave the browser.
-   */
-  identity_public_key?: string | null;
 }
 
 export type ConnectionStatus =

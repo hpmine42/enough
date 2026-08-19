@@ -23,7 +23,6 @@ import {
   CRYPTO_STORE_STATE,
   RECORD_IDENTITY,
   RECORD_SIGNED_PREKEY,
-  RECORD_X25519_IDENTITY,
   prekeyCompositeKey,
   prekeyPrefix,
   stateKeyFor,
@@ -266,7 +265,7 @@ export async function deleteUserCryptoState(userId: string): Promise<void> {
       'readwrite',
     );
     const stateStore = transaction.objectStore(CRYPTO_STORE_STATE);
-    for (const rec of [RECORD_IDENTITY, RECORD_SIGNED_PREKEY, RECORD_X25519_IDENTITY]) {
+    for (const rec of [RECORD_IDENTITY, RECORD_SIGNED_PREKEY]) {
       stateStore.delete(stateKeyFor(userId, rec));
     }
     // Prefix-delete all prekeys for this user.
