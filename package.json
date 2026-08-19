@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "smoke": "node scripts/smoke-test.mjs"
+    "smoke": "node scripts/smoke-test.mjs",
+    "test:crypto": "node --test --experimental-strip-types src/lib/crypto/__tests__/crypto.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
@@ -18,6 +19,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^24.1.3",
     "typescript": "^5.7.2",
     "vite": "^6.4.3"
