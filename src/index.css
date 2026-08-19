@@ -743,16 +743,28 @@ textarea {
 }
 
 .settings-section {
-  padding: 20px 22px 8px;
+  padding: 22px 22px 10px;
+}
+
+.settings-section + .settings-section {
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  padding-top: 24px;
 }
 
 .settings-section-title {
-  margin: 0 0 4px;
-  font-size: 12px;
+  margin: 0 0 10px;
+  font-size: 11.5px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: var(--muted);
   font-weight: 600;
+}
+
+.settings-section > .settings-row:last-child,
+.settings-section > .settings-profile > .settings-static-row:last-child,
+.settings-section > .settings-profile > .settings-email-row {
+  border-bottom: 0;
 }
 
 .settings-row {
@@ -962,8 +974,16 @@ textarea {
   color: var(--text);
 }
 
+.settings-subpanel .settings-scroll {
+  padding: 12px 22px 28px;
+}
+
+.settings-subpanel .settings-row:last-child {
+  border-bottom: 0;
+}
+
 .settings-blocked-empty {
-  padding: 20px 18px;
+  padding: 16px 0;
 }
 
 .blocked-row-control {
@@ -1456,7 +1476,8 @@ textarea {
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--received);
-  transition: background 0.25s ease;
+  transition: background 0.25s ease, opacity 0.2s ease;
+  animation: fade-in 0.2s ease-out;
 }
 
 .request-banner-line {
@@ -1466,6 +1487,7 @@ textarea {
   gap: 10px;
   font-size: 14px;
   flex-wrap: wrap;
+  animation: fade-in 0.2s ease-out;
 }
 
 .request-info-icon {
