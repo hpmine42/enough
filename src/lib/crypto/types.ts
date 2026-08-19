@@ -23,6 +23,14 @@ export const CRYPTO_STORE_PREKEYS = 'prekeys';  // keyed by composite: `${userId
  */
 export const RECORD_IDENTITY = 'identity';
 export const RECORD_SIGNED_PREKEY = 'signed-prekey';
+/**
+ * Record key for the X25519 identity keypair used for key agreement.
+ * This is the "identity" described in the E2EE-1 foundation PR:
+ * a long-lived X25519 keypair whose public half is published as
+ * `profiles.identity_public_key` (base64, 32 bytes raw). Private key
+ * remains non-extractable in IndexedDB.
+ */
+export const RECORD_X25519_IDENTITY = 'x25519-identity';
 
 /** Build the composite state key for a given user + record type. */
 export function stateKeyFor(userId: string, recordKey: string): string {

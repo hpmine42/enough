@@ -54,15 +54,16 @@ Two documented consequences for the future:
   (e.g. a new staging or disaster-recovery project) would additionally require
   a **versioned schema baseline or a database dump of the external base
   schema**.
-- There is **currently no need for a migration `0010`** on the production
-  database: the live state is verified correct and all existing migrations
-  are idempotent.
+- Migration `0010` (E2EE identity public key) is additive and nullable — it
+  does not affect existing data and is safe to apply to the verified `0009`
+  production state when the frontend that publishes `profiles.identity_public_key`
+  is deployed.
 
 ## How to run
 
 1. Open your Supabase project → **SQL Editor**.
 2. Run the full contents of every file in `supabase/migrations/` in numeric
-   order (`0001` → `0009`). Each migration is idempotent and safe to run again
+   order (`0001` → `0010`). Each migration is idempotent and safe to run again
    after pulling a frontend update.
 3. Optional but recommended: run `supabase/rls-tests.sql` to verify the
    authorization model with your two existing test users.
@@ -131,6 +132,12 @@ normal connection requests.
   - creates `public.decline_connection(conn, block_peer)` — decline an
     incoming request and optionally block the requester in one step
     (recipient-only, idempotent).
+- `0010_identity_public_key.sql` — E2EE foundation: adds `profiles.identity_public_key`
+  (`text`, nullable) for the public identity key (base64, 32-byte raw
+  X25519/Ed25519). No private material is ever stored; existing rows keep
+  `NULL` until the client publishes its key via `updateMyIdentityPublicKey()`.
+  No new RLS policies — the existing `profiles` SELECT (`authenticated`,
+  `USING true`) and UPDATE (owner-only) from `0009` already govern the column.
 - `0009_explicit_base_rls.sql` — v0.2: explicit, reproducible base RLS for
   the three core tables (previously only present in the untracked project
   template):
