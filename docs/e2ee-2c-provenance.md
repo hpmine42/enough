@@ -1,21 +1,28 @@
-# enough. — E2EE-2C-1 WASM Provenance & Reproducible Build Verification
+# enough. — E2EE-2C-1 / E2EE-2C-1b WASM Provenance & Reproducible Build Verification
 
 **Status:** supply-chain / reproducibility evidence only — **NO PRODUCTION IMPLEMENTATION**
-**Date:** 2026-08-20
+**Date:** 2026-08-20 (E2EE-2C-1b reproducible-build attempt added)
 **Repository branch:** `arena/01a020e0-enough`
-**Repository HEAD at start:** `9b13a73d59c960e91415ba72ef74b8265d71e025` (main, PR #40 / E2EE-2C architecture merged)
+**Repository HEAD at start (E2EE-2C-1):** `9b13a73d59c960e91415ba72ef74b8265d71e025` (main, PR #40)
+**PR #41 (E2EE-2C-1):** `bc52aa0dc32f5884581999904ad20191c4c3dbc2`
 **Subject:** `@getmaapp/signal-wasm@0.6.6`
 **Isolated experiment:** [`experiments/e2ee-2c-provenance/`](../experiments/e2ee-2c-provenance/)
 
-> **Result: STRONG EVIDENCE, NOT EXACTLY REPRODUCIBLE.** The published npm
-> artifact is internally consistent with the source repo at its npm `gitHead`
-> and with the pinned libsignal revision, and the WASM binary self-identifies
-> its exact toolchain. However, a **byte-exact reproducible build was not
-> demonstrated in this phase**: the upstream repo pins no Rust toolchain, no
-> build ran (sandbox toolchain unavailable + crates.io/rustup unreachable), and
-> the package has **no npm provenance attestation** and **no GitHub release /
-> tag for `0.6.6`**. Therefore production use of this package is **not
-> approved**.
+> **Result (E2EE-2C-1): STRONG EVIDENCE, NOT EXACTLY REPRODUCIBLE** — the
+> published npm artifact is internally consistent with the source repo at its
+> npm `gitHead` and with the pinned libsignal revision, and the WASM binary
+> self-identifies its exact toolchain; but no byte-exact build ran and no npm
+> provenance / GitHub release exists.
+>
+> **Result (E2EE-2C-1b): REPRODUCTION BLOCKED BY ENVIRONMENT** — a byte-exact
+> build was attempted but could **not be executed**: the verification sandbox
+> has no Rust toolchain and cannot obtain one (rustup/crates.io/GitHub release
+> assets are hard-blocked at the egress firewall), and the upstream repo pins
+> **no** toolchain and has **no CI**. The build was therefore **not** performed
+> and must **not** be upgraded to EXACT REPRODUCIBLE.
+>
+> **Production use of this package is NOT approved. MERGE RECOMMENDATION:
+> DO NOT MERGE.**
 
 ---
 
@@ -247,7 +254,144 @@ artifact ↔ libsignal pin), but the two open process blockers named in E2EE-2B
 
 ---
 
-## 7. Git Status
+## 7. E2EE-2C-1b follow-up — Reproducible Build Attempt
+
+This section records the dedicated byte-exact reproducible-build attempt
+(E2EE-2C-1b) run against the exact pinned source commit. It did **not** change
+the security assessment; it confirms that the build is **blocked in the
+verification environment** and additionally quantifies the upstream
+reproducibility gaps.
+
+### 7.1 Exact source commit
+
+```text
+repository : https://github.com/getmaapp/signal-wasm
+commit     : 0a5e3cb8bf282efb3521d7cdac5476caf3fb1acd
+short      : 0a5e3cb8
+date       : 2026-08-19 08:40:13 +0100
+author     : 庄稼 <jia@thecannabis.app>
+subject    : feat: re-pin to libsignal v0.101.0 (b056faa6d), add retry-protocol primitives
+parent     : a253fbcc6b91678a65d3817f980ef6fcd0cfcbe9
+tree       : fb1bdbb84ad52fd8a1cb1309deb0998672222942
+tags       : none (0 tags point at this commit)
+reachable  : yes — verified `git merge-base --is-ancestor <sha> main` → ancestor of main
+```
+
+`git rev-parse 0a5e3cb8bf282efb3521d7cdac5476caf3fb1acd` returns the commit
+unchanged; the commit is **unmodified and reachable** from `main`.
+
+### 7.2 Original npm artifact saved & hash-checked
+
+The original tarball was saved in the isolated experiment at
+`experiments/e2ee-2c-provenance/cache/signal-wasm-0.6.6.tgz` (git-ignored) and
+re-verified. All hashes **match** the values recorded in PR #41
+(`docs/e2ee-2c-provenance.md` §1 and `manifest.json`). **No ARTIFACT MISMATCH.**
+`experiments/e2ee-2c-provenance/test/provenance.test.mjs` re-fetches from the
+registry and asserts these hashes automatically (`npm test`, 3/3 pass).
+
+### 7.3 Toolchain determination
+
+Investigated `Cargo.toml`, `Cargo.lock`, `package.json`, `package-lock.json`,
+`.github/workflows/**`, `rust-toolchain*`, `Makefile`, build scripts, README,
+and GitHub release automation in the source repo:
+
+| Component | Determined? | Value / evidence |
+|---|---|---|
+| rustc | exact | `1.92.0 (ded5c06cf 2025-12-08)` — from WASM `producers` section (not from repo) |
+| walrus | exact | `0.26.4` — WASM `producers` |
+| wasm-bindgen | exact | `0.2.126 (21ac804a9)` — WASM `producers` + `Cargo.toml` `=0.2.126` |
+| target | exact | `wasm32-unknown-unknown` |
+| cargo | **UNKNOWN** | not recorded in repo or artifact |
+| wasm-pack | **UNKNOWN** | not recorded in repo or artifact; README only says `cargo install wasm-pack` |
+| clang/LLVM | **UNKNOWN** | no reference anywhere; not needed for `wasm32-unknown-unknown` core build |
+| Node.js / npm | **UNKNOWN** | not recorded; only `wasm-pack`-generated glue depends on target runtime, not build version |
+| release profile | exact | `lto=true`, `opt-level="s"`, `debug=0`, `panic="abort"` (`Cargo.toml`) |
+| rustflags | exact | `--cfg getrandom_backend="wasm_js"` (`.cargo/config.toml`) |
+| `SOURCE_DATE_EPOCH` / `CARGO_PROFILE_RELEASE` | **UNKNOWN / not set in repo** | no CI, no script sets them |
+| build host | inferred | macOS (`/Users/me/…` embedded paths) |
+
+No `rust-toolchain` / `rust-toolchain.toml` file exists upstream. There is **no
+CI** (no `.github/`, no Makefile, no build/release scripts) — only an example
+GitHub Actions step for *tests* in `TESTING_PLAN.md`. Toolchain versions not
+recorded are reported as **UNKNOWN** (not guessed).
+
+### 7.4 Build attempt & offline/cache behaviour
+
+A full build was attempted via the recipe in
+`experiments/e2ee-2c-provenance/scripts/build-repro.sh`
+(`rustup target add wasm32-unknown-unknown; wasm-pack build --target web
+--scope getmaapp --release`) from the exact commit. It could **not** run:
+
+- **No toolchain present:** `rustup`, `cargo`, `rustc`, `wasm-pack`,
+  `wasm-tools`, `wasm-opt` all absent; no `~/.rustup`, no `~/.cargo`, no cached
+  crates anywhere on the filesystem.
+- **No toolchain obtainable (verified egress):**
+  - `static.rust-lang.org` — required to install the Rust toolchain. IPv4
+    resolves (`151.101.x`) but TLS fails (`SSL_ERROR_SYSCALL`); HTTP also 000.
+  - `crates.io`, `index.crates.io`, `static.crates.io` — required for `Cargo.lock`
+    dependency downloads. All hard-blocked (000).
+  - `release-assets.githubusercontent.com`, `objects.githubusercontent.com`,
+    `raw.githubusercontent.com` — GitHub release assets (prebuilt `wasm-pack`,
+    `binaryen`/`wasm-opt`). Blocked; a `binaryen` release asset redirect failed
+    on TLS to `release-assets.githubusercontent.com`.
+  - debian mirrors — no `rustc` apt install possible.
+  - Reachable: `github.com`, `api.github.com`, `registry.npmjs.org`, `pypi.org`
+    — none of these can supply a Rust toolchain or crates.
+- **No local crate cache:** documented above; there is nothing to build offline
+  from.
+
+Because the build never executed, **nothing is claimed to be reproducible**.
+`experiments/e2ee-2c-provenance/scripts/run-all.sh` reproduces this
+verification and reports the same toolchain-availability state.
+
+### 7.5 Hash comparison
+
+Only the published-artifact comparison is applicable (no build output exists):
+
+| Item | This phase (re-fetch) | PR #41 recorded | Match |
+|---|---:|---:|---|
+| tarball `signal-wasm-0.6.6.tgz` | `c3e0d6cd…e3082` | `c3e0d6cd…e3082` | ✅ |
+| `signal_wasm_bg.wasm` | `71b456b8…d6c1` | `71b456b8…d6c1` | ✅ |
+| `signal_wasm.js` | `c72af7ae…83410` | `c72af7ae…83410` | ✅ |
+| `signal_wasm.d.ts` | `32441be5…7f2` | `32441be5…7f2` | ✅ |
+| `README.md` | `6c1b3f94…2fe26` | `6c1b3f94…2fe26` | ✅ |
+| `LICENSE` | `2b87ae92…5f091` | `2b87ae92…5f091` | ✅ |
+
+A build-vs-npm WASM byte comparison (**Build #1 / Build #2 vs npm**) could not be
+performed because no build ran.
+
+### 7.6 Second build / absolute-path & metadata analysis
+
+- **Build #2 (second independent build):** not applicable — build #1 never ran.
+- **Absolute paths:** the published WASM embeds `/Users/me/.cargo/…` source
+  paths (macOS personal build). This is observational evidence only; it does
+  not by itself prove or disprove reproducibility.
+- **Build-metadata non-determinism:** the WASM `producers`/`target_features`
+  sections and the wasm-bindgen glue already carry toolchain metadata. Whether a
+  rebuild would differ only in metadata (e.g. wasm-bindgen section hash) or in
+  code is **unmeasured** because no rebuild ran. This is the exact question a
+  future build in a network-enabled environment with `rustc 1.92.0` must answer
+  (recipe + compare in the experiment).
+
+### 7.7 CI / release supply chain
+
+1. **Automated release build?** No. No `.github/`, no CI of any provider in the source repo.
+2. **Reproducible CI build?** No. There is no CI at all; only a *test-runner* example in `TESTING_PLAN.md`.
+3. **npm published from CI?** No — no CI; the embedded `/Users/me/…` paths indicate a personal build host.
+4. **npm provenance?** No (re-checked 2026-08-20: no `provenance` field, no `_attestations`).
+5. **Signed releases?** No GitHub release for `0.6.6`; git tags/releases stop at `v0.2.0`.
+6. **Release checksums?** npm `dist.shasum`/`dist.integrity` exist (npm-generated); no independent release checksum.
+7. **Verifiable `git commit → CI → WASM → npm` chain?** **No** — the CI link is missing entirely.
+
+### 7.8 Provenance re-check
+
+Re-checked the npm registry for `@getmaapp/signal-wasm@0.6.6` on 2026-08-20:
+**NO PROVENANCE** (no `provenance` field on the version, no `_attestations` at
+top level). This is recorded as a finding, not as an investigation error.
+
+---
+
+## 8. Git Status
 
 | Item | State |
 |---|---|
@@ -261,19 +405,26 @@ Tests run in this phase (main repo):
 - `npm run build` → success (tsc + vite build)
 - `npm run smoke` → **all smoke tests passed**
 - `git diff --check` → clean (no whitespace errors)
+- experiment `npm test` (`experiments/e2ee-2c-provenance`) → **3/3 pass**
+  (published-artifact hash verification against `manifest.json`)
 
 ---
 
-## 8. Decision
+## 9. Decision
 
 ```text
-RESULT: STRONG EVIDENCE, NOT EXACTLY REPRODUCIBLE
+RESULT: REPRODUCTION BLOCKED BY ENVIRONMENT
 ```
 
 ```text
 PRODUCTION APPROVAL: NO
 ```
 
-Even in the hypothetical case of an exact reproducible build, this phase
-performs **no production integration**; the next step would be a separate
+```text
+MERGE RECOMMENDATION: DO NOT MERGE
+```
+
+Not upgraded to `EXACT REPRODUCIBLE` (per phase rules, Fall D must not be
+promoted). Even in the hypothetical case of an exact reproducible build, this
+phase performs **no production integration**; the next step would be a separate
 implementation phase.

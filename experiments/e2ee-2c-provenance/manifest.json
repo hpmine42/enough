@@ -87,8 +87,28 @@
     "rust_toolchain_file_present": false
   },
   "sandbox_build_result": {
+    "phase": "E2EE-2C-1b",
     "build_attempted": false,
-    "reason": "sandbox network allowlist blocks static.rust-lang.org, crates.io, index.crates.io and debian mirrors; no rustc/cargo/wasm-pack/wasm-tools present and none installable. Byte-exact build therefore not executable in this environment.",
-    "verdict_assignable_here": "BUILD NOT REPRODUCIBLE / NOT VERIFIED IN THIS ENVIRONMENT (toolchain unavailable)"
+    "reason": "sandbox network allowlist blocks static.rust-lang.org, crates.io, index.crates.io, static.crates.io and GitHub release assets (release-assets.githubusercontent.com); no rustc/cargo/wasm-pack/wasm-tools/wasm-opt present, no ~/.rustup, no ~/.cargo, no cached crates, and none installable (debian mirrors also blocked). Byte-exact build therefore not executable in this environment.",
+    "verdict_assignable_here": "RESULT: REPRODUCTION BLOCKED BY ENVIRONMENT"
+  },
+  "ci_release_supply_chain": {
+    "automated_release_build": false,
+    "reproducible_ci_build": false,
+    "npm_published_from_ci": false,
+    "npm_provenance": false,
+    "signed_releases": false,
+    "release_checksums": "npm dist.shasum / dist.integrity only (npm-generated); no independent checksums",
+    "verifiable_git_commit_ci_wasm_npm_chain": false
+  },
+  "source_commit_metadata": {
+    "commit": "0a5e3cb8bf282efb3521d7cdac5476caf3fb1acd",
+    "date": "2026-08-19 08:40:13 +0100",
+    "author": "庄稼 <jia@thecannabis.app>",
+    "subject": "feat: re-pin to libsignal v0.101.0 (b056faa6d), add retry-protocol primitives",
+    "parent": "a253fbcc6b91678a65d3817f980ef6fcd0cfcbe9",
+    "tree": "fb1bdbb84ad52fd8a1cb1309deb0998672222942",
+    "tags_pointing_at_commit": [],
+    "reachable_from_main": true
   }
 }
