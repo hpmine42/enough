@@ -1,0 +1,10 @@
+{
+  "name": "enough-e2ee-2c-readiness-experiments",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Isolated E2EE-2C readiness baseline verification. Asserts the current production baseline (no engine integration, plaintext message path, no declared license, no CSP) so the readiness gate is grounded in the real repository state. No production integration.",
+  "scripts": {
+    "test": "node --test test/readiness-baseline.test.mjs"
+  }
+}
