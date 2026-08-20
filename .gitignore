@@ -12,3 +12,6 @@ dist
 # editor / OS
 .DS_Store
 *.log
+
+# E2EE-2C provenance experiment — downloaded artifacts are not committed
+/experiments/e2ee-2c-provenance/cache/
