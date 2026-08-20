@@ -7,6 +7,8 @@
 **Subject:** `@getmaapp/signal-wasm` as potential future enough. E2EE session/protocol engine
 
 > Final decision: **PROMISING — BLOCKED ON SPECIFIC ISSUES**. The wrapper remains the only currently demonstrated browser/Vite-compatible Signal/PQXDH-style engine in the enough. spike, but it is **not approved for E2EE-2C** until legal, source, artifact provenance, storage, key lifecycle, and independent security-review blockers are resolved.
+>
+> **Follow-up (2026-08-20):** design-level resolution of storage, Kyber, multi-tab, envelope, and threat-model blockers is in [`e2ee-2c-architecture.md`](./e2ee-2c-architecture.md). Process blockers (legal, provenance, reproducible WASM, independent review, mobile) remain open. Production implementation is still **not** approved.
 
 ---
 

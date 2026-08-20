@@ -1,0 +1,14 @@
+{
+  "name": "enough-e2ee-2c-architecture-experiments",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Isolated E2EE-2C architecture experiments (secret wrapping, atomic persistence, rollback). No production integration.",
+  "scripts": {
+    "test": "node --test test/vault.test.mjs",
+    "build": "node -e \"console.log('enough-e2ee-2c: no production bundle; architecture experiment only')\""
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5"
+  }
+}
