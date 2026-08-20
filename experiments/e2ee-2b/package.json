@@ -1,0 +1,18 @@
+{
+  "name": "enough-e2ee-2b-signal-engine-spike",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Isolated E2EE-2B compatibility spike for browser/WASM session engines. No production integration.",
+  "scripts": {
+    "test": "node --test --experimental-strip-types test/signal-wasm.test.mjs",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@getmaapp/signal-wasm": "0.6.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.4.3"
+  }
+}
