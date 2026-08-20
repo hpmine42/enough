@@ -1,9 +1,9 @@
 # enough. — E2EE-2B Compatibility Spike
 
-**Status:** isolated feasibility spike, not production integration  
-**Date:** 2026-08-19  
-**Branch:** `arena/01a01c68-enough`  
-**Repository HEAD at spike start:** `cec79dbe7f85610660dc57a1710b86dceb6df3b8`  
+**Status:** isolated feasibility spike, not production integration
+**Date:** 2026-08-19
+**Branch:** `arena/01a01c68-enough`
+**Repository HEAD at spike start:** `cec79dbe7f85610660dc57a1710b86dceb6df3b8`
 **Scope:** evaluate browser/WASM session engines for future enough. E2EE-2B.
 
 > Result: **B — PROMISING BUT NEEDS FURTHER REVIEW** for `@getmaapp/signal-wasm` as the only tested candidate that currently demonstrates a browser-bundled Signal-style session engine with PQXDH/Kyber prekeys, Double Ratchet behavior, replay rejection, out-of-order delivery, safety numbers, and serializable state. This is **not** a production approval. Legal review, external crypto review, supply-chain review, and a production storage/verification design are mandatory before E2EE-2C.

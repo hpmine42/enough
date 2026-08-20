@@ -1,9 +1,9 @@
 # enough. — E2EE-2B Due-Diligence / Security Review
 
-**Status:** security/licensing/architecture review only — **NO IMPLEMENTATION**  
-**Date:** 2026-08-20  
-**Repository branch:** `arena/01a01c68-enough`  
-**Repository HEAD:** `cec79dbe7f85610660dc57a1710b86dceb6df3b8`  
+**Status:** security/licensing/architecture review only — **NO IMPLEMENTATION**
+**Date:** 2026-08-20
+**Repository branch:** `arena/01a01c68-enough`
+**Repository HEAD:** `cec79dbe7f85610660dc57a1710b86dceb6df3b8`
 **Subject:** `@getmaapp/signal-wasm` as potential future enough. E2EE session/protocol engine
 
 > Final decision: **PROMISING — BLOCKED ON SPECIFIC ISSUES**. The wrapper remains the only currently demonstrated browser/Vite-compatible Signal/PQXDH-style engine in the enough. spike, but it is **not approved for E2EE-2C** until legal, source, artifact provenance, storage, key lifecycle, and independent security-review blockers are resolved.
@@ -1116,11 +1116,11 @@ docs/e2ee-2b-spike.md
 experiments/e2ee-2b/
 ```
 
-No files under `src/` changed.  
-No files under `supabase/` changed.  
-No SQL executed.  
-No migration created.  
-No production dependency added to root package.  
+No files under `src/` changed.
+No files under `supabase/` changed.
+No SQL executed.
+No migration created.
+No production dependency added to root package.
 No commit/push/PR/merge performed.
 
 Final required repository checks should be run after this file is written:
