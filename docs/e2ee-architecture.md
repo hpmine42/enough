@@ -444,6 +444,7 @@ src/lib/crypto/
 - **2026-08-19 — E2EE-1A:** Initiale Architektur-Entscheidung. Empfehlung: Web-Crypto-basierter Identity/Storage-Layer, keine produktive Nachrichtenverschluesselung in E2EE-1.
 - **2026-08-19 — E2EE-1C:** Security-Review der implementierten Infrastruktur (Details siehe §19).
 - **2026-08-19 — E2EE-2A:** Lokale Primitive-Schicht (X25519 -> HKDF-SHA-256 -> AES-256-GCM) additiv ergaenzt, ohne produktive Integration (Details siehe §20).
+- **2026-08-20 — E2EE-2C (Vorbereitung):** Architektur und Blocker-Aufloesung fuer eine moegliche Session-Engine (`@getmaapp/signal-wasm`) in [`e2ee-2c-architecture.md`](./e2ee-2c-architecture.md). **Keine Produktionsintegration.** Entscheidung: CONDITIONAL GO fuer die Engine-Wahl, NO-GO fuer Implementierung bis Legal/Provenance/Mobile/Review.
 
 ---
 
