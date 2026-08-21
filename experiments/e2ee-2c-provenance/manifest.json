@@ -1,0 +1,114 @@
+{
+  "package": "@getmaapp/signal-wasm",
+  "version": "0.6.6",
+  "inspection_date": "2026-08-20",
+  "npm": {
+    "gitHead": "0a5e3cb8bf282efb3521d7cdac5476caf3fb1acd",
+    "license": "AGPL-3.0-only",
+    "dist": {
+      "integrity": "sha512-cYpzAe+HV1xfiXJ1tfDEvAjNkIsKwQApmFgniWJw/dTonOx4By6NzJ7J5izi+pjvfrn5zuXa0TmcHJ7Y/bLZYg==",
+      "shasum": "62ad482454e62187664bd4f9473f8afac2061b07",
+      "tarball": "https://registry.npmjs.org/@getmaapp/signal-wasm/-/signal-wasm-0.6.6.tgz",
+      "fileCount": 6,
+      "unpackedSize": 925512
+    },
+    "provenance_attestation_present": false,
+    "has_signatures": true
+  },
+  "artifact_hashes_sha256": {
+    "tarball_signal-wasm-0.6.6.tgz": "c3e0d6cdd2598634ca95bf531513d3ea9e44ce01dbb4f5ddd64d49313e5e3082",
+    "LICENSE": "2b87ae924bd39116783dbb5d33770a9fcd4d62a5578204c6304f572bcdc5f091",
+    "README.md": "6c1b3f948eec9e7d8527dd5d5ad6fb5b2405e059a51ce292baadd7cdb0d2fe26",
+    "package.json": "677b54900bf2c8fc422e7771efd90d1a5c10b251402c8bcae27d5fd445cddded",
+    "signal_wasm.d.ts": "32441be517be4cf6b5bd12506e756d07dabb84859941cffb56657ff4c9dad7f2",
+    "signal_wasm.js": "c72af7ae13a17fca0b0c2a2b8acb948c9eb9c71a17f9c4194c53bdf2ab883410",
+    "signal_wasm_bg.wasm": "71b456b8a1bfc93111be86fdff9726ed397de55f223ee9136dab619a6620d6c1"
+  },
+  "artifact_sizes": {
+    "tarball": 327360,
+    "LICENSE": 1174,
+    "README.md": 15440,
+    "package.json": 586,
+    "signal_wasm.d.ts": 32350,
+    "signal_wasm.js": 78213,
+    "signal_wasm_bg.wasm": 797749,
+    "unpacked_total": 925512
+  },
+  "source_revision": {
+    "repository": "https://github.com/getmaapp/signal-wasm",
+    "gitHead": "0a5e3cb8bf282efb3521d7cdac5476caf3fb1acd",
+    "gitHead_exists": true,
+    "gitHead_on_default_branch": true,
+    "gitHead_reachable": true,
+    "gitHead_covered_by_tag": false,
+    "commit_subject": "feat: re-pin to libsignal v0.101.0 (b056faa6d), add retry-protocol primitives",
+    "git_tags": ["v0.1.0", "v0.1.1", "v0.1.2", "v0.2.0"],
+    "github_latest_release": "v0.2.0"
+  },
+  "upstream_libsignal": {
+    "repo": "https://github.com/signalapp/libsignal",
+    "rev": "b056faa6dd02961cff24064c54c089c52e1a0753",
+    "matches_official_v0_101_0_gitHead": true
+  },
+  "wasm_toolchain_fingerprint_from_producers_section": {
+    "rustc": "1.92.0 (ded5c06cf 2025-12-08)",
+    "walrus": "0.26.4",
+    "wasm-bindgen": "0.2.126 (21ac804a9)"
+  },
+  "target_features": [
+    "mutable-globals+",
+    "nontrapping-fptoint+",
+    "bulk-memory+",
+    "sign-ext+",
+    "reference-types+",
+    "multivalue+",
+    "bulk-memory-opt+",
+    "call-indirect-overlong+"
+  ],
+  "wasm_source_path_strings": {
+    "cargo_git_checkout_libsignal": "/Users/me/.cargo/git/checkouts/libsignal-2a193a9867decbc4/b056faa/rust/...",
+    "cargo_git_checkout_spqr": "/Users/me/.cargo/git/checkouts/sparsepostquantumratchet-b58d7f56e3645ccd/fd32048/src/...",
+    "cargo_registry_path": "/Users/me/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/...",
+    "build_host_implied": "macOS (author ~/Users/me/ home dir)"
+  },
+  "build_recipe": {
+    "command": "wasm-pack build --target web --scope getmaapp --release",
+    "target": "wasm32-unknown-unknown",
+    "release_profile": {
+      "lto": true,
+      "opt-level": "s",
+      "debug": 0,
+      "panic": "abort"
+    },
+    "rustflags_from_cargo_config": "--cfg getrandom_backend=\"wasm_js\"",
+    "rustc_pinned_in_repo": false,
+    "wasm_pack_version_pinned_in_repo": false,
+    "ci_present_in_source_repo": false,
+    "rust_toolchain_file_present": false
+  },
+  "sandbox_build_result": {
+    "phase": "E2EE-2C-1b",
+    "build_attempted": false,
+    "reason": "sandbox network allowlist blocks static.rust-lang.org, crates.io, index.crates.io, static.crates.io and GitHub release assets (release-assets.githubusercontent.com); no rustc/cargo/wasm-pack/wasm-tools/wasm-opt present, no ~/.rustup, no ~/.cargo, no cached crates, and none installable (debian mirrors also blocked). Byte-exact build therefore not executable in this environment.",
+    "verdict_assignable_here": "RESULT: REPRODUCTION BLOCKED BY ENVIRONMENT"
+  },
+  "ci_release_supply_chain": {
+    "automated_release_build": false,
+    "reproducible_ci_build": false,
+    "npm_published_from_ci": false,
+    "npm_provenance": false,
+    "signed_releases": false,
+    "release_checksums": "npm dist.shasum / dist.integrity only (npm-generated); no independent checksums",
+    "verifiable_git_commit_ci_wasm_npm_chain": false
+  },
+  "source_commit_metadata": {
+    "commit": "0a5e3cb8bf282efb3521d7cdac5476caf3fb1acd",
+    "date": "2026-08-19 08:40:13 +0100",
+    "author": "庄稼 <jia@thecannabis.app>",
+    "subject": "feat: re-pin to libsignal v0.101.0 (b056faa6d), add retry-protocol primitives",
+    "parent": "a253fbcc6b91678a65d3817f980ef6fcd0cfcbe9",
+    "tree": "fb1bdbb84ad52fd8a1cb1309deb0998672222942",
+    "tags_pointing_at_commit": [],
+    "reachable_from_main": true
+  }
+}

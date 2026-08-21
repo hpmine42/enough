@@ -1,0 +1,10 @@
+{
+  "name": "enough-e2ee-2c-provenance-experiments",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Isolated E2EE-2C-1/1b supply-chain & reproducible-build evidence for @getmaapp/signal-wasm@0.6.6. No production integration, no dependencies.",
+  "scripts": {
+    "test": "node --test test/provenance.test.mjs"
+  }
+}
