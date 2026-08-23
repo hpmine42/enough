@@ -7,14 +7,31 @@
 /** Version of the persisted crypto state format. Bump on breaking changes. */
 export const CRYPTO_STATE_VERSION = 1;
 
+/**
+ * Format version of a sealed ratchet-state envelope (E2EE-2D.2).
+ *
+ * This number is part of the AEAD additional data, so it cannot be edited in
+ * storage without invalidating the authentication tag. Bump it only for a
+ * breaking envelope change.
+ */
+export const SEALED_ENVELOPE_VERSION = 3;
+
 /** IndexedDB database name. */
 export const CRYPTO_DB_NAME = 'enough-crypto';
 /**
- * Bumped to 2 in E2EE-2D to add the `ratchet` object store. The upgrade is
- * purely additive: existing `state` and `prekeys` stores are untouched, so
- * identities and prekeys created under version 1 survive the upgrade.
+ * Version history:
+ *   1 — `state` + `prekeys`
+ *   2 — E2EE-2D:   adds `ratchet`
+ *   3 — E2EE-2D.2: adds `vaultkeys` (per-user non-extractable sealing keys)
+ *
+ * Every upgrade so far is purely additive: existing stores are never dropped
+ * or rewritten in `onupgradeneeded`, so identities and prekeys created under
+ * an older version survive. Ratchet records written under version 2 are
+ * migrated lazily on read (see `ratchet-state.ts`), not in the upgrade
+ * transaction — an upgrade transaction cannot use Web Crypto, which the
+ * sealing step requires.
  */
-export const CRYPTO_DB_VERSION = 2;
+export const CRYPTO_DB_VERSION = 3;
 
 /** IndexedDB object-store names. */
 export const CRYPTO_STORE_STATE = 'state';      // keyed by `${userId}:${recordKey}`
@@ -25,6 +42,13 @@ export const CRYPTO_STORE_PREKEYS = 'prekeys';  // keyed by composite: `${userId
  * `${userId}:${connectionId}:__watermark` for the high-water mark.
  */
 export const CRYPTO_STORE_RATCHET = 'ratchet';
+/**
+ * Per-user sealing keys (E2EE-2D.2). Holds non-extractable AES-GCM-256
+ * `CryptoKey` objects keyed by `${userId}:sealing-key`. The key never leaves
+ * this store as bytes: it is created with `extractable: false`, so neither
+ * `exportKey` nor `wrapKey` can produce material for it.
+ */
+export const CRYPTO_STORE_VAULTKEYS = 'vaultkeys';
 
 /**
  * Record keys for per-user singleton state. At rest these are stored under
@@ -68,6 +92,11 @@ export function prekeyCompositeKey(userId: string, keyId: number): string {
  */
 export function ratchetKeyFor(userId: string, connectionId: string): string {
   return `${userId}:${connectionId}`;
+}
+
+/** Key of the per-user sealing key inside `vaultkeys`. */
+export function sealingKeyFor(userId: string): string {
+  return `${userId}:sealing-key`;
 }
 
 /**
@@ -156,7 +185,15 @@ export type CryptoErrorCode =
   | 'DESERIALIZATION_ERROR'
   | 'USER_MISMATCH'        // identity bound to a different user id
   | 'REVISION_CONFLICT'    // CAS failed: another writer advanced the revision
-  | 'ROLLBACK_DETECTED';   // an older ratchet state tried to replace a newer one
+  | 'ROLLBACK_DETECTED'    // an older ratchet state tried to replace a newer one
+  // --- E2EE-2D.2 ---
+  | 'REVISION_OVERFLOW'    // revision left the uint64 domain; refuse to wrap
+  | 'UNSEAL_FAILED'        // AEAD tag mismatch: envelope header/state tampered
+  | 'KEY_MISSING'          // the per-user sealing key is gone; state unreadable
+  | 'WEDGED'               // storage is internally inconsistent; manual repair
+  | 'NEEDS_ESTABLISH'      // no session exists; only an explicit establish may create one
+  | 'EPOCH_STALE'          // the session epoch is older than the recorded one
+  | 'SCHEMA_OBSOLETE';     // another tab upgraded the DB; this context must reload
 
 export interface SerializedKeyPair<K extends CryptoKey = CryptoKey> {
   privateKey: K;

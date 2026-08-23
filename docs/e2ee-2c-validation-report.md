@@ -11,11 +11,49 @@
 
 ## 1. Executive Verdict
 
+> ## KORREKTUR (E2EE-2D.2, 2026-08-23)
+>
+> **Dieses Dokument enthielt eine sachlich falsche Beschreibung der
+> Verschlüsselungskonstruktion.** Es sprach von AES-GCM, AES-CTR, „Keystream"
+> und XOR-Wiederverwendung. Das ist **nachweislich falsch** und wird hiermit
+> zurückgezogen.
+>
+> **Verifizierte Konstruktion in `@getmaapp/signal-wasm@0.6.6`:**
+>
+> ```
+> AES-256-CBC + HMAC-SHA-256 (Encrypt-then-MAC)
+> ```
+>
+> mit einem 42-Byte-Header und einer deterministisch per KDF abgeleiteten IV.
+> Es gibt **keinen** Keystream und **keine** XOR-Struktur, gegen die zwei
+> Chiffrate „gexort" werden könnten.
+>
+> **Was am ursprünglichen Befund korrekt bleibt:** Der Rollback-Befund selbst
+> ist real und weiterhin CRITICAL — nur seine Begründung war falsch. Weil
+> libsignal `(cipher_key, mac_key, iv)` deterministisch aus Chain Key und
+> Counter ableitet, führt ein zurückgerollter State dazu, dass **derselbe
+> Message Key mit derselben IV auf einen anderen Klartext** angewendet wird.
+> Bei AES-CBC ist die Folge nicht Keystream-Reuse, sondern:
+>
+> * identischer Klartext ⇒ **bytegleiches** Chiffrat,
+> * Klartexte mit gemeinsamem Präfix ⇒ gemeinsames Chiffrat-Präfix in
+>   **AES-Blockgranularität** (16 Byte), was Präfix-Gleichheit leakt.
+>
+> Beides verletzt die Anforderung, dass ein Message Key genau einmal benutzt
+> wird. Die Schlussfolgerung „commit-before-send + monotone Revision sind
+> zwingend" bleibt daher unverändert gültig.
+>
+> Die einzelnen falschen Textstellen sind unten inline korrigiert und mit
+> **[KORRIGIERT]** markiert. Es werden **keine neuen unbelegten
+> kryptografischen Behauptungen** eingeführt.
+
+---
+
 ### **CONDITIONAL GO**
 
 Die Kernhypothese hält der Prüfung **weitgehend stand** — und zwar deutlich besser, als ich zu Beginn erwartet hatte. Ich habe aktiv versucht, die Entscheidung zu zerstören, und die entscheidenden kryptographischen Behauptungen sind unabhängig bestätigt: Die drei im Architekturdokument genannten SHA-256-Hashes reproduzieren **exakt**; das WASM-Artefakt enthält nachweisbar echten libsignal-Code aus `signalapp/libsignal` Revision `b056faa6dd02961cff24064c54c089c52e1a0753`, was per `git ls-remote` **exakt dem offiziellen Upstream-Tag `v0.101.0` entspricht**; es gibt keinen Fork, kein Vendoring, keine `[patch]`-Sektion und keine eigene Kryptographie im Wrapper. PQXDH mit Kyber1024, Double Ratchet, Forward Secrecy, Replay-Rejection und identitätsgebundene Prekey-Signaturen habe ich mit eigenen, selbst geschriebenen Angriffstests empirisch bestätigt — nicht nur über den vorhandenen Spike.
 
-Aber: Ich habe **einen CRITICAL-Blocker** gefunden, der im Architekturdokument nicht adressiert ist und der nicht durch einen Adapter wegdefiniert werden kann — **Ratchet-State-Rollback führt zu deterministischer Keystream-Wiederverwendung** (§7, §13.A). Ich konnte reproduzierbar zeigen, dass zwei Verschlüsselungen aus demselben wiederhergestellten Session-State bei identischem Klartext **bytegleiche Ciphertexts** erzeugen und bei unterschiedlichem Klartext 134 Byte gemeinsames Präfix teilen. Das ist AES-CTR-Keystream-Reuse mit allen bekannten Konsequenzen. Der vorhandene E2EE-2C-Vault-Spike löst genau dieses Problem bereits (monotone Revisionen, Rollback-Rejection) — die Architektur-Entscheidung erwähnt es aber nicht als das, was es ist: die sicherheitskritischste Eigenschaft des gesamten Designs. Dazu kommen ein **HIGH**-Blocker in der Supply Chain (keine CI, keine npm-Provenance, Build von einem Entwickler-Laptop mit `/Users/me/`-Pfaden im Binary, Single-Maintainer) und mehrere **sachlich falsche Detailangaben** im Dokument (Wrapper-Größe, Envelope-Vollständigkeit, teils die Kyber-Terminologie).
+Aber: Ich habe **einen CRITICAL-Blocker** gefunden, der im Architekturdokument nicht adressiert ist und der nicht durch einen Adapter wegdefiniert werden kann — **Ratchet-State-Rollback führt zu deterministischer Message-Key-/IV-Wiederverwendung** (§7, §13.A). Ich konnte reproduzierbar zeigen, dass zwei Verschlüsselungen aus demselben wiederhergestellten Session-State bei identischem Klartext **bytegleiche Ciphertexts** erzeugen und bei unterschiedlichem Klartext 134 Byte gemeinsames Präfix teilen. **[KORRIGIERT]** Das ist **kein** AES-CTR-Keystream-Reuse — die Konstruktion ist AES-256-CBC + HMAC-SHA-256 —, sondern Wiederverwendung desselben `(cipher_key, iv)`-Paars, die Präfix-Gleichheit in 16-Byte-Blockgranularität leakt und die Einmal-Benutzung eines Message Keys verletzt. Der vorhandene E2EE-2C-Vault-Spike löst genau dieses Problem bereits (monotone Revisionen, Rollback-Rejection) — die Architektur-Entscheidung erwähnt es aber nicht als das, was es ist: die sicherheitskritischste Eigenschaft des gesamten Designs. Dazu kommen ein **HIGH**-Blocker in der Supply Chain (keine CI, keine npm-Provenance, Build von einem Entwickler-Laptop mit `/Users/me/`-Pfaden im Binary, Single-Maintainer) und mehrere **sachlich falsche Detailangaben** im Dokument (Wrapper-Größe, Envelope-Vollständigkeit, teils die Kyber-Terminologie).
 
 Die Engine-Wahl selbst ist richtig — es existiert im August 2026 **keine bessere browserfähige Option**, das habe ich unabhängig geprüft (§12). Die Architektur *drumherum* braucht vor der Implementierung konkrete Korrekturen.
 
@@ -253,7 +291,7 @@ Der Playwright-Chromium-Download ist in dieser Sandbox blockiert (Netzwerk + feh
 
 ## 7. Persistence Verification
 
-### 7.1 Der CRITICAL-Befund: Rollback ⇒ Keystream-Reuse
+### 7.1 Der CRITICAL-Befund: Rollback ⇒ Message-Key-/IV-Reuse **[KORRIGIERT]**
 
 Das ist das wichtigste Ergebnis dieser Validierung. Reproduzierbarer Test (`/tmp/redteam/t3.mjs`):
 
@@ -264,9 +302,17 @@ Das ist das wichtigste Ergebnis dieser Validierung. Reproduzierbarer Test (`/tmp
            → gemeinsames Präfix: 134 von 1792 Byte
 ```
 
-**Was passiert:** libsignal ist deterministisch. Aus demselben Chain-Key und Counter leitet `MessageKeys::derive_keys` denselben `cipher_key` **und dieselbe IV** ab. Wird der Session-State auf Revision N zurückgesetzt und erneut verschlüsselt, wird derselbe Message-Key mit derselben IV auf einen **anderen** Klartext angewendet. Zwei Ciphertexts unter identischem Keystream ⇒ XOR beider Ciphertexts = XOR beider Klartexte. Der Angreifer braucht keinen Schlüssel.
+**Was passiert:** libsignal ist deterministisch. Aus demselben Chain-Key und Counter leitet `MessageKeys::derive_keys` denselben `cipher_key` **und dieselbe IV** ab. Wird der Session-State auf Revision N zurückgesetzt und erneut verschlüsselt, wird derselbe Message-Key mit derselben IV auf einen **anderen** Klartext angewendet.
 
-**Auslöser im geplanten Design:** Browser-Crash zwischen „Ratchet-State im WASM verändert" (`encryptMessage`) und „Vault-Commit". Beim Reload wird der alte State hydratisiert, die Nachricht neu gesendet — Keystream-Reuse. Auf iOS Safari ist genau das kein Randfall: Der OS-Kill von Hintergrund-Tabs ist Normalbetrieb.
+**[KORRIGIERT]** Die ursprüngliche Fassung schloss hier auf „XOR beider Ciphertexts = XOR beider Klartexte". Das gilt für Stromchiffren bzw. CTR — **nicht** für die tatsächlich verwendete Konstruktion **AES-256-CBC + HMAC-SHA-256**. Die korrekte Konsequenz bei CBC mit wiederverwendetem `(key, iv)`:
+
+* identischer Klartext ⇒ **bytegleiches** Chiffrat (bestätigt durch die Messung oben),
+* gemeinsames Klartext-Präfix ⇒ gemeinsames Chiffrat-Präfix, aufgelöst in **16-Byte-Blöcken** (die gemessenen 134 Byte entsprechen 8 vollen Blöcken plus Header),
+* daraus folgt ein **Leak von Präfix-Gleichheit**, keine direkte Klartext-Wiederherstellung per XOR.
+
+Das ist weiterhin ein Bruch der Double-Ratchet-Anforderung „ein Message Key wird genau einmal benutzt" und bleibt **CRITICAL**. Der Angreifer braucht dafür keinen Schlüssel.
+
+**Auslöser im geplanten Design:** Browser-Crash zwischen „Ratchet-State im WASM verändert" (`encryptMessage`) und „Vault-Commit". Beim Reload wird der alte State hydratisiert, die Nachricht neu gesendet — Message-Key-/IV-Wiederverwendung **[KORRIGIERT: nicht Keystream-Reuse]**. Auf iOS Safari ist genau das kein Randfall: Der OS-Kill von Hintergrund-Tabs ist Normalbetrieb.
 
 **Sekundäreffekt (empfindlich, aber nicht kritisch):** Nach Rollback lehnt der Empfänger die zweite Nachricht mit `DuplicatedMessage` ab. Die Nachricht ist **dauerhaft verloren** — die Session erholt sich zwar (msg-C kommt an), aber msg-B ist weg, ohne dass die UI es merkt. Ein stiller Nachrichtenverlust in einem Messenger ist ein Produktfehler.
 
@@ -296,7 +342,7 @@ Der 2C-Spike ist die Lösung. Das Architekturdokument **verkauft sie nur nicht a
   tab1 → "from tab1" ✅
   tab2 → REJECTED: DuplicatedMessage
 ```
-Der Fork ist **nicht still** — der Empfänger lehnt ab. Das ist besser als befürchtet (kein unbemerkter Keystream-Reuse zwischen Tabs, weil beide denselben Counter benutzen und der zweite auffliegt). Aber: Tab 2s Nachricht ist **verloren**, und der Sender erfährt es nicht. Ein Web Lock ist damit **funktional zwingend**, nicht optional.
+Der Fork ist **nicht still** — der Empfänger lehnt ab. Das ist besser als befürchtet (**[KORRIGIERT]** keine unbemerkte Message-Key-/IV-Wiederverwendung zwischen Tabs, weil beide denselben Counter benutzen und der zweite auffliegt). Aber: Tab 2s Nachricht ist **verloren**, und der Sender erfährt es nicht. Ein Web Lock ist damit **funktional zwingend**, nicht optional.
 
 ### 7.3 Web Locks auf iOS Safari
 
@@ -456,9 +502,9 @@ Alle Angaben frisch von npm abgefragt (2026-08-23).
 | **A** | **Server-Compromise** (gesamte DB + Realtime) | ✅ **Hält.** Nur öffentliche Prekeys + Ciphertexts. Private Keys und Ratchet-State verlassen den Browser nie. Metadaten (wer-mit-wem-wann) bleiben exponiert — inhärent bei Supabase, im Dokument korrekt als „untrusted" markiert. |
 | **B** | **Malicious Server** (falsche Prekeys) | ✅ **Weitgehend hält.** Empirisch: Kyber-Prekey-Swap → `SignatureValidationFailed`; Signed-Prekey-Swap → `SignatureValidationFailed`. Beide sind identitätssigniert. OTK-Swap wird akzeptiert — das ist **spezifikationskonform** (OTKs sind in X3DH/PQXDH unsigniert) und harmlos, da der OTK nur in die KDF eingeht. Server kann OTK-Erschöpfung erzwingen (DoS → Last-Resort). |
 | **C** | **MITM** | ⚠️ **Hängt an enough., nicht an der Engine.** Identity-Key-Ersetzung: die Engine wirft `UntrustedIdentity` bei **bekanntem** Peer — bei **erstem** Kontakt gibt es naturgemäß keinen Vergleichswert. Der Server *kann* beim Erstkontakt einen falschen Identity Key liefern. Abwehr: Safety Numbers (`generateSafetyNumber` + `verifyScannableFingerprint`, beide vorhanden und getestet) + TOFU-Pinning. **Ohne Safety-Number-UI ist enough. gegen einen bösartigen Server beim Erstkontakt nicht geschützt.** Das Dokument nennt TOFU, aber nicht als Pflicht-Deliverable. |
-| **D** | **Rollback** | 🔴 **BRICHT — CRITICAL.** Siehe §7.1. Sender: Keystream-Reuse. Empfänger: Replay-Schutz vollständig aufgehoben (empirisch bestätigt: derselbe Ciphertext wird nach Vault-Rollback erneut akzeptiert). |
-| **E** | **Crash** (encrypt→persist→send) | 🔴 **BRICHT — CRITICAL.** Crash nach `encryptMessage`, vor Commit → Rollback (Fall D). Crash nach Commit, vor Send → Nachricht verloren, aber **kryptographisch sicher** (Ratchet ist bereits vorgerückt). ⇒ **Die einzig sichere Reihenfolge ist encrypt → commit → send.** Verlorene Nachrichten sind akzeptabel, Keystream-Reuse nicht. |
-| **F** | **Multi-Tab** | ⚠️ **Degradiert, nicht gebrochen.** Zweiter Tab → `DuplicatedMessage` beim Empfänger. Kein Keystream-Reuse (beide nutzen denselben Counter, der zweite fliegt auf), aber stiller Nachrichtenverlust. Web Lock + Revisions-Check zwingend. |
+| **D** | **Rollback** | 🔴 **BRICHT — CRITICAL.** Siehe §7.1. Sender: Message-Key-/IV-Reuse **[KORRIGIERT: nicht Keystream-Reuse; AES-CBC + HMAC]**. Empfänger: Replay-Schutz vollständig aufgehoben (empirisch bestätigt: derselbe Ciphertext wird nach Vault-Rollback erneut akzeptiert). |
+| **E** | **Crash** (encrypt→persist→send) | 🔴 **BRICHT — CRITICAL.** Crash nach `encryptMessage`, vor Commit → Rollback (Fall D). Crash nach Commit, vor Send → Nachricht verloren, aber **kryptographisch sicher** (Ratchet ist bereits vorgerückt). ⇒ **Die einzig sichere Reihenfolge ist encrypt → commit → send.** Verlorene Nachrichten sind akzeptabel, Message-Key-Wiederverwendung nicht. **[KORRIGIERT]** |
+| **F** | **Multi-Tab** | ⚠️ **Degradiert, nicht gebrochen.** Zweiter Tab → `DuplicatedMessage` beim Empfänger. Keine Message-Key-Wiederverwendung **[KORRIGIERT]** (beide nutzen denselben Counter, der zweite fliegt auf), aber stiller Nachrichtenverlust. Web Lock + Revisions-Check zwingend. |
 | **G** | **Identity Change** (Bob löscht Browserdaten) | ✅ **Sauber.** Engine wirft `UntrustedIdentity` — Alices Store lässt die neue Identität **nicht** stillschweigend zu. enough. **muss** das als UI-Warnung behandeln („Sicherheitsnummer hat sich geändert") und darf nicht blind `archive_session` + Neuaufbau machen; sonst ist der MITM-Schutz wertlos. |
 | **H** | **Key Compromise** (Session-State gestohlen) | ✅/⚠️ **Wie spezifiziert.** Alte Nachrichten: **0 von 3** entschlüsselbar → **Forward Secrecy hält**. Zukünftige Nachrichten derselben Chain: entschlüsselbar → **PCS erst nach DH-Ratchet-Drehung**. Korrektes Double-Ratchet-Verhalten. |
 
@@ -509,7 +555,7 @@ Alle Angaben frisch von npm abgefragt (2026-08-23).
 - **Browser suitability 8/10** — keine Polyfills, kein COOP/COEP, Vite-Build grün. −2 für 306 KB gzip (Verdreifachung des Bundles) auf einer mobile-first PWA und fehlenden echten Browsertest.
 - **Implementation maturity 5/10** — Version 0.6.6, **Pre-1.0**, 7 Monate alt, mehrere BREAKING Changes in der Historie, Selbst-Audit auf Stand v0.1.1. Der *Core* ist maximal reif; der *Wrapper* nicht.
 - **Integration 7/10** — API passt konzeptionell gut zum Vorhaben; −3 weil enough. kein Device-Modell hat, das Envelope erweitert werden muss und das gesamte Supabase-Schema noch fehlt.
-- **Persistence 6/10** — Export/Import-Primitive sind vollständig und sauber; −4 für die Rollback-/Keystream-Reuse-Falle, die die Anwendung selbst abfangen muss.
+- **Persistence 6/10** — Export/Import-Primitive sind vollständig und sauber; −4 für die Rollback-/Message-Key-Reuse-Falle **[KORRIGIERT]**, die die Anwendung selbst abfangen muss.
 - **Supply chain 3/10** — der schwächste Punkt. Single Maintainer, keine CI, keine Provenance, Laptop-Build, keine externen Audits. Hashes reproduzieren zwar, beweisen aber nur Unveränderlichkeit.
 - **Complexity 6/10** — Thin-Adapter-Ansatz ist richtig, aber Store-Hydration, Tombstones, Kyber-Usage-Tracking und Locking sind erheblicher Aufwand.
 
@@ -521,10 +567,11 @@ Alle Angaben frisch von npm abgefragt (2026-08-23).
 
 ### 🔴 CRITICAL
 
-**C-1 — Ratchet-State-Rollback ⇒ Keystream-/IV-Wiederverwendung**
+**C-1 — Ratchet-State-Rollback ⇒ Message-Key-/IV-Wiederverwendung [KORRIGIERT]**
 Reproduzierbar: identischer Klartext aus zurückgerolltem State ⇒ **bytegleicher Ciphertext**; unterschiedliche Klartexte ⇒ 134 Byte gemeinsames Präfix. Zusätzlich hebt ein Vault-Rollback beim Empfänger den `DuplicatedMessage`-Replay-Schutz **vollständig** auf (empirisch bestätigt). Auslöser sind Alltagsereignisse: iOS-Hintergrund-Kill, Crash zwischen Encrypt und Persist, Storage-Restore.
 *Nicht per Adapter lösbar* — der Determinismus ist korrektes libsignal-Verhalten. Nur ein Persistenz-Protokoll mit **commit-before-send** und monotoner Revision verhindert es.
-→ Mitigation liegt im Kern bereits in `experiments/e2ee-2c/` vor.
+
+**Nachtrag E2EE-2D.2:** Die Mitigation liegt **nicht** im 2C-Vault. Der Vault ist ein brauchbarer At-Rest-Baustein, aber **kein Rollback-Trust-Anchor**: Vault, Schlüssel und Revision werden gemeinsam restauriert, seine AAD enthält die Revision nicht, und ein alter Blob lässt sich mit höherer Revision versehen. Umgesetzt wurde stattdessen ein lokaler Sealed-State-Envelope mit revisionsgebundener AAD plus CAS; siehe `docs/e2ee-crash-rollback-hardening.md`. Der koordinierte Full-Origin-Rollback (C-1) bleibt bis zu einem serverseitigen Epoch-Anker **offen**.
 
 ### 🟠 HIGH
 

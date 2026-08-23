@@ -1,4 +1,4 @@
-// enough. E2EE-2D — crash-/rollback-hardening tests.
+// enough. E2EE-2D / 2D.2 — crash-, rollback- and CAS-hardening tests.
 //
 // Run with:
 //   node --test --experimental-strip-types src/lib/crypto/__tests__/ratchet-state.test.mjs
@@ -8,29 +8,40 @@
 // non-secret fixtures — this layer never interprets them.
 //
 // Emphasis is on proving that WRONG behaviour is REJECTED, not merely that
-// the happy path works.
+// the happy path works. Several tests are written specifically as mutation
+// guards and say so in a comment, so that deleting the corresponding check in
+// the implementation turns a test red.
 
 import './setup.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  INITIAL_EPOCH,
   INITIAL_REVISION,
+  MAX_REVISION,
+  adoptSessionFromEstablishment,
   commitRatchetState,
   deleteUserRatchetState,
   getRatchetWatermark,
   loadRatchetState,
-  restoreRatchetSnapshot,
 } from '../ratchet-state.ts';
 
 import {
   SimulatedCrash,
   decryptAndCommit,
   encryptCommitSend,
-  exportRatchetSnapshot,
+  inspectSession,
 } from '../ratchet-session.ts';
 
-import { deleteCryptoDatabase, deleteUserCryptoState, openDatabase, CRYPTO_STORE_RATCHET } from '../storage.ts';
+import { encodeRevision } from '../revision.ts';
+import { ensureSealingKey, seal } from '../sealed-state.ts';
+import {
+  CRYPTO_STORE_RATCHET,
+  deleteCryptoDatabase,
+  deleteUserCryptoState,
+  openDatabase,
+} from '../storage.ts';
 import { ratchetKeyFor, watermarkKeyFor } from '../types.ts';
 import { isCryptoError } from '../errors.ts';
 
@@ -45,7 +56,6 @@ async function reset() {
   await deleteCryptoDatabase();
 }
 
-/** Assert that a promise rejects with a CryptoError of the given code. */
 async function assertRejectsWithCode(fn, code) {
   await assert.rejects(fn, (err) => {
     assert.ok(isCryptoError(err), `expected CryptoError, got ${err?.name}: ${err?.message}`);
@@ -54,352 +64,479 @@ async function assertRejectsWithCode(fn, code) {
   });
 }
 
+/** Establish a session and return its {epoch, revision}. */
+async function establish(userId, connectionId = CONN, state = S(0)) {
+  return adoptSessionFromEstablishment(userId, connectionId, state);
+}
+
+/** Raw read/write helpers used to simulate tampering and storage damage. */
+async function rawGet(key) {
+  const db = await openDatabase();
+  try {
+    const t = db.transaction(CRYPTO_STORE_RATCHET, 'readonly');
+    const req = t.objectStore(CRYPTO_STORE_RATCHET).get(key);
+    return await new Promise((res, rej) => {
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => rej(req.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function rawPut(key, value) {
+  const db = await openDatabase();
+  try {
+    const t = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite');
+    t.objectStore(CRYPTO_STORE_RATCHET).put(value, key);
+    await new Promise((res, rej) => {
+      t.oncomplete = () => res();
+      t.onerror = () => rej(t.error);
+      t.onabort = () => rej(t.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function rawDelete(key) {
+  const db = await openDatabase();
+  try {
+    const t = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite');
+    t.objectStore(CRYPTO_STORE_RATCHET).delete(key);
+    await new Promise((res, rej) => {
+      t.oncomplete = () => res();
+      t.onerror = () => rej(t.error);
+      t.onabort = () => rej(t.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** A minimal engine factory: deterministic, disposable, no real crypto. */
+function makeEngineFactory(log = []) {
+  return (state) => {
+    const instance = {
+      id: log.length,
+      disposed: false,
+      used: false,
+      encrypt(plaintext) {
+        assert.equal(this.used, false, 'an ephemeral engine must be used at most once');
+        assert.equal(this.disposed, false, 'a disposed engine must not encrypt');
+        this.used = true;
+        return {
+          ciphertext: new Uint8Array([...state, ...plaintext]),
+          nextState: new Uint8Array([...state, plaintext.length]),
+        };
+      },
+      decrypt(ciphertext) {
+        assert.equal(this.used, false, 'an ephemeral engine must be used at most once');
+        this.used = true;
+        return {
+          plaintext: new Uint8Array([...ciphertext].reverse()),
+          nextState: new Uint8Array([...state, 0xff]),
+        };
+      },
+      dispose() {
+        this.disposed = true;
+      },
+    };
+    log.push(instance);
+    return instance;
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* A. Revision semantics                                               */
 /* ------------------------------------------------------------------ */
 
-test('A1: first commit starts at revision 1 and is readable', async () => {
+test('A1: an established session starts at epoch 1 / revision 1', async () => {
   await reset();
   const u = freshUser();
-  const rev = await commitRatchetState(u, CONN, INITIAL_REVISION, S(1));
-  assert.equal(rev, 1);
+  const { epoch, revision } = await establish(u);
+  assert.equal(epoch, 1n);
+  assert.equal(revision, 1n);
 
   const loaded = await loadRatchetState(u, CONN);
   assert.equal(loaded.status, 'VALID');
-  assert.equal(loaded.record.revision, 1);
-  assert.deepEqual(loaded.record.state, S(1));
+  assert.equal(loaded.record.revision, 1n);
+  assert.deepEqual(loaded.record.state, S(0));
 });
 
 test('A2: revisions increase monotonically across many commits', async () => {
   await reset();
   const u = freshUser();
-  let rev = INITIAL_REVISION;
-  let previous = -1;
+  const { epoch } = await establish(u);
+  let revision = 1n;
+  let previous = 0n;
   for (let i = 0; i < 25; i++) {
-    rev = await commitRatchetState(u, CONN, rev, S(i));
-    assert.ok(rev > previous, `revision must increase: ${rev} !> ${previous}`);
-    previous = rev;
+    revision = await commitRatchetState(u, CONN, { epoch, revision }, S(i));
+    assert.ok(revision > previous, `revision must increase: ${revision} !> ${previous}`);
+    previous = revision;
   }
-  assert.equal(rev, 25);
-  assert.equal(await getRatchetWatermark(u, CONN), 25);
+  assert.equal(revision, 26n);
+  const wm = await getRatchetWatermark(u, CONN);
+  assert.equal(wm.revision, 26n);
 });
 
 test('A3: committing with an OLDER expected revision is REJECTED', async () => {
   await reset();
   const u = freshUser();
-  let rev = INITIAL_REVISION;
-  for (let i = 0; i < 8; i++) rev = await commitRatchetState(u, CONN, rev, S(i));
-  assert.equal(rev, 8);
+  const { epoch } = await establish(u);
+  const r2 = await commitRatchetState(u, CONN, { epoch, revision: 1n }, S(2));
+  await commitRatchetState(u, CONN, { epoch, revision: r2 }, S(3));
 
-  // current = 8, incoming claims to have seen 7 -> must fail (task §5 A).
-  await assertRejectsWithCode(() => commitRatchetState(u, CONN, 7, S(99)), 'REVISION_CONFLICT');
-
-  const after = await loadRatchetState(u, CONN);
-  assert.equal(after.record.revision, 8, 'state must be untouched after a rejected write');
+  await assertRejectsWithCode(
+    () => commitRatchetState(u, CONN, { epoch, revision: 1n }, S(9)),
+    'REVISION_CONFLICT',
+  );
 });
 
 test('A4: committing with a FUTURE expected revision is REJECTED', async () => {
   await reset();
   const u = freshUser();
-  await commitRatchetState(u, CONN, INITIAL_REVISION, S(1));
-  await assertRejectsWithCode(() => commitRatchetState(u, CONN, 5, S(2)), 'REVISION_CONFLICT');
+  const { epoch } = await establish(u);
+  await assertRejectsWithCode(
+    () => commitRatchetState(u, CONN, { epoch, revision: 99n }, S(9)),
+    'REVISION_CONFLICT',
+  );
 });
 
-test('A5: state and revision are always mutually consistent', async () => {
+test('A5: state and revision stay mutually consistent', async () => {
   await reset();
   const u = freshUser();
-  let rev = INITIAL_REVISION;
-  for (let i = 1; i <= 6; i++) {
-    rev = await commitRatchetState(u, CONN, rev, S(i * 10));
+  const { epoch } = await establish(u, CONN, S(1));
+  let revision = 1n;
+  const seen = new Map([[1n, S(1)]]);
+  for (let i = 2; i <= 6; i++) {
+    revision = await commitRatchetState(u, CONN, { epoch, revision }, S(i));
+    seen.set(revision, S(i));
     const loaded = await loadRatchetState(u, CONN);
-    // The record carries both, written in one transaction — they cannot drift.
-    assert.equal(loaded.record.revision, rev);
-    assert.deepEqual(loaded.record.state, S(i * 10));
+    assert.equal(loaded.status, 'VALID');
+    assert.deepEqual(loaded.record.state, seen.get(loaded.record.revision));
+  }
+});
+
+test('A6: a commit at the uint64 ceiling FAILS CLOSED (H-2)', async () => {
+  await reset();
+  const u = freshUser();
+  await establish(u);
+  // Mutation guard #10: without the overflow check this wraps or repeats.
+  await assertRejectsWithCode(
+    () => commitRatchetState(u, CONN, { epoch: 1n, revision: MAX_REVISION }, S(1)),
+    'REVISION_OVERFLOW',
+  );
+});
+
+test('A7: a Number revision is refused at the API boundary', async () => {
+  await reset();
+  const u = freshUser();
+  await establish(u);
+  for (const bad of [1, 1e308, 2 ** 53, -1, 1.5, NaN, '1']) {
+    await assertRejectsWithCode(
+      () => commitRatchetState(u, CONN, { epoch: 1n, revision: bad }, S(1)),
+      'CORRUPT_STATE',
+    );
   }
 });
 
 /* ------------------------------------------------------------------ */
-/* B. Crash consistency                                                */
+/* B. Crash points and ordering                                        */
 /* ------------------------------------------------------------------ */
 
-test('B1: crash BEFORE commit leaves the previous state current (nothing externalized)', async () => {
+test('B1: crash BEFORE commit leaves the previous state current', async () => {
   await reset();
   const u = freshUser();
-  await commitRatchetState(u, CONN, INITIAL_REVISION, S(0)); // rev 1 = S0
+  await establish(u, CONN, S(1));
+  const sent = [];
 
-  let sent = false;
   await assert.rejects(
     () =>
       encryptCommitSend({
         userId: u,
         connectionId: CONN,
-        encrypt: () => ({ ciphertext: new Uint8Array([1]), nextState: S(1) }),
-        send: () => {
-          sent = true;
-        },
+        plaintext: new Uint8Array([1]),
+        createEngine: makeEngineFactory(),
+        send: (c) => void sent.push(c),
         failAt: 'BeforeCommit',
       }),
     SimulatedCrash,
   );
 
-  assert.equal(sent, false, 'nothing may be sent when the commit did not happen');
-  const after = await loadRatchetState(u, CONN);
-  assert.equal(after.status, 'VALID');
-  assert.equal(after.record.revision, 1, 'uncommitted state must not be adopted');
-  assert.deepEqual(after.record.state, S(0));
+  const loaded = await loadRatchetState(u, CONN);
+  assert.equal(loaded.record.revision, 1n);
+  assert.deepEqual(loaded.record.state, S(1));
+  assert.equal(sent.length, 0, 'nothing may be externalized before a commit');
 });
 
-test('B2: crash AFTER commit keeps S1 — S0 is never reloaded', async () => {
+test('B2: crash AFTER commit keeps the advanced state', async () => {
   await reset();
   const u = freshUser();
-  await commitRatchetState(u, CONN, INITIAL_REVISION, S(0));
+  await establish(u, CONN, S(1));
 
-  let sent = false;
   await assert.rejects(
     () =>
       encryptCommitSend({
         userId: u,
         connectionId: CONN,
-        encrypt: () => ({ ciphertext: new Uint8Array([1]), nextState: S(1) }),
-        send: () => {
-          sent = true;
-        },
+        plaintext: new Uint8Array([1]),
+        createEngine: makeEngineFactory(),
+        send: () => {},
         failAt: 'AfterCommit',
       }),
     SimulatedCrash,
   );
 
-  assert.equal(sent, false, 'crash fired before send');
-  const after = await loadRatchetState(u, CONN);
-  assert.equal(after.record.revision, 2);
-  assert.deepEqual(after.record.state, S(1), 'committed S1 must survive; S0 must not come back');
+  const loaded = await loadRatchetState(u, CONN);
+  assert.equal(loaded.record.revision, 2n, 'the committed state must survive');
 });
 
 test('B3: crash BEFORE send keeps the committed state (message lost, key never reused)', async () => {
   await reset();
   const u = freshUser();
-  await commitRatchetState(u, CONN, INITIAL_REVISION, S(0));
+  await establish(u, CONN, S(1));
+  const sent = [];
 
-  let sent = false;
   await assert.rejects(
     () =>
       encryptCommitSend({
         userId: u,
         connectionId: CONN,
-        encrypt: () => ({ ciphertext: new Uint8Array([7]), nextState: S(1) }),
-        send: () => {
-          sent = true;
-        },
+        plaintext: new Uint8Array([1]),
+        createEngine: makeEngineFactory(),
+        send: (c) => void sent.push(c),
         failAt: 'BeforeSend',
       }),
     SimulatedCrash,
   );
 
-  assert.equal(sent, false);
-  const after = await loadRatchetState(u, CONN);
-  assert.equal(after.record.revision, 2, 'state stays advanced: losing a message beats reusing a key');
+  assert.equal(sent.length, 0);
+  const loaded = await loadRatchetState(u, CONN);
+  assert.equal(loaded.record.revision, 2n);
 });
 
-test('B4: crash AFTER send keeps the committed state', async () => {
+test('B4: the sequencer commits BEFORE it sends (ordering is observable)', async () => {
+  // Mutation guard #8: swapping commit and send reverses this order.
   await reset();
   const u = freshUser();
-  await commitRatchetState(u, CONN, INITIAL_REVISION, S(0));
-
-  let sent = false;
-  await assert.rejects(
-    () =>
-      encryptCommitSend({
-        userId: u,
-        connectionId: CONN,
-        encrypt: () => ({ ciphertext: new Uint8Array([9]), nextState: S(1) }),
-        send: () => {
-          sent = true;
-        },
-        failAt: 'AfterSend',
-      }),
-    SimulatedCrash,
-  );
-
-  assert.equal(sent, true, 'the message did go out');
-  const after = await loadRatchetState(u, CONN);
-  assert.equal(after.record.revision, 2);
-  assert.deepEqual(after.record.state, S(1));
-});
-
-test('B5: the sequencer commits BEFORE it sends (ordering is observable)', async () => {
-  await reset();
-  const u = freshUser();
+  await establish(u, CONN, S(1));
   const order = [];
 
   await encryptCommitSend({
     userId: u,
     connectionId: CONN,
-    encrypt: () => {
-      order.push('encrypt');
-      return { ciphertext: new Uint8Array([1]), nextState: S(1) };
-    },
+    plaintext: new Uint8Array([1]),
+    createEngine: (state) => ({
+      encrypt: () => ({ ciphertext: new Uint8Array([1]), nextState: new Uint8Array([...state, 1]) }),
+      dispose: () => {},
+    }),
     send: async () => {
-      // Observe the durable state at the moment of sending.
-      const at = await loadRatchetState(u, CONN);
-      order.push(`send(rev=${at.record.revision})`);
+      // At the moment of sending, the new revision must already be durable.
+      const loaded = await loadRatchetState(u, CONN);
+      order.push(`send@rev${loaded.record.revision}`);
     },
   });
 
-  assert.deepEqual(order, ['encrypt', 'send(rev=1)'],
-    'the state must already be committed when send() runs');
+  assert.deepEqual(order, ['send@rev2'], 'send must observe the committed revision');
 });
 
-test('B6: a failing send does NOT roll the committed state back', async () => {
+test('B5: a failing send does NOT roll the committed state back', async () => {
   await reset();
   const u = freshUser();
-  await commitRatchetState(u, CONN, INITIAL_REVISION, S(0));
+  await establish(u, CONN, S(1));
 
-  await assert.rejects(
-    () =>
-      encryptCommitSend({
-        userId: u,
-        connectionId: CONN,
-        encrypt: () => ({ ciphertext: new Uint8Array([1]), nextState: S(1) }),
-        send: () => {
-          throw new Error('network down');
-        },
-      }),
-    /network down/,
+  await assert.rejects(() =>
+    encryptCommitSend({
+      userId: u,
+      connectionId: CONN,
+      plaintext: new Uint8Array([1]),
+      createEngine: makeEngineFactory(),
+      send: () => {
+        throw new Error('network down');
+      },
+    }),
   );
 
-  const after = await loadRatchetState(u, CONN);
-  assert.equal(after.record.revision, 2, 'a transport failure must never rewind the ratchet');
+  const loaded = await loadRatchetState(u, CONN);
+  assert.equal(loaded.record.revision, 2n, 'a transport failure must not undo the ratchet');
 });
 
 /* ------------------------------------------------------------------ */
 /* C. Rollback                                                         */
 /* ------------------------------------------------------------------ */
 
-test('C1: restoring an older snapshot is REJECTED (snapshot A=10 vs B=11)', async () => {
+test('C1: a stale record beneath a live watermark is DETECTED on load', async () => {
   await reset();
   const u = freshUser();
-  let rev = INITIAL_REVISION;
-  for (let i = 0; i < 10; i++) rev = await commitRatchetState(u, CONN, rev, S(i));
-  const snapshotA = await exportRatchetSnapshot(u, CONN); // revision 10
-  assert.equal(snapshotA.revision, 10);
+  const { epoch } = await establish(u, CONN, S(1));
+  let revision = 1n;
+  const key = await ensureSealingKey(u);
+  const oldEnvelope = await seal(key, u, CONN, epoch, 2n, S(2));
+  for (let i = 0; i < 4; i++) {
+    revision = await commitRatchetState(u, CONN, { epoch, revision }, S(i));
+  }
+  assert.equal(revision, 5n);
 
-  rev = await commitRatchetState(u, CONN, rev, S(11));
-  const snapshotB = await exportRatchetSnapshot(u, CONN); // revision 11
-  assert.equal(snapshotB.revision, 11);
-
-  // Restoring B over B is not newer than the watermark -> rejected as well.
-  await assertRejectsWithCode(() => restoreRatchetSnapshot(u, CONN, snapshotB), 'ROLLBACK_DETECTED');
-
-  // The important one: A must never come back.
-  await assertRejectsWithCode(() => restoreRatchetSnapshot(u, CONN, snapshotA), 'ROLLBACK_DETECTED');
-
-  const after = await loadRatchetState(u, CONN);
-  assert.equal(after.record.revision, 11, 'newer state must remain');
-});
-
-test('C2: a stale writer (old tab) cannot overwrite a newer revision', async () => {
-  await reset();
-  const u = freshUser();
-  const r5 = await commitRatchetState(u, CONN, INITIAL_REVISION, S(5));
-  assert.equal(r5, 1);
-
-  // Two tabs both read revision 1.
-  const tabA = (await loadRatchetState(u, CONN)).record.revision;
-  const tabB = (await loadRatchetState(u, CONN)).record.revision;
-  assert.equal(tabA, tabB);
-
-  // Tab A commits -> revision 2.
-  const advanced = await commitRatchetState(u, CONN, tabA, S(6));
-  assert.equal(advanced, 2);
-
-  // Tab B still believes it is at revision 1 -> must fail, not overwrite.
-  await assertRejectsWithCode(() => commitRatchetState(u, CONN, tabB, S(66)), 'REVISION_CONFLICT');
-
-  const after = await loadRatchetState(u, CONN);
-  assert.equal(after.record.revision, 2);
-  assert.deepEqual(after.record.state, S(6), "tab A's state must win");
-});
-
-test('C3: a rolled-back store (record older than watermark) is DETECTED on load', async () => {
-  await reset();
-  const u = freshUser();
-  let rev = INITIAL_REVISION;
-  for (let i = 0; i < 4; i++) rev = await commitRatchetState(u, CONN, rev, S(i));
-  assert.equal(rev, 4);
-
-  // Simulate a restored backup / partially rolled-back IndexedDB by writing an
-  // older record directly behind the abstraction's back. The watermark, which
-  // a naive restore would not know about, still says 4.
-  const db = await openDatabase();
-  const t = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite');
-  t.objectStore(CRYPTO_STORE_RATCHET).put(
-    { version: 1, userId: u, connectionId: CONN, revision: 2, state: S(2), committedAt: Date.now() },
-    ratchetKeyFor(u, CONN),
-  );
-  await new Promise((res, rej) => {
-    t.oncomplete = res;
-    t.onerror = () => rej(t.error);
-  });
-  db.close();
+  // Put back a genuinely sealed OLD envelope, leaving the watermark at 5.
+  await rawPut(ratchetKeyFor(u, CONN), oldEnvelope);
 
   const loaded = await loadRatchetState(u, CONN);
   assert.equal(loaded.status, 'ROLLBACK_DETECTED');
-  assert.equal(loaded.watermark, 4);
+  assert.equal(loaded.watermark.revision, 5n);
+});
+
+test('C2: forging a higher revision onto an old state is REJECTED (audit C-2)', async () => {
+  await reset();
+  const u = freshUser();
+  const { epoch } = await establish(u, CONN, S(1));
+  const key = await ensureSealingKey(u);
+
+  // A genuine state committed at revision 5 …
+  const genuine = await seal(key, u, CONN, epoch, 5n, S(5));
+  // … re-labelled as revision 500, exactly as in the audit.
+  const forged = { ...genuine, revision: encodeRevision(500n) };
+  await rawPut(ratchetKeyFor(u, CONN), forged);
+
+  const loaded = await loadRatchetState(u, CONN);
+  assert.equal(loaded.status, 'UNSEAL_FAILED', 'a forged revision must not authenticate');
+  assert.notEqual(loaded.status, 'VALID');
+  assert.equal(loaded.record, undefined);
+
+  // And it must not be usable as a base for further commits either.
+  await assertRejectsWithCode(
+    () => commitRatchetState(u, CONN, { epoch, revision: 500n }, S(9)),
+    'UNSEAL_FAILED',
+  );
+});
+
+test('C3: a vanished record with a live watermark is a rollback, not a fresh session', async () => {
+  await reset();
+  const u = freshUser();
+  const { epoch } = await establish(u, CONN, S(1));
+  await commitRatchetState(u, CONN, { epoch, revision: 1n }, S(2));
+
+  await rawDelete(ratchetKeyFor(u, CONN));
+
+  const loaded = await loadRatchetState(u, CONN);
+  assert.equal(loaded.status, 'ROLLBACK_DETECTED');
+  assert.notEqual(loaded.status, 'MISSING');
 });
 
 test('C4: encrypting on a rollback-detected state is REFUSED', async () => {
   await reset();
   const u = freshUser();
-  let rev = INITIAL_REVISION;
-  for (let i = 0; i < 3; i++) rev = await commitRatchetState(u, CONN, rev, S(i));
+  const { epoch } = await establish(u, CONN, S(1));
+  await commitRatchetState(u, CONN, { epoch, revision: 1n }, S(2));
+  await rawDelete(ratchetKeyFor(u, CONN));
 
-  const db = await openDatabase();
-  const t = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite');
-  t.objectStore(CRYPTO_STORE_RATCHET).put(
-    { version: 1, userId: u, connectionId: CONN, revision: 1, state: S(1), committedAt: Date.now() },
-    ratchetKeyFor(u, CONN),
-  );
-  await new Promise((res, rej) => {
-    t.oncomplete = res;
-    t.onerror = () => rej(t.error);
-  });
-  db.close();
-
-  let encryptCalled = false;
+  const sent = [];
   await assertRejectsWithCode(
     () =>
       encryptCommitSend({
         userId: u,
         connectionId: CONN,
-        encrypt: () => {
-          encryptCalled = true;
-          return { ciphertext: new Uint8Array([1]), nextState: S(9) };
-        },
-        send: () => {},
+        plaintext: new Uint8Array([1]),
+        createEngine: makeEngineFactory(),
+        send: (c) => void sent.push(c),
       }),
     'ROLLBACK_DETECTED',
   );
-  assert.equal(encryptCalled, false, 'must refuse BEFORE deriving another message key');
+  assert.equal(sent.length, 0);
 });
 
-test('C5: a vanished record with a live watermark is a rollback, not a fresh session', async () => {
+test('C5: a deleted watermark beside a live record is WEDGED, not "no watermark"', async () => {
+  // Mutation guard #1 (watermark check removed) and audit finding C-3:
+  // treating an absent watermark as zero switches rollback detection off.
   await reset();
   const u = freshUser();
-  await commitRatchetState(u, CONN, INITIAL_REVISION, S(1));
+  const { epoch } = await establish(u, CONN, S(1));
+  await commitRatchetState(u, CONN, { epoch, revision: 1n }, S(2));
 
-  // Wipe only the record, leaving the watermark (partial storage loss).
-  const db = await openDatabase();
-  const t = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite');
-  t.objectStore(CRYPTO_STORE_RATCHET).delete(ratchetKeyFor(u, CONN));
-  await new Promise((res, rej) => {
-    t.oncomplete = res;
-    t.onerror = () => rej(t.error);
-  });
-  db.close();
+  await rawDelete(watermarkKeyFor(u, CONN));
 
   const loaded = await loadRatchetState(u, CONN);
-  assert.equal(loaded.status, 'ROLLBACK_DETECTED',
-    'a missing record with a non-zero watermark must not look like a new session');
+  assert.equal(loaded.status, 'WEDGED');
+  assert.notEqual(loaded.status, 'VALID');
+});
+
+test('C6: a malformed watermark is WEDGED and blocks commits', async () => {
+  await reset();
+  const u = freshUser();
+  const { epoch } = await establish(u, CONN, S(1));
+
+  for (const bad of [{ epoch: 1, revision: 2 }, 'nope', { epoch: new Uint8Array(3) }, 1e308]) {
+    await rawPut(watermarkKeyFor(u, CONN), bad);
+    const loaded = await loadRatchetState(u, CONN);
+    assert.equal(loaded.status, 'WEDGED', `watermark ${JSON.stringify(String(bad))} must wedge`);
+    await assertRejectsWithCode(
+      () => commitRatchetState(u, CONN, { epoch, revision: 1n }, S(3)),
+      'WEDGED',
+    );
+  }
+});
+
+test('C7: a stale writer (old tab) cannot overwrite a newer revision', async () => {
+  await reset();
+  const u = freshUser();
+  const { epoch } = await establish(u, CONN, S(1));
+  const staleView = { epoch, revision: 1n };
+
+  await commitRatchetState(u, CONN, { epoch, revision: 1n }, S(2)); // other tab
+  await assertRejectsWithCode(
+    () => commitRatchetState(u, CONN, staleView, S(99)),
+    'REVISION_CONFLICT',
+  );
+
+  const loaded = await loadRatchetState(u, CONN);
+  assert.deepEqual(loaded.record.state, S(2));
+});
+
+test('C8: EXPECTED_LIMITATION — a coordinated full-origin rollback is NOT detectable locally', async () => {
+  // Audit finding C-1, deliberately left open at the end of E2EE-2D.2.
+  //
+  // This test does not assert that the system detects the attack. It asserts
+  // the OPPOSITE, so the gap stays visible in CI and cannot be quietly
+  // re-labelled as solved. A full origin restore rolls the record, the
+  // watermark AND the sealing key back together; every local check then
+  // passes because everything the checks consult was restored consistently.
+  //
+  // Closing this requires a monotonic counter outside the origin — a
+  // server-side epoch. That is explicitly NOT part of this stage.
+  await reset();
+  const u = freshUser();
+  const { epoch } = await establish(u, CONN, S(1));
+  let revision = 1n;
+
+  // Take a snapshot of the whole origin state at revision 2.
+  revision = await commitRatchetState(u, CONN, { epoch, revision }, S(2));
+  assert.equal(revision, 2n);
+  const snapshotRecord = await rawGet(ratchetKeyFor(u, CONN));
+  const snapshotWatermark = await rawGet(watermarkKeyFor(u, CONN));
+
+  // Advance to revision 5.
+  for (let i = 0; i < 3; i++) {
+    revision = await commitRatchetState(u, CONN, { epoch, revision }, S(10 + i));
+  }
+  assert.equal(revision, 5n);
+  assert.equal((await getRatchetWatermark(u, CONN)).revision, 5n);
+
+  // Restore BOTH record and watermark, as a profile/backup restore would.
+  await rawPut(ratchetKeyFor(u, CONN), snapshotRecord);
+  await rawPut(watermarkKeyFor(u, CONN), snapshotWatermark);
+
+  const loaded = await loadRatchetState(u, CONN);
+
+  // EXPECTED_LIMITATION: full-origin rollback cannot be detected by a local
+  // anchor. The state is genuinely sealed and internally consistent.
+  assert.equal(loaded.status, 'VALID', 'EXPECTED_LIMITATION: C-1 is not locally detectable');
+  assert.equal(loaded.record.revision, 2n);
+  assert.equal(loaded.watermark.revision, 2n);
+
+  // The tampering-based rollbacks REMAIN detected — only the *coordinated*
+  // whole-origin case slips through.
+  await rawPut(watermarkKeyFor(u, CONN), { epoch: encodeRevision(1n), revision: encodeRevision(5n) });
+  assert.equal((await loadRatchetState(u, CONN)).status, 'ROLLBACK_DETECTED');
 });
 
 /* ------------------------------------------------------------------ */
@@ -407,481 +544,632 @@ test('C5: a vanished record with a live watermark is a rollback, not a fresh ses
 /* ------------------------------------------------------------------ */
 
 test('D1: concurrent commits from the same revision — exactly one wins', async () => {
+  // Mutation guard #7: removing the CAS check lets more than one win.
   await reset();
   const u = freshUser();
-  await commitRatchetState(u, CONN, INITIAL_REVISION, S(0));
-  const base = (await loadRatchetState(u, CONN)).record.revision;
+  const { epoch } = await establish(u, CONN, S(1));
 
-  const results = await Promise.allSettled([
-    commitRatchetState(u, CONN, base, S(1)),
-    commitRatchetState(u, CONN, base, S(2)),
-    commitRatchetState(u, CONN, base, S(3)),
-  ]);
-
-  const ok = results.filter((r) => r.status === 'fulfilled');
-  const failed = results.filter((r) => r.status === 'rejected');
-  assert.equal(ok.length, 1, 'exactly one writer may win');
-  assert.equal(failed.length, 2);
-  for (const f of failed) {
-    assert.ok(isCryptoError(f.reason, 'REVISION_CONFLICT'), `expected REVISION_CONFLICT, got ${f.reason?.code}`);
+  const attempts = Array.from({ length: 50 }, (_, i) =>
+    commitRatchetState(u, CONN, { epoch, revision: 1n }, S(i)).then(
+      (r) => ({ ok: true, r }),
+      (e) => ({ ok: false, e }),
+    ),
+  );
+  const results = await Promise.all(attempts);
+  const winners = results.filter((x) => x.ok);
+  assert.equal(winners.length, 1, `exactly one writer may win, got ${winners.length}`);
+  assert.equal(winners[0].r, 2n);
+  for (const loser of results.filter((x) => !x.ok)) {
+    assert.ok(isCryptoError(loser.e, 'REVISION_CONFLICT'));
   }
-
-  const after = await loadRatchetState(u, CONN);
-  assert.equal(after.record.revision, base + 1, 'no double increment, no silent overwrite');
 });
 
-test('D2: concurrent encryptCommitSend — losers do not send', async () => {
+test('D2: concurrent encryptCommitSend — losers do not send, and leave no engine residue', async () => {
+  // Audit finding H-1. Each attempt gets its OWN engine; the losing attempts
+  // must send nothing and must have disposed their engines.
   await reset();
   const u = freshUser();
-  await commitRatchetState(u, CONN, INITIAL_REVISION, S(0));
+  await establish(u, CONN, S(1));
 
-  let sends = 0;
-  const attempt = (n) =>
-    encryptCommitSend({
-      userId: u,
-      connectionId: CONN,
-      encrypt: () => ({ ciphertext: new Uint8Array([n]), nextState: S(n) }),
-      send: () => {
-        sends++;
-      },
-    });
+  const engines = [];
+  const sent = [];
+  const results = await Promise.all(
+    Array.from({ length: 5 }, (_, i) =>
+      encryptCommitSend({
+        userId: u,
+        connectionId: CONN,
+        plaintext: new Uint8Array([i]),
+        createEngine: makeEngineFactory(engines),
+        send: (c) => void sent.push(c),
+      }).then(
+        (r) => ({ ok: true, r }),
+        (e) => ({ ok: false, e }),
+      ),
+    ),
+  );
 
-  const results = await Promise.allSettled([attempt(1), attempt(2), attempt(3)]);
-  const ok = results.filter((r) => r.status === 'fulfilled');
-  assert.equal(ok.length, 1, 'only one concurrent send may proceed');
-  assert.equal(sends, 1, 'a ciphertext from a losing writer must never be transmitted');
+  assert.equal(results.filter((x) => x.ok).length, 1, 'exactly one attempt may succeed');
+  assert.equal(sent.length, 1, 'exactly one ciphertext may be externalized');
+  assert.equal(engines.length, 5, 'every attempt must build its own engine');
+  for (const e of engines) {
+    assert.equal(e.disposed, true, 'every ephemeral engine must be disposed');
+  }
+
+  const loaded = await loadRatchetState(u, CONN);
+  assert.equal(loaded.record.revision, 2n, 'only one advance may be persisted');
 });
 
 test('D3: sequential commits after a conflict recover correctly', async () => {
   await reset();
   const u = freshUser();
-  let rev = await commitRatchetState(u, CONN, INITIAL_REVISION, S(0));
-  await assertRejectsWithCode(() => commitRatchetState(u, CONN, INITIAL_REVISION, S(1)), 'REVISION_CONFLICT');
-  // Re-read and retry with the correct revision.
-  rev = (await loadRatchetState(u, CONN)).record.revision;
-  const next = await commitRatchetState(u, CONN, rev, S(2));
-  assert.equal(next, rev + 1);
+  const { epoch } = await establish(u, CONN, S(1));
+  await commitRatchetState(u, CONN, { epoch, revision: 1n }, S(2));
+
+  await assertRejectsWithCode(
+    () => commitRatchetState(u, CONN, { epoch, revision: 1n }, S(3)),
+    'REVISION_CONFLICT',
+  );
+
+  const loaded = await loadRatchetState(u, CONN);
+  const revision = await commitRatchetState(
+    u,
+    CONN,
+    { epoch: loaded.record.epoch, revision: loaded.record.revision },
+    S(4),
+  );
+  assert.equal(revision, 3n);
 });
 
 /* ------------------------------------------------------------------ */
-/* E. Isolation                                                        */
+/* E. Isolation and deletion                                           */
 /* ------------------------------------------------------------------ */
 
-test('E1: two connections of the same user have independent revisions', async () => {
+test('E1: two connections of the same user have independent state', async () => {
   await reset();
   const u = freshUser();
-  let a = INITIAL_REVISION;
-  for (let i = 0; i < 10; i++) a = await commitRatchetState(u, 'conn-A', a, S(i));
-  let b = INITIAL_REVISION;
-  for (let i = 0; i < 4; i++) b = await commitRatchetState(u, 'conn-B', b, S(i));
+  const a = await establish(u, 'conn-1', S(1));
+  const b = await establish(u, 'conn-2', S(2));
+  await commitRatchetState(u, 'conn-1', { epoch: a.epoch, revision: a.revision }, S(3));
 
-  assert.equal(a, 10);
-  assert.equal(b, 4);
-  assert.equal((await loadRatchetState(u, 'conn-A')).record.revision, 10);
-  assert.equal((await loadRatchetState(u, 'conn-B')).record.revision, 4, 'writes to A must not touch B');
+  const l1 = await loadRatchetState(u, 'conn-1');
+  const l2 = await loadRatchetState(u, 'conn-2');
+  assert.equal(l1.record.revision, 2n);
+  assert.equal(l2.record.revision, 1n);
+  assert.deepEqual(l2.record.state, S(2));
 });
 
 test('E2: the same connectionId under two users never shares state', async () => {
   await reset();
-  const userA = freshUser();
-  const userB = freshUser();
-  const shared = 'conn-SHARED';
+  const u1 = freshUser();
+  const u2 = freshUser();
+  await establish(u1, CONN, S(1));
+  await establish(u2, CONN, S(2));
 
-  await commitRatchetState(userA, shared, INITIAL_REVISION, S(1));
-  await commitRatchetState(userA, shared, 1, S(2));
-  await commitRatchetState(userB, shared, INITIAL_REVISION, S(50));
-
-  const a = await loadRatchetState(userA, shared);
-  const b = await loadRatchetState(userB, shared);
-  assert.equal(a.record.revision, 2);
-  assert.equal(b.record.revision, 1);
-  assert.deepEqual(a.record.state, S(2));
-  assert.deepEqual(b.record.state, S(50), 'cross-account state leak would be a critical bug');
+  assert.deepEqual((await loadRatchetState(u1, CONN)).record.state, S(1));
+  assert.deepEqual((await loadRatchetState(u2, CONN)).record.state, S(2));
 });
 
-test('E3: a record whose embedded userId disagrees with the key is USER_MISMATCH', async () => {
+test('E3: a record whose sealed identity disagrees with the slot is rejected', async () => {
   await reset();
-  const u = freshUser();
-  const other = freshUser();
-  const db = await openDatabase();
-  const t = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite');
-  t.objectStore(CRYPTO_STORE_RATCHET).put(
-    { version: 1, userId: other, connectionId: CONN, revision: 3, state: S(1), committedAt: Date.now() },
-    ratchetKeyFor(u, CONN),
-  );
-  await new Promise((res, rej) => {
-    t.oncomplete = res;
-    t.onerror = () => rej(t.error);
-  });
-  db.close();
+  const u1 = freshUser();
+  const u2 = freshUser();
+  await establish(u1, CONN, S(1));
+  await establish(u2, CONN, S(2));
 
-  const loaded = await loadRatchetState(u, CONN);
+  // Move user 1's genuine envelope into user 2's slot.
+  const stolen = await rawGet(ratchetKeyFor(u1, CONN));
+  await rawPut(ratchetKeyFor(u2, CONN), stolen);
+
+  const loaded = await loadRatchetState(u2, CONN);
   assert.equal(loaded.status, 'USER_MISMATCH');
-  await assertRejectsWithCode(() => commitRatchetState(u, CONN, 3, S(4)), 'USER_MISMATCH');
+  assert.notEqual(loaded.status, 'VALID');
 });
 
 test('E4: account deletion removes ratchet state AND its watermark', async () => {
   await reset();
   const u = freshUser();
-  const keep = freshUser();
-  await commitRatchetState(u, 'conn-A', INITIAL_REVISION, S(1));
-  await commitRatchetState(u, 'conn-B', INITIAL_REVISION, S(2));
-  await commitRatchetState(keep, 'conn-A', INITIAL_REVISION, S(3));
-
+  await establish(u, CONN, S(1));
   await deleteUserRatchetState(u);
 
-  assert.equal((await loadRatchetState(u, 'conn-A')).status, 'MISSING');
-  assert.equal((await loadRatchetState(u, 'conn-B')).status, 'MISSING');
-  assert.equal(await getRatchetWatermark(u, 'conn-A'), 0, 'watermark must go too, else the account cannot restart');
-  assert.equal((await loadRatchetState(keep, 'conn-A')).status, 'VALID', 'other users must be untouched');
+  assert.equal(await rawGet(ratchetKeyFor(u, CONN)), undefined);
+  assert.equal(await rawGet(watermarkKeyFor(u, CONN)), undefined);
+  assert.equal((await getRatchetWatermark(u, CONN)).revision, 0n);
 });
 
-test('E5: deleteUserCryptoState also clears ratchet state', async () => {
+test('E5: deleteUserCryptoState also clears ratchet state and the sealing key', async () => {
   await reset();
   const u = freshUser();
-  await commitRatchetState(u, CONN, INITIAL_REVISION, S(1));
+  await establish(u, CONN, S(1));
   await deleteUserCryptoState(u);
+
+  assert.equal(await rawGet(ratchetKeyFor(u, CONN)), undefined);
   const loaded = await loadRatchetState(u, CONN);
   assert.equal(loaded.status, 'MISSING');
-  assert.equal(loaded.watermark, 0);
 });
 
 /* ------------------------------------------------------------------ */
-/* F. Recovery                                                         */
+/* F. Missing state / fail-closed (audit H-3)                          */
 /* ------------------------------------------------------------------ */
 
-test('F1: missing state reports MISSING (and may start a fresh session)', async () => {
+test('F1: a never-used connection reports MISSING', async () => {
   await reset();
   const u = freshUser();
   const loaded = await loadRatchetState(u, CONN);
   assert.equal(loaded.status, 'MISSING');
-  assert.equal(loaded.watermark, 0);
+  assert.equal(loaded.record, undefined);
 });
 
-test('F2: corrupted records are reported, never silently repaired', async () => {
+test('F2: MISSING never becomes a fresh session on the send path (H-3)', async () => {
+  // Mutation guard #9: re-enabling "MISSING → fresh session" turns this green
+  // only if the test insists on the refusal.
   await reset();
   const u = freshUser();
-  const bad = [
-    'not-an-object',
-    42,
-    { version: 1, userId: 'x', connectionId: 'y' }, // no state/revision
-    { version: 1, userId: null, connectionId: CONN, revision: -1, state: S(1) }, // negative revision
-    { version: 1, userId: null, connectionId: CONN, revision: 1.5, state: S(1) }, // non-integer revision
-    { version: 1, userId: null, connectionId: CONN, revision: 1, state: 'nope' }, // state not bytes
-    { userId: null, connectionId: CONN, revision: 1, state: S(1) }, // missing version
-  ];
+  const sent = [];
+  const engines = [];
 
-  for (const [i, value] of bad.entries()) {
-    const u2 = `${u}-corrupt-${i}`;
-    const db = await openDatabase();
-    const t = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite');
-    const payload =
-      value && typeof value === 'object' && 'userId' in value && value.userId === null
-        ? { ...value, userId: u2 }
-        : value;
-    t.objectStore(CRYPTO_STORE_RATCHET).put(payload, ratchetKeyFor(u2, CONN));
-    await new Promise((res, rej) => {
-      t.oncomplete = res;
-      t.onerror = () => rej(t.error);
-    });
-    db.close();
-
-    const loaded = await loadRatchetState(u2, CONN);
-    assert.equal(loaded.status, 'CORRUPTED', `case ${i} should be CORRUPTED, got ${loaded.status}`);
-  }
-});
-
-test('F3: committing over a corrupt record is REFUSED (no blind overwrite)', async () => {
-  await reset();
-  const u = freshUser();
-  const db = await openDatabase();
-  const t = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite');
-  t.objectStore(CRYPTO_STORE_RATCHET).put({ garbage: true }, ratchetKeyFor(u, CONN));
-  await new Promise((res, rej) => {
-    t.oncomplete = res;
-    t.onerror = () => rej(t.error);
-  });
-  db.close();
-
-  await assertRejectsWithCode(() => commitRatchetState(u, CONN, INITIAL_REVISION, S(1)), 'CORRUPT_STATE');
-});
-
-test('F4: a tampered (inflated) revision cannot be used to force a downgrade later', async () => {
-  await reset();
-  const u = freshUser();
-  let rev = INITIAL_REVISION;
-  for (let i = 0; i < 3; i++) rev = await commitRatchetState(u, CONN, rev, S(i));
-
-  // Attacker inflates the revision field of the record but cannot lower the
-  // watermark. Load still succeeds (record >= watermark) — this is the
-  // documented limit of an unauthenticated store — but the subsequent commit
-  // raises the watermark, so the real state can never be replayed afterwards.
-  const db = await openDatabase();
-  const t = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite');
-  t.objectStore(CRYPTO_STORE_RATCHET).put(
-    { version: 1, userId: u, connectionId: CONN, revision: 999, state: S(3), committedAt: Date.now() },
-    ratchetKeyFor(u, CONN),
-  );
-  await new Promise((res, rej) => {
-    t.oncomplete = res;
-    t.onerror = () => rej(t.error);
-  });
-  db.close();
-
-  const loaded = await loadRatchetState(u, CONN);
-  assert.equal(loaded.status, 'VALID');
-  await commitRatchetState(u, CONN, 999, S(4)); // watermark jumps to 1000
-  // The genuine older state can no longer be reinstated.
   await assertRejectsWithCode(
     () =>
-      restoreRatchetSnapshot(u, CONN, {
-        version: 1,
+      encryptCommitSend({
         userId: u,
         connectionId: CONN,
-        revision: 3,
-        state: S(3),
-        committedAt: Date.now(),
+        plaintext: new Uint8Array([1]),
+        createEngine: makeEngineFactory(engines),
+        send: (c) => void sent.push(c),
       }),
-    'ROLLBACK_DETECTED',
-  );
-});
-
-test('F5: invalid arguments are rejected before touching storage', async () => {
-  await reset();
-  const u = freshUser();
-  await assertRejectsWithCode(() => commitRatchetState('', CONN, 0, S(1)), 'NOT_INITIALIZED');
-  await assertRejectsWithCode(() => commitRatchetState(u, '', 0, S(1)), 'NOT_INITIALIZED');
-  await assertRejectsWithCode(() => commitRatchetState(u, CONN, -1, S(1)), 'CORRUPT_STATE');
-  await assertRejectsWithCode(() => commitRatchetState(u, CONN, 1.5, S(1)), 'CORRUPT_STATE');
-  await assertRejectsWithCode(() => commitRatchetState(u, CONN, 0, 'not-bytes'), 'CORRUPT_STATE');
-});
-
-/* ------------------------------------------------------------------ */
-/* G. Replay / duplicate / idempotency                                 */
-/* ------------------------------------------------------------------ */
-
-test('G1: idempotency ladder — commit S1, S1, S0, S2, S1', async () => {
-  await reset();
-  const u = freshUser();
-
-  // commit(S1) from revision 0 -> revision 1
-  const r1 = await commitRatchetState(u, CONN, INITIAL_REVISION, S(1));
-  assert.equal(r1, 1);
-
-  // commit(S1) again with the SAME expected revision -> rejected (already committed)
-  await assertRejectsWithCode(() => commitRatchetState(u, CONN, INITIAL_REVISION, S(1)), 'REVISION_CONFLICT');
-
-  // commit(S0) as a downgrade attempt -> rejected
-  await assertRejectsWithCode(() => commitRatchetState(u, CONN, INITIAL_REVISION, S(0)), 'REVISION_CONFLICT');
-
-  // commit(S2) from the current revision -> success
-  const r2 = await commitRatchetState(u, CONN, r1, S(2));
-  assert.equal(r2, 2);
-
-  // commit(S1) again from the stale revision -> rejected
-  await assertRejectsWithCode(() => commitRatchetState(u, CONN, r1, S(1)), 'REVISION_CONFLICT');
-
-  const after = await loadRatchetState(u, CONN);
-  assert.equal(after.record.revision, 2);
-  assert.deepEqual(after.record.state, S(2));
-});
-
-test('G2: re-encrypting after a restored older state is prevented at the persistence layer', async () => {
-  await reset();
-  const u = freshUser();
-
-  // Send message A: state advances S0 -> S1, committed at revision 1.
-  const ciphertexts = [];
-  await encryptCommitSend({
-    userId: u,
-    connectionId: CONN,
-    encrypt: () => ({ ciphertext: new Uint8Array([0xaa]), nextState: S(1) }),
-    send: (ct) => {
-      ciphertexts.push(ct);
-    },
-  });
-  assert.equal((await loadRatchetState(u, CONN)).record.revision, 1);
-
-  // An attacker/backup restores the pre-send state S0 at revision 0.
-  await assertRejectsWithCode(
-    () =>
-      restoreRatchetSnapshot(u, CONN, {
-        version: 1,
-        userId: u,
-        connectionId: CONN,
-        revision: 0,
-        state: S(0),
-        committedAt: Date.now(),
-      }),
-    'ROLLBACK_DETECTED',
+    'NEEDS_ESTABLISH',
   );
 
-  // The next encrypt therefore proceeds from S1, never re-deriving the message
-  // key that ciphertext A already consumed.
-  const seen = [];
-  await encryptCommitSend({
-    userId: u,
-    connectionId: CONN,
-    encrypt: (cur) => {
-      seen.push(cur);
-      return { ciphertext: new Uint8Array([0xbb]), nextState: S(2) };
-    },
-    send: () => {},
-  });
-  assert.deepEqual(seen[0], S(1), 'must continue from the committed state, not the restored one');
+  assert.equal(sent.length, 0);
+  assert.equal(engines.length, 0, 'no engine may even be constructed');
+  // Crucially: the failed send must not have created anything.
+  assert.equal((await loadRatchetState(u, CONN)).status, 'MISSING');
+  assert.equal((await getRatchetWatermark(u, CONN)).revision, 0n);
 });
 
-test('G3: receive side — decrypt commits and cannot be rolled back', async () => {
+test('F3: the receive path also refuses to create a session', async () => {
   await reset();
   const u = freshUser();
-  await commitRatchetState(u, CONN, INITIAL_REVISION, S(10)); // R10 at revision 1
-
-  const res = await decryptAndCommit({
-    userId: u,
-    connectionId: CONN,
-    decrypt: () => ({ plaintext: new Uint8Array([1, 2]), nextState: S(11) }),
-  });
-  assert.equal(res.revision, 2);
-
-  // Restoring R10 must fail.
-  await assertRejectsWithCode(
-    () =>
-      restoreRatchetSnapshot(u, CONN, {
-        version: 1,
-        userId: u,
-        connectionId: CONN,
-        revision: 1,
-        state: S(10),
-        committedAt: Date.now(),
-      }),
-    'ROLLBACK_DETECTED',
-  );
-
-  const after = await loadRatchetState(u, CONN);
-  assert.deepEqual(after.record.state, S(11), 'receive-side replay window must stay closed');
-});
-
-test('G4: receive side refuses to decrypt on a rolled-back state', async () => {
-  await reset();
-  const u = freshUser();
-  let rev = INITIAL_REVISION;
-  for (let i = 0; i < 3; i++) rev = await commitRatchetState(u, CONN, rev, S(i));
-
-  const db = await openDatabase();
-  const t = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite');
-  t.objectStore(CRYPTO_STORE_RATCHET).put(
-    { version: 1, userId: u, connectionId: CONN, revision: 1, state: S(0), committedAt: Date.now() },
-    ratchetKeyFor(u, CONN),
-  );
-  await new Promise((res, rej) => {
-    t.oncomplete = res;
-    t.onerror = () => rej(t.error);
-  });
-  db.close();
-
-  let decryptCalled = false;
   await assertRejectsWithCode(
     () =>
       decryptAndCommit({
         userId: u,
         connectionId: CONN,
-        decrypt: () => {
-          decryptCalled = true;
-          return { plaintext: new Uint8Array([1]), nextState: S(9) };
+        ciphertext: new Uint8Array([1, 2, 3]),
+        createEngine: makeEngineFactory(),
+      }),
+    'NEEDS_ESTABLISH',
+  );
+  assert.equal((await loadRatchetState(u, CONN)).status, 'MISSING');
+});
+
+test('F4: existing identity + missing ratchet state still halts (no implicit session)', async () => {
+  await reset();
+  const u = freshUser();
+  // A sealing key exists (the user has used crypto before) but no session.
+  await ensureSealingKey(u);
+
+  const loaded = await loadRatchetState(u, CONN);
+  assert.equal(loaded.status, 'MISSING');
+  await assertRejectsWithCode(
+    () =>
+      encryptCommitSend({
+        userId: u,
+        connectionId: CONN,
+        plaintext: new Uint8Array([1]),
+        createEngine: makeEngineFactory(),
+        send: () => {},
+      }),
+    'NEEDS_ESTABLISH',
+  );
+});
+
+test('F5: a sealed record whose key disappeared is KEY_MISSING, not MISSING', async () => {
+  await reset();
+  const u = freshUser();
+  await establish(u, CONN, S(1));
+
+  // Simulate the key being lost while the sealed data survives.
+  const db = await openDatabase();
+  try {
+    const t = db.transaction('vaultkeys', 'readwrite');
+    t.objectStore('vaultkeys').delete(`${u}:sealing-key`);
+    await new Promise((res, rej) => {
+      t.oncomplete = () => res();
+      t.onerror = () => rej(t.error);
+    });
+  } finally {
+    db.close();
+  }
+
+  const loaded = await loadRatchetState(u, CONN);
+  assert.equal(loaded.status, 'KEY_MISSING');
+  assert.notEqual(loaded.status, 'MISSING', 'an unreadable session must not look like a new one');
+
+  await assertRejectsWithCode(
+    () =>
+      encryptCommitSend({
+        userId: u,
+        connectionId: CONN,
+        plaintext: new Uint8Array([1]),
+        createEngine: makeEngineFactory(),
+        send: () => {},
+      }),
+    'KEY_MISSING',
+  );
+});
+
+test('F6: corrupted records are reported, never silently repaired', async () => {
+  await reset();
+  const u = freshUser();
+  await establish(u, CONN, S(1));
+
+  for (const bad of [
+    null,
+    42,
+    'garbage',
+    {},
+    { version: 3, userId: u, connectionId: CONN },
+    { version: 99, userId: u, connectionId: CONN, epoch: encodeRevision(1n), revision: encodeRevision(1n), iv: new Uint8Array(12), sealed: new Uint8Array(32) },
+  ]) {
+    await rawPut(ratchetKeyFor(u, CONN), bad);
+    const loaded = await loadRatchetState(u, CONN);
+    // `null` reads as "no record"; beneath a live watermark that is a
+    // rollback, which is the correct fail-closed answer for it.
+    assert.ok(
+      ['CORRUPTED', 'UNSEAL_FAILED', 'WEDGED', 'ROLLBACK_DETECTED'].includes(loaded.status),
+      `expected a failure status for ${String(bad)}, got ${loaded.status}`,
+    );
+    assert.notEqual(loaded.status, 'VALID');
+    assert.notEqual(loaded.status, 'MISSING');
+    // The bad record must still be there — never auto-deleted.
+    assert.notEqual(await rawGet(ratchetKeyFor(u, CONN)), undefined);
+  }
+});
+
+test('F7: committing over a corrupt record is REFUSED (no blind overwrite)', async () => {
+  await reset();
+  const u = freshUser();
+  await establish(u, CONN, S(1));
+  await rawPut(ratchetKeyFor(u, CONN), { totally: 'broken' });
+
+  await assertRejectsWithCode(
+    () => commitRatchetState(u, CONN, { epoch: 1n, revision: 1n }, S(9)),
+    'CORRUPT_STATE',
+  );
+});
+
+test('F8: invalid arguments are rejected before touching storage', async () => {
+  await assertRejectsWithCode(() => loadRatchetState('', CONN), 'NOT_INITIALIZED');
+  await assertRejectsWithCode(() => loadRatchetState('u', ''), 'NOT_INITIALIZED');
+  await assertRejectsWithCode(
+    () => commitRatchetState('u', CONN, { epoch: 0n, revision: 0n }, 'not-bytes'),
+    'CORRUPT_STATE',
+  );
+});
+
+/* ------------------------------------------------------------------ */
+/* G. Establishment semantics                                          */
+/* ------------------------------------------------------------------ */
+
+test('G1: establishment advances the epoch and restarts the revision', async () => {
+  await reset();
+  const u = freshUser();
+  const first = await establish(u, CONN, S(1));
+  assert.deepEqual(first, { epoch: 1n, revision: 1n });
+
+  await commitRatchetState(u, CONN, { epoch: 1n, revision: 1n }, S(2));
+
+  const second = await adoptSessionFromEstablishment(u, CONN, S(3), { replacesEpoch: 1n });
+  assert.deepEqual(second, { epoch: 2n, revision: 1n });
+
+  const loaded = await loadRatchetState(u, CONN);
+  assert.equal(loaded.status, 'VALID', 'a new epoch at revision 1 is NEWER, not a rollback');
+  assert.equal(loaded.record.epoch, 2n);
+  assert.equal(loaded.record.revision, 1n);
+});
+
+test('G2: establishment over a live session requires naming the epoch it replaces', async () => {
+  await reset();
+  const u = freshUser();
+  await establish(u, CONN, S(1));
+
+  await assertRejectsWithCode(
+    () => adoptSessionFromEstablishment(u, CONN, S(2)),
+    'REVISION_CONFLICT',
+  );
+  await assertRejectsWithCode(
+    () => adoptSessionFromEstablishment(u, CONN, S(2), { replacesEpoch: 7n }),
+    'REVISION_CONFLICT',
+  );
+
+  const loaded = await loadRatchetState(u, CONN);
+  assert.deepEqual(loaded.record.state, S(1), 'the live session must be untouched');
+});
+
+test('G3: there is no way to choose the revision of an adopted session', async () => {
+  await reset();
+  const u = freshUser();
+  // The old restoreRatchetSnapshot took a full record including a revision.
+  // The replacement takes only bytes, so a caller cannot express "revision
+  // 500" at all — the C-2 shape is gone from the API surface.
+  const { revision } = await adoptSessionFromEstablishment(u, CONN, S(1));
+  assert.equal(revision, 1n);
+  assert.equal(adoptSessionFromEstablishment.length <= 4, true);
+});
+
+test('G4: establishment rejects empty state', async () => {
+  await reset();
+  const u = freshUser();
+  await assertRejectsWithCode(
+    () => adoptSessionFromEstablishment(u, CONN, new Uint8Array(0)),
+    'CORRUPT_STATE',
+  );
+});
+
+test('G5: restoreRatchetSnapshot no longer exists in the module surface', async () => {
+  const mod = await import('../ratchet-state.ts');
+  assert.equal('restoreRatchetSnapshot' in mod, false);
+  assert.equal(Object.keys(mod).some((k) => /restore/i.test(k)), false);
+  const session = await import('../ratchet-session.ts');
+  assert.equal(Object.keys(session).some((k) => /restore|snapshot/i.test(k)), false);
+});
+
+/* ------------------------------------------------------------------ */
+/* H. Ephemeral engine (audit H-1)                                     */
+/* ------------------------------------------------------------------ */
+
+test('H1: the engine is created per attempt and always disposed', async () => {
+  await reset();
+  const u = freshUser();
+  await establish(u, CONN, S(1));
+  const engines = [];
+
+  await encryptCommitSend({
+    userId: u,
+    connectionId: CONN,
+    plaintext: new Uint8Array([1]),
+    createEngine: makeEngineFactory(engines),
+    send: () => {},
+  });
+  await encryptCommitSend({
+    userId: u,
+    connectionId: CONN,
+    plaintext: new Uint8Array([2]),
+    createEngine: makeEngineFactory(engines),
+    send: () => {},
+  });
+
+  assert.equal(engines.length, 2, 'each send must build a new engine');
+  assert.ok(engines.every((e) => e.disposed), 'engines must not outlive the attempt');
+});
+
+test('H2: a losing CAS writer disposes its engine and externalizes nothing', async () => {
+  await reset();
+  const u = freshUser();
+  const { epoch } = await establish(u, CONN, S(1));
+  const engines = [];
+  const sent = [];
+
+  // Advance the state behind the sequencer's back, after it has loaded but
+  // before it commits: the classic lost-race.
+  await assertRejectsWithCode(
+    () =>
+      encryptCommitSend({
+        userId: u,
+        connectionId: CONN,
+        plaintext: new Uint8Array([1]),
+        createEngine: (state) => {
+          const inst = makeEngineFactory(engines)(state);
+          const originalEncrypt = inst.encrypt.bind(inst);
+          inst.encrypt = async (p) => {
+            const out = await originalEncrypt(p);
+            await commitRatchetState(u, CONN, { epoch, revision: 1n }, S(50));
+            return out;
+          };
+          return inst;
         },
+        send: (c) => void sent.push(c),
+      }),
+    'REVISION_CONFLICT',
+  );
+
+  assert.equal(sent.length, 0, 'a losing writer must never send');
+  assert.equal(engines.length, 1);
+  assert.equal(engines[0].disposed, true, 'the losing engine must be disposed');
+
+  // The winner's state is intact; the loser left nothing behind.
+  const loaded = await loadRatchetState(u, CONN);
+  assert.deepEqual(loaded.record.state, S(50));
+  assert.equal(loaded.record.revision, 2n);
+});
+
+test('H3: an engine failure disposes the engine and commits nothing', async () => {
+  await reset();
+  const u = freshUser();
+  await establish(u, CONN, S(1));
+  const engines = [];
+
+  await assert.rejects(() =>
+    encryptCommitSend({
+      userId: u,
+      connectionId: CONN,
+      plaintext: new Uint8Array([1]),
+      createEngine: (state) => {
+        const inst = makeEngineFactory(engines)(state);
+        inst.encrypt = () => {
+          throw new Error('engine exploded');
+        };
+        return inst;
+      },
+      send: () => {},
+    }),
+  );
+
+  assert.equal(engines[0].disposed, true);
+  assert.equal((await loadRatchetState(u, CONN)).record.revision, 1n);
+});
+
+test('H4: a malformed engine result is rejected before any commit', async () => {
+  await reset();
+  const u = freshUser();
+  await establish(u, CONN, S(1));
+
+  await assertRejectsWithCode(
+    () =>
+      encryptCommitSend({
+        userId: u,
+        connectionId: CONN,
+        plaintext: new Uint8Array([1]),
+        createEngine: () => ({
+          encrypt: () => ({ ciphertext: 'not-bytes', nextState: null }),
+          dispose: () => {},
+        }),
+        send: () => {},
+      }),
+    'CRYPTO_ERROR',
+  );
+
+  assert.equal((await loadRatchetState(u, CONN)).record.revision, 1n);
+});
+
+test('H5: the engine receives a COPY of the state, not the stored buffer', async () => {
+  // Mutation guard #3 (defensive copy removed).
+  await reset();
+  const u = freshUser();
+  await establish(u, CONN, S(1));
+
+  await encryptCommitSend({
+    userId: u,
+    connectionId: CONN,
+    plaintext: new Uint8Array([1]),
+    createEngine: (state) => {
+      state.fill(0xff); // hostile engine scribbles over its input
+      return {
+        encrypt: () => ({ ciphertext: new Uint8Array([1]), nextState: new Uint8Array([2, 2]) }),
+        dispose: () => {},
+      };
+    },
+    send: () => {},
+  });
+
+  // The commit must have stored the engine's declared nextState, unaffected
+  // by the scribbling, and the previous record must not have been altered.
+  const loaded = await loadRatchetState(u, CONN);
+  assert.deepEqual(loaded.record.state, new Uint8Array([2, 2]));
+});
+
+test('H6: mutating the caller buffer after commit does not change what was stored', async () => {
+  // Mutation guard #3, persistence side.
+  await reset();
+  const u = freshUser();
+  const { epoch } = await establish(u, CONN, S(1));
+
+  const mutable = new Uint8Array([1, 2, 3, 4]);
+  await commitRatchetState(u, CONN, { epoch, revision: 1n }, mutable);
+  mutable.fill(0xaa);
+
+  const loaded = await loadRatchetState(u, CONN);
+  assert.deepEqual(loaded.record.state, new Uint8Array([1, 2, 3, 4]));
+});
+
+test('H7: the loaded record is a copy — mutating it cannot corrupt storage', async () => {
+  await reset();
+  const u = freshUser();
+  await establish(u, CONN, S(1));
+
+  const first = await loadRatchetState(u, CONN);
+  first.record.state.fill(0xee);
+
+  const second = await loadRatchetState(u, CONN);
+  assert.deepEqual(second.record.state, S(1));
+});
+
+/* ------------------------------------------------------------------ */
+/* I. Receive side                                                     */
+/* ------------------------------------------------------------------ */
+
+test('I1: decrypt commits the advanced state', async () => {
+  await reset();
+  const u = freshUser();
+  await establish(u, CONN, S(1));
+
+  const result = await decryptAndCommit({
+    userId: u,
+    connectionId: CONN,
+    ciphertext: new Uint8Array([1, 2, 3]),
+    createEngine: makeEngineFactory(),
+  });
+  assert.equal(result.revision, 2n);
+  assert.deepEqual(result.plaintext, new Uint8Array([3, 2, 1]));
+
+  const loaded = await loadRatchetState(u, CONN);
+  assert.equal(loaded.record.revision, 2n);
+});
+
+test('I2: the receive side refuses a rolled-back state', async () => {
+  await reset();
+  const u = freshUser();
+  const { epoch } = await establish(u, CONN, S(1));
+  const key = await ensureSealingKey(u);
+  const old = await seal(key, u, CONN, epoch, 1n, S(1));
+  await commitRatchetState(u, CONN, { epoch, revision: 1n }, S(2));
+  await rawPut(ratchetKeyFor(u, CONN), old);
+
+  await assertRejectsWithCode(
+    () =>
+      decryptAndCommit({
+        userId: u,
+        connectionId: CONN,
+        ciphertext: new Uint8Array([1]),
+        createEngine: makeEngineFactory(),
       }),
     'ROLLBACK_DETECTED',
   );
-  assert.equal(decryptCalled, false);
 });
 
 /* ------------------------------------------------------------------ */
-/* H. Deterministic state-machine property check                       */
+/* J. Property                                                         */
 /* ------------------------------------------------------------------ */
 
-test('H1: property — persisted revision never decreases under a random operation mix', async () => {
+test('J1: property — the persisted version never decreases under a random mix', async () => {
   await reset();
   const u = freshUser();
+  await establish(u, CONN, S(1));
 
-  // Small deterministic LCG so the sequence is reproducible across runs.
-  let seed = 0x2d2d2d;
+  // Deterministic LCG, so a failure is reproducible.
+  let s = 12345;
   const rnd = (n) => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed % n;
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    return s % n;
   };
 
-  const ops = ['commit', 'staleCommit', 'crashBeforeCommit', 'crashAfterCommit', 'rollback', 'load'];
-  let highest = 0;
-  let staleRevision = 0; // a deliberately outdated view, like a parked tab
-  const snapshots = [];
-
-  for (let i = 0; i < 240; i++) {
-    const op = ops[rnd(ops.length)];
-    const before = await loadRatchetState(u, CONN);
-    const beforeRev = before.status === 'VALID' ? before.record.revision : 0;
-    assert.ok(beforeRev >= highest, `observed revision went backwards: ${beforeRev} < ${highest}`);
-
+  let last = { epoch: 1n, revision: 1n };
+  for (let i = 0; i < 200; i++) {
+    const op = rnd(4);
     try {
-      if (op === 'commit') {
-        const rev = await commitRatchetState(u, CONN, beforeRev, S(i % 250));
-        if (rnd(4) === 0) snapshots.push(await exportRatchetSnapshot(u, CONN));
-      } else if (op === 'staleCommit') {
-        await commitRatchetState(u, CONN, staleRevision, S(i % 250));
-      } else if (op === 'crashBeforeCommit') {
-        await encryptCommitSend({
-          userId: u,
-          connectionId: CONN,
-          encrypt: () => ({ ciphertext: new Uint8Array([1]), nextState: S(i % 250) }),
-          send: () => {},
-          failAt: 'BeforeCommit',
-        });
-      } else if (op === 'crashAfterCommit') {
-        await encryptCommitSend({
-          userId: u,
-          connectionId: CONN,
-          encrypt: () => ({ ciphertext: new Uint8Array([1]), nextState: S(i % 250) }),
-          send: () => {},
-          failAt: 'AfterCommit',
-        });
-      } else if (op === 'rollback' && snapshots.length) {
-        await restoreRatchetSnapshot(u, CONN, snapshots[rnd(snapshots.length)]);
-      } else if (op === 'load') {
-        staleRevision = beforeRev > 0 ? beforeRev - 1 : 0;
+      if (op === 0) {
+        const l = await loadRatchetState(u, CONN);
+        if (l.status === 'VALID') {
+          await commitRatchetState(u, CONN, { epoch: l.record.epoch, revision: l.record.revision }, S(i % 200));
+        }
+      } else if (op === 1) {
+        // stale writer
+        await commitRatchetState(u, CONN, { epoch: 1n, revision: BigInt(rnd(5)) }, S(i % 200));
+      } else if (op === 2) {
+        await adoptSessionFromEstablishment(u, CONN, S(i % 200), { replacesEpoch: BigInt(rnd(3)) });
+      } else {
+        await getRatchetWatermark(u, CONN);
       }
-    } catch (err) {
-      // Only the anticipated, explicit rejections may occur.
-      const okCodes = ['REVISION_CONFLICT', 'ROLLBACK_DETECTED', 'CORRUPT_STATE'];
-      const isExpected = err instanceof SimulatedCrash || (isCryptoError(err) && okCodes.includes(err.code));
-      assert.ok(isExpected, `unexpected failure: ${err?.name} ${err?.code ?? ''} ${err?.message}`);
+    } catch (e) {
+      assert.ok(isCryptoError(e), `unexpected error class: ${e?.name}: ${e?.message}`);
     }
 
-    const after = await loadRatchetState(u, CONN);
-    const afterRev = after.status === 'VALID' ? after.record.revision : 0;
-    assert.notEqual(after.status, 'ROLLBACK_DETECTED', 'no operation may leave the store rolled back');
-    assert.notEqual(after.status, 'CORRUPTED', 'no operation may corrupt the store');
-    assert.ok(afterRev >= beforeRev, `revision decreased: ${afterRev} < ${beforeRev} after ${op}`);
-    highest = Math.max(highest, afterRev);
-
-    const wm = await getRatchetWatermark(u, CONN);
-    assert.ok(wm >= highest, `watermark ${wm} fell behind highest revision ${highest}`);
+    const l = await loadRatchetState(u, CONN);
+    assert.equal(l.status, 'VALID', `state must stay usable at step ${i}`);
+    const now = { epoch: l.record.epoch, revision: l.record.revision };
+    const decreased =
+      now.epoch < last.epoch || (now.epoch === last.epoch && now.revision < last.revision);
+    assert.equal(decreased, false, `version decreased at step ${i}`);
+    last = now;
   }
-
-  assert.ok(highest > 0, 'the run should have committed at least once');
-});
-
-test('H2: property — watermark is never exceeded by a later downgrade', async () => {
-  await reset();
-  const u = freshUser();
-  let rev = INITIAL_REVISION;
-  const taken = [];
-  for (let i = 0; i < 12; i++) {
-    rev = await commitRatchetState(u, CONN, rev, S(i));
-    taken.push(await exportRatchetSnapshot(u, CONN));
-  }
-  const wm = await getRatchetWatermark(u, CONN);
-  // Every historical snapshot must now be refused.
-  for (const snap of taken) {
-    await assertRejectsWithCode(() => restoreRatchetSnapshot(u, CONN, snap), 'ROLLBACK_DETECTED');
-  }
-  assert.equal(await getRatchetWatermark(u, CONN), wm, 'failed restores must not move the watermark');
 });

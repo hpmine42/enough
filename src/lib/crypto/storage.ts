@@ -22,11 +22,13 @@ import {
   CRYPTO_STORE_PREKEYS,
   CRYPTO_STORE_RATCHET,
   CRYPTO_STORE_STATE,
+  CRYPTO_STORE_VAULTKEYS,
   RECORD_IDENTITY,
   RECORD_SIGNED_PREKEY,
   RECORD_X25519_IDENTITY,
   prekeyCompositeKey,
   prekeyPrefix,
+  sealingKeyFor,
   stateKeyFor,
 } from './types.ts';
 
@@ -35,9 +37,11 @@ export {
   CRYPTO_STORE_STATE,
   CRYPTO_STORE_PREKEYS,
   CRYPTO_STORE_RATCHET,
+  CRYPTO_STORE_VAULTKEYS,
   stateKeyFor,
   prekeyCompositeKey,
   prekeyPrefix,
+  sealingKeyFor,
 };
 
 /** A handle to an opened IndexedDB database. */
@@ -94,13 +98,90 @@ export function openDatabase(): Promise<DbHandle> {
       if (!db.objectStoreNames.contains(CRYPTO_STORE_RATCHET)) {
         db.createObjectStore(CRYPTO_STORE_RATCHET);
       }
+      // E2EE-2D.2 (DB version 3). Also additive. No data is rewritten here:
+      // sealing existing ratchet records would need Web Crypto, which is not
+      // usable inside an upgrade transaction, so v2 records are migrated
+      // lazily on first read instead.
+      if (!db.objectStoreNames.contains(CRYPTO_STORE_VAULTKEYS)) {
+        db.createObjectStore(CRYPTO_STORE_VAULTKEYS);
+      }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      // A newer version of the app in another tab must not be blocked forever
+      // by this connection. Close immediately, mark the context obsolete, and
+      // let the app decide to reload. Holding the connection open would leave
+      // the other tab's `onblocked` hanging; ignoring the event and carrying
+      // on would mean operating against a schema version we no longer match.
+      db.onversionchange = () => {
+        schemaObsolete = true;
+        try {
+          db.close();
+        } catch {
+          /* already closing */
+        }
+        notifySchemaObsolete();
+      };
+      resolve(db);
+    };
     req.onerror = () =>
       reject(new CryptoError('STORAGE_ERROR', 'Failed to open crypto database.', req.error));
     req.onblocked = () =>
       reject(new CryptoError('STORAGE_ERROR', 'Crypto database is blocked by another tab.'));
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* Schema-obsolescence signalling (E2EE-2D.2)                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Set once any connection of this JS context received `versionchange`, i.e.
+ * another tab is upgrading the crypto database.
+ *
+ * This is a one-way latch on purpose. Once another context has moved the
+ * schema forward, nothing this context believes about the layout is reliable
+ * any more, and "it seemed to work afterwards" is not a safety argument.
+ */
+let schemaObsolete = false;
+const schemaObsoleteListeners = new Set<() => void>();
+
+function notifySchemaObsolete(): void {
+  for (const listener of schemaObsoleteListeners) {
+    try {
+      listener();
+    } catch {
+      /* a listener must never break storage teardown */
+    }
+  }
+}
+
+/** True when another tab upgraded the crypto DB and this context must reload. */
+export function isSchemaObsolete(): boolean {
+  return schemaObsolete;
+}
+
+/**
+ * Subscribe to the obsolescence latch. The app layer uses this to surface a
+ * "reload required" state. Returns an unsubscribe function; fires immediately
+ * if the latch is already set.
+ */
+export function onSchemaObsolete(listener: () => void): () => void {
+  schemaObsoleteListeners.add(listener);
+  if (schemaObsolete) {
+    try {
+      listener();
+    } catch {
+      /* ignore */
+    }
+  }
+  return () => schemaObsoleteListeners.delete(listener);
+}
+
+/** Test-only: clear the latch between cases. */
+export function _resetSchemaObsoleteForTests(): void {
+  schemaObsolete = false;
+  schemaObsoleteListeners.clear();
 }
 
 function tx(
@@ -111,14 +192,14 @@ function tx(
   return db.transaction(stores, mode, { durability: 'strict' });
 }
 
-function promisifyRequest<T>(req: IDBRequest<T>): Promise<T> {
+export function promisifyRequest<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(new CryptoError('STORAGE_ERROR', undefined, req.error));
   });
 }
 
-function txComplete(transaction: IDBTransaction): Promise<void> {
+export function txComplete(transaction: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     transaction.oncomplete = () => resolve();
     transaction.onerror = () =>
@@ -269,7 +350,7 @@ export async function deleteUserCryptoState(userId: string): Promise<void> {
   try {
     const transaction = tx(
       db,
-      [CRYPTO_STORE_STATE, CRYPTO_STORE_PREKEYS, CRYPTO_STORE_RATCHET],
+      [CRYPTO_STORE_STATE, CRYPTO_STORE_PREKEYS, CRYPTO_STORE_RATCHET, CRYPTO_STORE_VAULTKEYS],
       'readwrite',
     );
     const stateStore = transaction.objectStore(CRYPTO_STORE_STATE);
@@ -315,9 +396,46 @@ export async function deleteUserCryptoState(userId: string): Promise<void> {
       };
       req.onerror = () => reject(new CryptoError('STORAGE_ERROR', undefined, req.error));
     });
+    // E2EE-2D.2: the per-user sealing key must go with the data it sealed.
+    // Leaving it behind would keep a key alive for envelopes that no longer
+    // exist, and a recreated account would inherit it.
+    transaction.objectStore(CRYPTO_STORE_VAULTKEYS).delete(sealingKeyFor(userId));
     await txComplete(transaction);
   } finally {
     db.close();
+  }
+  // Persistent state is gone; now drop every in-memory copy. Without this a
+  // still-running tab keeps serving the deleted identity out of its caches,
+  // and `hasIdentity()` keeps returning true after account deletion.
+  resetInMemoryCaches(userId);
+}
+
+/* ------------------------------------------------------------------ */
+/* In-memory cache invalidation (E2EE-2D.2)                            */
+/* ------------------------------------------------------------------ */
+
+type CacheResetter = (userId: string) => void;
+const cacheResetters = new Set<CacheResetter>();
+
+/**
+ * Register an in-memory cache so account deletion can clear it.
+ *
+ * Inversion of control is used here to avoid an import cycle: `identity.ts`
+ * and `keys.ts` already import this module, so this module cannot import
+ * them. They register their caches at load time instead.
+ */
+export function registerCacheResetter(fn: CacheResetter): void {
+  cacheResetters.add(fn);
+}
+
+/** Clear every registered in-memory cache for one user. */
+export function resetInMemoryCaches(userId: string): void {
+  for (const reset of cacheResetters) {
+    try {
+      reset(userId);
+    } catch {
+      /* a cache that fails to clear must not abort the others */
+    }
   }
 }
 

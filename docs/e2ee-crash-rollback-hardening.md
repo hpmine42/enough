@@ -1,6 +1,6 @@
 # enough. — E2EE-2D: Crash- und Rollback-Härtung
 
-**Status:** E2EE-2D implementiert. **Die vollständige E2EE-Integration existiert weiterhin NICHT.**
+**Status:** E2EE-2D.2 implementiert (Stage 1–6). **Die vollständige E2EE-Integration existiert weiterhin NICHT.**
 **Stand:** 2026-08-23
 **Scope:** lokaler kryptografischer Zustand. Kein Message-Flow, keine UI, keine Supabase-Änderung.
 
@@ -9,7 +9,23 @@
 > E2EE implementation.
 
 `sendMessage()` schreibt weiterhin Klartext nach `messages.ciphertext`
-(`src/lib/api.ts:604`). Daran ändert E2EE-2D nichts.
+(`src/lib/api.ts:604`). Daran ändert E2EE-2D.2 nichts.
+
+> **Korrekturhinweis zu diesem Dokument.** Frühere Fassungen haben T3
+> (Storage-Restore) als abgedeckt und Invariante B als vollständig durchgesetzt
+> beschrieben. **Das Architekturdokument war hier falsch.** Ein vollständiger
+> Origin-Restore wird von der lokalen Watermark **nicht** erkannt; siehe §2, §3
+> und §8.1. Die betroffenen Aussagen sind unten korrigiert, nicht abgeschwächt.
+
+### Was E2EE-2D.2 gegenüber E2EE-2D ändert
+
+| Befund | Status nach 2D.2 |
+|---|---|
+| C-2 — alter State mit erhöhter Revision akzeptiert | **geschlossen** — Revision ist AEAD-AAD, siehe §5.5 |
+| H-1 — Engine-Divergenz nach verlorenem CAS | **geschlossen** — Ephemeral Engine, siehe §4.1 |
+| H-2 — `Number`-Revision, `1e308` wedged die Session | **geschlossen** — uint64, siehe §5.6 |
+| H-3 — `MISSING` wurde wie eine neue Session behandelt | **geschlossen** — `NEEDS_ESTABLISH`, siehe §7 |
+| C-1 — koordinierter Full-Origin-Rollback | **OFFEN** — braucht externen Anchor, siehe §8.1 |
 
 ---
 
@@ -103,32 +119,88 @@ oder Server-Angreifer (der ist Gegenstand der eigentlichen E2EE-Integration).
 |---|---|---|
 | T1 | Browser-Crash / Tab-Kill zwischen Encrypt und Persist | ja |
 | T2 | iOS/Android beendet Hintergrund-Tab (Normalbetrieb, kein Randfall) | ja |
-| T3 | Wiederhergestelltes Profil-/Storage-Backup mit altem IndexedDB-Stand | ja |
+| T3 | Wiederhergestelltes Profil-/Storage-Backup mit altem IndexedDB-Stand | **nein — nur teilweise, siehe unten** |
 | T4 | Zwei Tabs derselben Anwendung schreiben konkurrierend | ja |
 | T5 | Teilweise beschädigter oder gelöschter IndexedDB-Inhalt | ja |
 | T6 | Lokaler Angreifer mit DevTools-Zugriff auf IndexedDB | **teilweise** — siehe §8 |
 | T7 | Netzwerk-/MITM-Angreifer | nein — E2EE-Integration |
 | T8 | Kompromittierter Supabase-Server | nein — E2EE-Integration |
 
+**Wichtig zu T3 — Korrektur.** Frühere Fassungen dieses Dokuments haben T3 als
+„ja" markiert. **Das Architekturdokument war hier falsch.** Zu unterscheiden
+sind zwei Fälle:
+
+* **Partieller Rollback** (nur der Record wird alt, Watermark bleibt aktuell;
+  Record gelöscht; Watermark manipuliert): wird erkannt und abgelehnt.
+* **Koordinierter Full-Origin-Rollback** (Record, Watermark **und** Sealing Key
+  werden gemeinsam auf einen früheren Stand zurückgesetzt — Profil-Backup,
+  Dateisystem-Snapshot, Container-Rollback): wird **nicht** erkannt. Der
+  wiederhergestellte Zustand ist echt versiegelt und in sich konsistent; jede
+  lokale Prüfung sagt korrekt `VALID`.
+
+Der Grund ist strukturell und nicht durch bessere lokale Krypto behebbar: Jeder
+lokale Anker liegt **innerhalb** dessen, was zurückgerollt wird. Ein weiterer
+IndexedDB-Wert würde mit zurückgerollt. Siehe §8.1.
+
+Regressionstest `C8` in `ratchet-state.test.mjs` hält diese Grenze fest und
+behauptet ausdrücklich **nicht**, dass der Fall erkannt wird.
+
 **Wichtig zu T6:** Ein Angreifer, der bereits same-origin-JavaScript ausführen
 kann, ist durch diese Schicht **nicht** abwehrbar. Das ist eine dokumentierte
-Grenze, keine gelöste Bedrohung.
+Grenze, keine gelöste Bedrohung. Was 2D.2 hinzufügt: Ein solcher Angreifer kann
+einen alten State **nicht** mehr durch bloßes Hochsetzen der Revision
+autoritativ machen (C-2), weil er dafür den nicht-extrahierbaren Sealing Key
+bräuchte. Er kann weiterhin Daten löschen (DoS) und — falls er den State selbst
+lesen kann — beliebigen Schaden anrichten.
 
 ---
 
 ## 3. Security Invariants
 
 ### Invariante A — Monotonic State
-Jeder persistierte Zustand trägt eine ganzzahlige, streng monoton steigende
-Revision. Der erste Commit erhält Revision 1. Eine Revision wird niemals
-verkleinert.
+Jeder persistierte Zustand trägt ein streng monoton steigendes Paar
+`(epoch, revision)`, beide als **uint64** (`Uint8Array(8)`, Big-Endian
+persistiert, `BigInt` im Speicher). Der erste Commit einer Epoch erhält
+Revision 1. Ein Wert wird niemals verkleinert; ein Überlauf über `2^64 - 1`
+wird abgelehnt und **nicht** umgebrochen.
+Tests: `A1`, `A2`, `A6`, `J1`, `revision.test.mjs` R1–R16.
 
-### Invariante B — No Silent Rollback
-Ein älterer Zustand wird nie stillschweigend übernommen. Jeder Rollback wird
-**erkannt**, **abgelehnt** und als eindeutiger Status
-(`ROLLBACK_DETECTED`) bzw. `CryptoError`-Code diagnostizierbar gemeldet.
-Es existiert **kein** Force-Flag und **kein** automatisches Fallback auf ein
-älteres Backup.
+### Invariante B — No Silent Rollback (**korrigierte Fassung**)
+
+Frühere Fassungen behaupteten hier, **jeder** Rollback werde erkannt.
+**Das Architekturdokument war hier falsch.** Korrekt ist:
+
+* Ein älterer Zustand wird nie **stillschweigend übernommen**, soweit er lokal
+  **unterscheidbar** ist.
+* Erkannt und abgelehnt werden: Record älter als Watermark, fehlender Record bei
+  Watermark > 0, gelöschte oder manipulierte Watermark, gefälschte Revision,
+  fremder User/fremde Connection.
+* **Nicht** erkannt wird der koordinierte Full-Origin-Rollback (§8.1).
+* Es existiert **kein** Force-Flag und **kein** automatisches Fallback auf ein
+  älteres Backup.
+
+Invariante B gilt also **relativ zum lokalen Anker**, nicht absolut. Absolut
+wird sie erst mit einem externen, monoton wachsenden Epoch-Anker.
+Tests: `C1`–`C7` (Erkennung), `C8` (dokumentierte Grenze).
+
+### Invariante F — Cryptographic Binding (neu in 2D.2)
+Revision, Epoch, User-Id, Connection-Id und Envelope-Version sind **AEAD
+Additional Data** über den State-Bytes. Ein Header-Feld lässt sich nicht ändern,
+ohne das Authentication Tag ungültig zu machen. Damit ist
+`revision ↔ state bytes` kryptografisch untrennbar.
+Tests: `sealed-state.test.mjs` S7–S18, `ratchet-state.test.mjs` C2.
+
+### Invariante G — No Implicit Session Creation (neu in 2D.2)
+Ein Sende- oder Empfangsversuch erzeugt **niemals** eine Session. Fehlender
+State führt zu `NEEDS_ESTABLISH` und zum Abbruch. Sessions entstehen
+ausschließlich über `adoptSessionFromEstablishment()`.
+Tests: `F2`, `F3`, `F4`, `F5`.
+
+### Invariante H — No Engine Residue (neu in 2D.2)
+Ein Message Key darf nie aus einer geteilten, dauerhaft veränderten Engine
+stammen. Pro Versuch existiert eine eigene, wegwerfbare Engine; ein verlorener
+CAS verwirft sie samt Chiffrat.
+Tests: `D2`, `H1`–`H4`, real-engine `RE1`, `RE3`, `RE4`.
 
 ### Invariante C — Commit Before Externalization
 Die verbindliche Reihenfolge lautet:
@@ -253,30 +325,128 @@ Die Revision **im Record** schützt gegen konkurrierende Writer. Sie schützt
 oder gelöscht wird (Backup-Restore, Teilverlust) — dann wäre auch die Revision
 wieder klein und alles sähe konsistent aus.
 
-Die Watermark ist der monotone Höchststand aller je committeten Revisionen.
-Damit werden zwei sonst unsichtbare Fälle erkennbar:
+Die Watermark ist der monotone Höchststand aller je committeten
+`(epoch, revision)`-Paare. Damit werden drei sonst unsichtbare Fälle erkennbar:
 
-* Record-Revision **kleiner** als Watermark → `ROLLBACK_DETECTED`
+* Record-Version **kleiner** als Watermark → `ROLLBACK_DETECTED`
 * Record **fehlt**, Watermark **> 0** → `ROLLBACK_DETECTED` (und ausdrücklich
   **nicht** `MISSING`, was fälschlich eine neue Session rechtfertigen würde)
+* Watermark **fehlt oder ist unlesbar**, obwohl ein Record existiert → `WEDGED`
+
+Der letzte Fall ist neu in 2D.2 und wichtig: Eine fehlende Watermark als „0"
+zu lesen, würde die Rollback-Erkennung genau dann abschalten, wenn ein
+Angreifer sie abschalten möchte. Record und Watermark werden in **einer**
+Transaktion geschrieben; nur eines von beiden vorzufinden ist im ehrlichen
+Betrieb unmöglich. Tests `C5`, `C6`.
+
+#### Die Watermark ist KEIN vollständiger Trust Anchor
+
+Ausdrücklich festgehalten, weil frühere Fassungen das Gegenteil nahelegten:
+Die Watermark liegt in **derselben** IndexedDB-Datenbank, in **demselben**
+Object Store und in **demselben** Origin-Storage-Bucket wie der Record. Sie
+teilt dessen Lebenszyklus vollständig — Backup, Restore, Eviction, Löschung
+treffen beide gemeinsam. Sie kann daher nur **Inkonsistenzen zwischen** Record
+und Watermark aufdecken, nicht deren **gemeinsame** Rückdatierung.
+
+Eine zweite lokale Watermark, eine zweite IndexedDB-Datenbank oder ein
+`localStorage`-Spiegel ändern daran nichts: Sie liegen alle im selben Origin
+und werden mitrestauriert. Der Versuch, C-1 lokal zu lösen, ist deshalb
+aufgegeben und **nicht** implementiert.
 
 ### 5.4 Compare-and-Swap
 
 ```ts
-commitRatchetState(userId, connectionId, expectedRevision, state)
+commitRatchetState(userId, connectionId, { epoch, revision }, state)
 ```
 
-In **einer** `readwrite`-Transaktion:
+Der Commit läuft in **zwei Phasen**. Grund: Web Crypto ist asynchron, und ein
+`await` auf `crypto.subtle` **innerhalb** einer IndexedDB-Transaktion lässt
+diese auto-committen — der folgende `put()` wirft dann
+`TransactionInactiveError`. Versiegeln und Verifizieren müssen deshalb außerhalb
+der Transaktion passieren.
 
-1. aktuellen Record lesen und validieren
-2. `storedRevision === expectedRevision`? sonst → `REVISION_CONFLICT`, Abbruch
-3. `nextRevision = expectedRevision + 1`
-4. `nextRevision > watermark`? sonst → `ROLLBACK_DETECTED`, Abbruch
-5. Record **und** Watermark schreiben
-6. Transaktion abschließen
+**Phase 1 — asynchron, außerhalb jeder Transaktion:**
 
-Schritt 4 ist Defence-in-Depth: Selbst ein Aufrufer mit passender, aber
-veralteter Revision kann nicht auf oder unter den Höchststand zurückfallen.
+1. Overflow-Prüfung: `nextRevision = revision + 1`, Abbruch bei `> 2^64 - 1`
+2. Sealing Key laden, sonst → `KEY_MISSING`
+3. Record + Watermark konsistent lesen
+4. gespeicherten Envelope **entsiegeln und authentifizieren** — erst danach
+   definiert er „current". Den Klartext-Header eines unverifizierten Records zu
+   glauben, ist genau die C-2-Lücke.
+5. `current === expected`? sonst → `REVISION_CONFLICT`
+6. `(epoch, nextRevision) > watermark`? sonst → `ROLLBACK_DETECTED`
+7. neuen Envelope versiegeln
+
+**Phase 2 — die atomare Transaktion, rein synchron:**
+
+8. Record und Watermark erneut lesen
+9. Ist der Record **byte-identisch** mit dem in Phase 1 authentifizierten?
+   Sonst → `REVISION_CONFLICT`. Byte-Identität ist hier die richtige Prüfung:
+   sie braucht keinen Schlüssel, ist selbst nicht fälschbar und schlägt bei
+   *jeder* Änderung an — auch bei einem Overwrite auf derselben Revision.
+10. Watermark unverändert? sonst → `REVISION_CONFLICT`
+11. Record **und** Watermark schreiben, Transaktion abschließen
+
+Schritt 6/10 ist Defence-in-Depth: Selbst ein Aufrufer mit passender, aber
+veralteter Version kann nicht auf oder unter den Höchststand zurückfallen.
+Test `D1` zeigt: bei 50 parallelen Writern gewinnt genau **einer**.
+
+### 5.5 Sealed State Envelope (neu in 2D.2)
+
+Der Record ist kein Klartextobjekt mehr, sondern:
+
+```
+AAD    = "enough.e2ee.ratchet.v3|<userId>|<connectionId>|<epochHex>|<revHex>"
+sealed = AES-GCM-256(sealingKey, stateBytes, AAD)
+```
+
+* Sealing Key: pro User ein **nicht extrahierbarer** AES-GCM-256 `CryptoKey`
+  (`extractable: false`, verifiziert in Test `S1`: `exportKey` schlägt für
+  `raw` **und** `jwk` fehl), gespeichert im neuen Store `vaultkeys`.
+* Epoch und Revision gehen als **feste 16-stellige Hex-Werte** in die AAD, damit
+  die Abbildung Wert → AAD eindeutig ist.
+* `|` ist als Trennzeichen in User-/Connection-Ids **verboten** (Test `S24`),
+  sonst wären `("a|b","c")` und `("a","b|c")` nicht unterscheidbar.
+* Es wird **keine eigene Kryptografie** implementiert. AES-GCM und die
+  Schlüsselerzeugung kommen aus WebCrypto.
+
+**Was die Versiegelung leistet:** Ein Header-Feld — Version, User, Connection,
+Epoch, Revision — lässt sich nicht ändern, ohne das Tag zu brechen. Der
+C-2-Angriff (echter alter State + `revision: 500`) schlägt fehl (`S7`, `C2`).
+
+**Was sie nicht leistet — geprüft, nicht angenommen:** AEAD macht ein Chiffrat
+nicht *innerhalb* eines Tupels eindeutig. Zwei Envelopes, die für dasselbe
+`(user, connection, epoch, revision)` versiegelt wurden, sind gegeneinander
+austauschbar (Test `S10b`). Das ist hier folgenlos, aber aus einem
+**strukturellen** Grund, nicht aus einem kryptografischen: Pro Slot wird nie
+mehr als ein Envelope persistiert, weil der Verlierer eines CAS seinen Envelope
+verwirft. Der Punkt ist als Test festgehalten, damit er nicht später zu einer
+stärkeren Behauptung umgedeutet wird.
+
+### 5.6 Revision als uint64 (neu in 2D.2)
+
+`Number` ist als Sicherheitszähler ungeeignet:
+
+```js
+Number.isInteger(1e308) === true   // besteht eine naive Prüfung
+1e308 + 1 === 1e308                // Inkrement ohne Wirkung
+```
+
+Ein solcher Wert im Revisionsfeld hätte die Session **dauerhaft** blockiert, da
+kein Commit je eine höhere Revision erreichen kann. Ersetzt durch:
+
+| Aspekt | Wahl |
+|---|---|
+| persistiert | `Uint8Array(8)`, Big-Endian, unsigned |
+| im Speicher | `BigInt` |
+| Domäne | `0 … 2^64 - 1`, hart geprüft |
+| Overflow | `REVISION_OVERFLOW`, **kein** Wrap, **keine** Sättigung |
+| `Number`-Eingabe | nur über `revisionFromNumber()`, nur sichere Integer |
+
+Big-Endian mit fester Breite, weil `memcmp` damit der numerischen Ordnung
+entspricht, es als IndexedDB-**Key** zulässig ist (ein nacktes `BigInt` wirft
+`DataError`) und es genau **eine** Kodierung pro Wert gibt — letzteres ist
+nötig, weil die Bytes in die AAD eingehen.
 
 ---
 
@@ -302,35 +472,76 @@ CAS-/Watermark-Prüfung ist die autoritative Verteidigung.
 
 ---
 
-## 7. Recovery
+## 7. Recovery und Missing-State-Semantik
 
 | Status | Bedeutung | Erlaubte Reaktion |
 |---|---|---|
-| `VALID` | Record vorhanden, konsistent, ≥ Watermark | normal weiterarbeiten |
-| `MISSING` | kein Record **und** Watermark = 0 | neue Session zulässig |
-| `CORRUPTED` | Record unlesbar/strukturell ungültig | **anhalten**, Nutzer informieren |
+| `VALID` | Envelope authentifiziert, nicht älter als Watermark | normal weiterarbeiten |
+| `MISSING` | kein Record **und** Watermark = 0 | **kein** Auto-Start; nur expliziter Establish-Pfad |
+| `CORRUPTED` | Record strukturell ungültig | **anhalten**, Nutzer informieren |
+| `UNSEAL_FAILED` | AEAD-Tag falsch: Header oder Chiffrat manipuliert | **anhalten** |
 | `ROLLBACK_DETECTED` | Record älter als Watermark, oder fehlt bei Watermark > 0 | **anhalten**, kein Encrypt/Decrypt |
+| `EPOCH_STALE` | Record-Epoch kleiner als aufgezeichnete Epoch | **anhalten** |
+| `KEY_MISSING` | Sealing Key fehlt, versiegelte Daten existieren | **anhalten**, nicht als neu behandeln |
 | `USER_MISMATCH` | Record gehört zu anderem User/Connection | **anhalten** |
+| `WEDGED` | Storage in sich inkonsistent (Watermark fehlt/defekt, Revision am Limit) | **anhalten**, manueller Eingriff |
+
+`NEEDS_ESTABLISH` ist der zugehörige **Fehlercode**, den der Sequencer wirft,
+wenn auf fehlendem State gesendet werden soll.
+
+### Der entscheidende Unterschied
+
+```
+neuer Account / neue Session      →  MISSING          →  Establish erlaubt
+bestehende Session, State weg     →  ROLLBACK_DETECTED / KEY_MISSING / WEDGED
+                                                       →  HALT
+```
 
 Verbindliche Regeln:
 
 * `loadRatchetState()` wirft bei defekten Daten **nicht**, sondern liefert einen
   Status. Der Aufrufer muss sich explizit entscheiden.
-* `CORRUPTED` führt **niemals automatisch** zu einer neuen Session. Das würde
-  eine bestehende Session zerstören und Sicherheitsinvarianten brechen.
-  Nur `MISSING` rechtfertigt einen Neuanfang.
-* `encryptCommitSend()` und `decryptAndCommit()` **verweigern die Arbeit**, bevor
-  sie die Engine überhaupt aufrufen, wenn der Status nicht `VALID`/`MISSING` ist
-  (Tests `C4`, `G4`). Damit wird nie ein weiterer Message Key auf einem
-  nicht vertrauenswürdigen Zustand abgeleitet.
+* Ein Sendeversuch erzeugt **niemals** eine Session (Invariante G, Befund H-3).
+  Früher wurde `MISSING` wie „neue Session, Revision 0" behandelt — damit hätte
+  alles, was den Record löschen kann, eine frische Ratchet-Kette ab Counter 0
+  erzwingen können. Jetzt: `NEEDS_ESTABLISH`, Abbruch, **keine** Engine wird
+  überhaupt konstruiert (Test `F2`).
+* `CORRUPTED` führt **niemals automatisch** zu einer neuen Session.
 * `commitRatchetState()` überschreibt einen korrupten Record **nicht** blind
-  (Test `F3`).
+  (Test `F7`).
+* Ein Record, dessen Sealing Key fehlt, ist `KEY_MISSING` — **nicht** `MISSING`.
+  Andernfalls wäre „Schlüssel weg" von „neuer Nutzer" ununterscheidbar (`F5`).
 
-Das im Auftrag §14 verbotene Muster existiert nirgends im Code:
+### `restoreRatchetSnapshot()` — entfernt
+
+Die Funktion existiert **nicht mehr**. Sie war unsicher: Sie akzeptierte einen
+vollständigen Record inklusive frei wählbarer Revision und prüfte nur
+`revision > watermark`. Ein alter State mit `revision: 500` wurde damit gegen
+eine laufende Session bei Revision 9 angenommen (Befund C-2).
+
+Sie wurde **nicht umbenannt, nicht mit einem Force-Flag versehen und nicht als
+Test-API exportiert**. Ersatz ist eine bewusst andere Primitive:
 
 ```ts
-try { loadState(); } catch { loadOldBackup(); }   // kommt nicht vor
+adoptSessionFromEstablishment(userId, connectionId, initialState, { replacesEpoch? })
 ```
+
+Unterschiede, die nicht kosmetisch sind:
+
+* Die Revision ist **kein Parameter** — eine neue Session startet immer bei 1.
+* Die Epoch ist ebenfalls keiner — sie wird als `watermark.epoch + 1`
+  abgeleitet, Adoption ist also **strikt vorwärtsgerichtet**.
+* Kein Force-Flag. Adoption über eine lebende Session hinweg verlangt, deren
+  aktuelle Epoch zu benennen (`replacesEpoch`), ist also ein CAS.
+* Eingabe sind Engine-Bytes aus einem **echten Handshake**, kein aus dem Storage
+  geborgener Blob.
+
+Weil die Epoch steigt, steht eine adoptierte Session **über** allem zuvor
+Committeten, obwohl ihre Revision wieder bei 1 beginnt. Genau deshalb wird
+Frische als Paar `(epoch, revision)` verglichen. Tests `G1`–`G5`.
+
+**Was das nicht leistet:** Es beweist nicht, dass das Handshake-Material selbst
+frisch war. Auch das braucht den externen Anker (C-1).
 
 ---
 
@@ -338,40 +549,117 @@ try { loadState(); } catch { loadOldBackup(); }   // kommt nicht vor
 
 Ehrliche Auflistung dessen, was **nicht** gelöst ist.
 
-1. **Keine kryptografische Authentizität des Vaults.**
-   Revision und Watermark liegen als Klartext-Zahlen in IndexedDB. Wer
-   same-origin-JavaScript ausführen oder direkt in den Profilordner schreiben
-   kann, kann sie manipulieren. Getestet wurde die *Richtung*, die zählt: Ein
-   Angreifer kann die Revision **hochsetzen** (Test `F4`) — das führt zu einem
-   Denial-of-Service, aber die echte ältere Session lässt sich danach **nicht**
-   mehr einspielen. Ein Angreifer, der die Watermark **senkt**, kann den Schutz
-   aushebeln. Ein authentifizierter Vault (wie in
-   `experiments/e2ee-2c/` mit non-extractable AES-256-GCM-Wrapping-Key und AAD)
-   würde das adressieren; er ist hier **bewusst nicht** integriert, weil das den
-   Scope von E2EE-2D überschreitet und eigene Krypto-Entscheidungen erfordert.
-   **Bewusst keine selbst erfundene Kryptografie.**
+### 8.1 C-1 — Koordinierter Full-Origin-Rollback (OFFEN, bewusst)
 
-2. **Kein Schutz gegen vollständige Storage-Löschung.**
-   Wird die gesamte Datenbank entfernt (Nutzer löscht Browserdaten, OS-Eviction),
-   verschwindet auch die Watermark. Das ist von einer neuen Installation nicht
+**Der wichtigste offene Punkt.** Wird der gesamte Origin auf einen früheren
+Stand zurückgesetzt, werden Record, Watermark **und** Sealing Key gemeinsam
+mitrestauriert:
+
+```
+Revision 6
+    ↓ vollständiger Storage-Restore
+Revision 2
+    ↓
+VALID
+```
+
+Das Ergebnis ist ein echt versiegelter, in sich konsistenter älterer Zustand.
+Jede lokale Prüfung sagt korrekt `VALID` — die Signatur stimmt ja, sie wurde von
+diesem Gerät für genau dieses `(user, connection, epoch, revision)` erzeugt.
+
+**Warum das lokal nicht lösbar ist:** Jeder lokale Anker liegt innerhalb dessen,
+was zurückgerollt wird. IndexedDB-Transaktionen sind zudem per Spezifikation
+datenbanklokal, sodass eine zweite Datenbank die Atomarität zwischen Record und
+Anker verlöre, ohne den Restore zu verhindern — Eviction und Backup sind
+origin-weit.
+
+**Die Lösung, die NICHT Teil von E2EE-2D.2 ist:**
+
+```
+sealed local state  +  server-seitiger monotoner Epoch-Anker
+```
+
+Ein Zähler außerhalb des Origins, der bei jedem Session-Establishment steigt und
+dessen Wert in die AAD eingeht. Das `epoch`-Feld ist **jetzt schon** durch AAD
+und Envelope geführt, damit dieser Schritt später eine Wert- und keine
+Formatänderung ist. Solange kein Server-Epoch existiert, unterscheidet die
+lokale Epoch nur Session-Generationen auf diesem Gerät.
+
+**Diese Dokumentation behauptet ausdrücklich nicht, dass C-1 gelöst ist.**
+Regressionstest `C8` hält die Grenze fest und würde rot, wenn jemand sie
+stillschweigend als gelöst markierte.
+
+### 8.2 Forward Secrecy und Post-Compromise Security bei Receiver-Rollback
+
+Ein Rollback ist nicht nur ein Replay-Problem. Gemessen an der realen Engine:
+
+**Konsumierte Message Keys werden wieder nutzbar.** Der Double Ratchet legt
+Schlüssel für übersprungene Nachrichten im Session-State ab und **löscht sie bei
+Gebrauch**. Messung: Empfänger-State 637 B → 1076 B nach dem Überspringen von
+m1–m4 (~110 B je Schlüssel) → 714 B nach deren Konsum, also −362 B. Die
+Schlüssel sind danach weg.
+
+Wird der State auf den Stand *vor* dem Konsum zurückgerollt, sind die
+gespeicherten Skipped Keys **wieder da**. Gegen den lebenden State werden alle
+Replays abgelehnt; gegen den zurückgerollten State werden m1–m4 **erneut
+akzeptiert und entschlüsselt** (m5 bleibt abgelehnt). Das ist ein Verlust an
+**Forward Secrecy auf der Empfängerseite**, nicht bloß ein Replay-Fenster: Wer
+den alten State und die alten Chiffrate hat, bekommt den Klartext zurück, den
+der Ratchet bereits als unwiederbringlich behandelt hatte.
+
+**Post-Compromise Security wird ebenfalls beschädigt.** Ein DH-Ratchet-Schritt
+ändert den State (633 B → 775 B). Ein Rollback auf den Stand *vor* dem Schritt
+macht die Erneuerung des Schlüsselmaterials rückgängig — genau die Eigenschaft,
+die nach einer Kompromittierung die Sicherheit wiederherstellen soll.
+
+**Senderseite:** Der Sender hält nur Sending-Chain-Schlüssel, daher kein
+direkter FS-Verlust. Das Risiko dort ist Schlüssel-/IV-Wiederverwendung (§1.2).
+
+**Was 2D.2 hier tut und was nicht.** Die Versiegelung verhindert das
+*Fälschen* eines alten Zustands und der Sequencer verhindert das *versehentliche*
+Zurückfallen nach einem verlorenen CAS oder Crash. Gegen einen echten
+Full-Origin-Restore hilft beides nicht (§8.1). Ein Tombstone-Log konsumierter
+Message Keys wäre die passende zusätzliche Maßnahme; es ist in diesem Auftrag
+**ausdrücklich nicht** implementiert und bleibt offen.
+
+### 8.3 Weitere Grenzen
+
+1. **Kein Schutz gegen vollständige Storage-Löschung.** Wird die gesamte
+   Datenbank entfernt (Nutzer löscht Browserdaten, OS-Eviction), verschwinden
+   Watermark und Sealing Key. Das ist von einer neuen Installation nicht
    unterscheidbar. Abgefangen wird nur der **partielle** Verlust.
 
-3. **Kein Web Lock.** Siehe §6.
+2. **Migrierte v2-Records sind nicht rückwirkend vertrauenswürdig.** Ein
+   Legacy-Record konnte vor dem Upgrade bereits manipuliert worden sein; das ist
+   im Nachhinein nicht feststellbar. Die Migration stellt die Bindung nur **ab
+   diesem Zeitpunkt** her.
+
+3. **Kein Web Lock.** Bewusst nicht implementiert. `navigator.locks` wäre eine
+   Liveness-/Performance-Optimierung; als Sicherheitsmechanismus ist es
+   ungeeignet, weil ein OS-Kill den Lock ohne `finally` verschwinden lässt.
+   Sicherheitsbasis bleiben CAS + Sealed State.
 
 4. **Nicht in einem echten Browser getestet.** Alle Tests laufen unter Node mit
    `fake-indexeddb`. Realverhalten von Safari/WebKit — insbesondere
-   Storage-Eviction und `durability: 'strict'` — ist damit **nicht** verifiziert.
+   Storage-Eviction und ob `durability: 'strict'` tatsächlich **honoriert**
+   wird — ist damit **nicht** verifiziert. Test `M13` prüft nur, dass das Flag
+   angefordert wird; `fake-indexeddb` kann echte Durability nicht simulieren,
+   und es wird hier kein Testbeweis dafür erfunden.
 
 5. **Keine Integration in den Message-Flow.** `encryptCommitSend()` wird von
-   keinem Produktionscode aufgerufen. Der Nachweis, dass die echte
-   Signal-Engine korrekt daran andockt, steht aus.
+   keinem Produktionscode aufgerufen. `sendMessage()` ist unverändert.
 
 6. **Multi-Device ist nicht adressiert.** Das Modell kennt genau einen lokalen
    Zustand pro `(userId, connectionId)`.
 
-7. **Account-Löschung entfernt auch die Watermark.** Für die Löschung ist das
-   richtig, bedeutet aber: ein neu angelegter Account mit derselben
-   `connectionId` startet bei Revision 0.
+7. **Account-Löschung entfernt auch Watermark und Sealing Key.** Für die
+   Löschung ist das richtig, bedeutet aber: ein neu angelegter Account mit
+   derselben `connectionId` startet wieder bei Epoch 1.
+
+8. **Kein Tombstone-Log konsumierter Message Keys** (§8.2).
+
+9. **Kein serverseitiger Epoch** (§8.1). Keine Supabase-Migration, keine RPC,
+   keine RLS-Änderung in diesem Auftrag.
 
 ---
 
@@ -400,48 +688,60 @@ gültig, falls die Engine-Entscheidung später revidiert wird.
 
 | Datei | Art | Inhalt |
 |---|---|---|
-| `src/lib/crypto/ratchet-state.ts` | **neu** | CAS-Persistenz, Watermark, Recovery-Status |
-| `src/lib/crypto/ratchet-session.ts` | **neu** | Sequencer + Failure Injection |
-| `src/lib/crypto/__tests__/ratchet-state.test.mjs` | **neu** | 35 Tests |
-| `src/lib/crypto/types.ts` | geändert | DB v2, `ratchet`-Store, Key-Helfer, 2 Fehlercodes |
-| `src/lib/crypto/storage.ts` | geändert | Store-Anlage, Löschung inkl. Ratchet-State |
-| `src/lib/crypto/errors.ts` | geändert | Meldungen für die 2 neuen Codes |
-| `package.json` | geändert | neue Testdatei in `test:crypto` |
+| `src/lib/crypto/revision.ts` | **neu (2D.2)** | uint64-Revision/Epoch, Encoding, Overflow |
+| `src/lib/crypto/sealed-state.ts` | **neu (2D.2)** | AEAD-Envelope, AAD, Sealing-Key-Verwaltung |
+| `src/lib/crypto/ratchet-state.ts` | überarbeitet | Sealed CAS, uint64, `adoptSessionFromEstablishment`, Lazy-Migration; `restoreRatchetSnapshot` **entfernt** |
+| `src/lib/crypto/ratchet-session.ts` | überarbeitet | Ephemeral-Engine-Sequencer, fail-closed Missing-State |
+| `src/lib/crypto/storage.ts` | geändert | DB v3 + `vaultkeys`, `onversionchange`, Cache-Invalidierung, Löschung inkl. Sealing Key |
+| `src/lib/crypto/types.ts` | geändert | DB v3, Envelope-Version, 7 neue Fehlercodes, `sealingKeyFor` |
+| `src/lib/crypto/errors.ts` | geändert | Meldungen für die neuen Codes |
+| `src/lib/crypto/identity.ts` | geändert | Cache-Invalidierung bei Account-Löschung |
+| `src/lib/crypto/keys.ts` | geändert | Cache-Invalidierung bei Account-Löschung |
+| `src/lib/crypto/__tests__/revision.test.mjs` | **neu** | 16 Tests |
+| `src/lib/crypto/__tests__/sealed-state.test.mjs` | **neu** | 26 Tests |
+| `src/lib/crypto/__tests__/migration.test.mjs` | **neu** | 13 Tests |
+| `src/lib/crypto/__tests__/ratchet-state.test.mjs` | überarbeitet | 51 Tests |
+| `src/lib/crypto/__tests__/real-engine.integration.test.mjs` | **neu** | 5 Tests gegen die echte WASM-Engine (opt-in) |
+| `package.json` | geändert | Testdateien in `test:crypto`, neues `test:crypto:engine` |
 
 **Nicht geändert:** `api.ts`, `sendMessage()`, UI-Komponenten, `AuthContext`,
-Supabase-Migrationen, RLS, Routing, Theme, i18n.
-
-Der Produktions-Bundle wächst um **0.46 kB** (489.30 kB gegenüber 488.84 kB) —
-die neuen Module werden mangels Importeur wegoptimiert. Das ist der beste
-Beleg dafür, dass nichts in den Produktpfad eingebaut wurde.
+Supabase-Migrationen, RLS, Routing, Theme, i18n. Keine neue Dependency.
 
 ---
 
 ## 11. Testabdeckung
 
-35 neue Tests in `src/lib/crypto/__tests__/ratchet-state.test.mjs`.
-Der Schwerpunkt liegt bewusst auf dem Nachweis, dass **falsches Verhalten
-abgelehnt wird** (Auftrag §31), nicht auf dem Happy Path.
+```
+npm run test:crypto          → 193/193 bestanden
+npm run test:crypto:engine   →   5/5   bestanden (echte @getmaapp/signal-wasm 0.6.6)
+npm run build                → erfolgreich
+npm run smoke                → bestanden
+```
 
-| Gruppe | Tests | Kern |
+| Gruppe | Kern |
+|---|---|
+| `revision` R1–R16 | uint64-Grenzen, `2^64` abgelehnt, Overflow, Malformed, 1e308-Wedge |
+| `sealed-state` S1–S25 | Nicht-Extrahierbarkeit, C-2, State-Substitution, Cross-User/Connection, Header-Manipulation, dokumentierte AAD-Grenze |
+| `ratchet-state` A–J | Revision, Crash-Punkte, Rollback, Concurrency, Isolation, Missing-State, Establishment, Ephemeral Engine, Property |
+| `migration` M1–M13 | v2-Migration, Account-Löschung inkl. Caches, `onversionchange`, Durability-Flag |
+| `real-engine` RE1–RE4 | H-1 gegen die echte Engine, kein Engine-Residue |
+
+### Mutation Testing
+
+Jede Mutation muss von mindestens einem Test erkannt werden:
+
+| # | Mutation | erkannt durch |
 |---|---|---|
-| A — Revision | A1–A5 | Monotonie, ältere/zukünftige Revision abgelehnt, (state, revision) konsistent |
-| B — Crash | B1–B6 | Crash vor/nach Commit, vor/nach Send; Reihenfolge beobachtbar; Sendefehler rollt nicht zurück |
-| C — Rollback | C1–C5 | Snapshot 10 vs 11, Stale Tab, manipulierter Store, Encrypt verweigert, fehlender Record |
-| D — Concurrency | D1–D3 | genau ein Gewinner, Verlierer senden nicht, Retry nach Konflikt |
-| E — Isolation | E1–E5 | Connection- und User-Trennung, Account-Löschung inkl. Watermark |
-| F — Recovery | F1–F5 | `MISSING`, 7 Korruptionsfälle, kein blindes Überschreiben, Manipulationsgrenze, Argumentprüfung |
-| G — Replay | G1–G4 | Idempotenz-Leiter, kein Re-Encrypt nach Restore, Empfängerseite |
-| H — Property | H1–H2 | 240 zufällige Operationen (deterministischer LCG): Revision sinkt nie |
+| 1 | Watermark-Prüfung entfernen | `C5`, `C6`, `C1` |
+| 2 | `durability: 'strict'` entfernen | `M13` (nur Flag beobachtbar, siehe §8.3.4) |
+| 3 | Defensive `new Uint8Array(state)` entfernen | `H5`, `H6`, `H7`, `S6` |
+| 4 | Revision aus der AAD entfernen | `S7`, `S8`, `S9`, `C2` |
+| 5 | userId aus der AAD entfernen | `S13`, `S15` |
+| 6 | connectionId aus der AAD entfernen | `S14` |
+| 7 | CAS-Prüfung entfernen | `D1`, `D2`, `A3`, `A4`, `C7` |
+| 8 | Commit/Send vertauschen | `B1`, `B3`, `B4`, `D2`, `RE4` |
+| 9 | `MISSING → fresh session` reaktivieren | `F2`, `F3`, `F4` |
+| 10 | Overflow-Prüfung entfernen | `A6`, `R11`, `R12` |
 
-Ergebnis:
-
-```
-npm run test:crypto   → 122/122 bestanden (87 bestehende + 35 neue)
-npm run build         → erfolgreich
-npm run smoke         → alle bestanden
-```
-
-Zusätzlich verifiziert: Das Upgrade der Datenbank von Version 1 auf 2 erhält
-bestehende Identitäten und Prekeys (separat geprüft, keine Datenmigration
-nötig).
+Zusätzlich verifiziert: Das Upgrade der Datenbank von Version 1/2 auf 3 erhält
+bestehende Identitäten, Prekeys und Ratchet-States (`M1`, `M6`, `M8`).

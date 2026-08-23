@@ -53,6 +53,20 @@ function defaultMessage(code: CryptoErrorCode): string {
       return 'Crypto state was modified concurrently.';
     case 'ROLLBACK_DETECTED':
       return 'An outdated crypto state was rejected.';
+    case 'REVISION_OVERFLOW':
+      return 'Crypto state revision is out of range.';
+    case 'UNSEAL_FAILED':
+      return 'Crypto state failed authentication and was rejected.';
+    case 'KEY_MISSING':
+      return 'The local crypto sealing key is unavailable.';
+    case 'WEDGED':
+      return 'Crypto state is inconsistent and cannot be used.';
+    case 'NEEDS_ESTABLISH':
+      return 'No encrypted session exists for this conversation.';
+    case 'EPOCH_STALE':
+      return 'The encrypted session is older than the recorded one.';
+    case 'SCHEMA_OBSOLETE':
+      return 'The crypto database was upgraded; this page must reload.';
     default:
       return 'Crypto error.';
   }

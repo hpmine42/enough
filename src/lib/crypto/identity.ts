@@ -29,6 +29,7 @@ import {
   deleteState,
   getState,
   putState,
+  registerCacheResetter,
 } from './storage.ts';
 import {
   CRYPTO_STATE_VERSION,
@@ -259,6 +260,14 @@ export async function deleteIdentity(userId: string): Promise<void> {
 export function _resetIdentityCacheForTests(): void {
   identityCache.clear();
 }
+
+// Account deletion must invalidate this cache, otherwise `hasIdentity()` and
+// `getIdentityBundle()` keep answering from memory for a user whose persisted
+// identity no longer exists. Registered here (rather than imported by
+// storage.ts) because storage.ts must not depend on this module.
+registerCacheResetter((userId) => {
+  identityCache.delete(cacheKey(userId));
+});
 
 /** Async accessor returning the public bundle. */
 export async function getIdentityBundle(userId: string): Promise<PublicIdentityBundle> {

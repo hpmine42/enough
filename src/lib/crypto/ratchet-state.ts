@@ -1,123 +1,197 @@
-// enough. E2EE — Crash-/rollback-hardened ratchet state persistence (E2EE-2D)
+// enough. E2EE — sealed, crash-/rollback-hardened ratchet state persistence
+// (E2EE-2D, hardened by E2EE-2D.2)
 // ---------------------------------------------------------------------------
 // SCOPE
 // This module persists an OPAQUE cryptographic session state blob (produced by
-// the Signal engine) with monotonic revisions and compare-and-swap semantics.
+// the Signal engine) with monotonic uint64 revisions, compare-and-swap
+// semantics, and a local AEAD binding between the state bytes and the header
+// that describes them.
 //
 // It deliberately does NOT:
-//   * implement any cryptography (no ratchet, no KDF, no AEAD, no nonces),
+//   * implement any cryptography — sealing uses WebCrypto AES-GCM via
+//     `sealed-state.ts`; the ratchet itself stays entirely in the engine,
 //   * interpret the state bytes in any way,
 //   * talk to Supabase or the network,
 //   * touch the message send flow.
 //
-// The state bytes are whatever the engine produced (e.g. libsignal's
-// `export_session()`); to this module they are a length-prefixed opaque buffer.
-//
 // WHY THIS EXISTS
 // The Signal Double Ratchet derives a distinct message key per chain index.
-// Each message key yields a (cipher_key, mac_key, iv) triple, and Signal's
-// message encryption is AES-CBC + HMAC — the derivation is deterministic.
-// Re-encrypting from a ratchet state that was rolled back to an earlier
-// revision therefore reuses an already-consumed (cipher_key, iv) pair for a
-// *different* plaintext. Verified consequences (see
-// docs/e2ee-crash-rollback-hardening.md §1):
+// `@getmaapp/signal-wasm@0.6.6` encrypts with AES-256-CBC and authenticates
+// with HMAC-SHA-256, and the (cipher key, mac key, IV) triple is derived
+// deterministically from the chain key and counter. Re-encrypting from a
+// ratchet state that was rolled back to an earlier revision therefore reuses
+// an already-consumed (cipher key, IV) pair for a *different* plaintext.
+// Verified consequences (see docs/e2ee-crash-rollback-hardening.md §1):
 //   * identical plaintext under a restored state yields byte-identical
 //     ciphertext,
 //   * plaintexts sharing a prefix yield ciphertexts sharing a prefix at
 //     AES block granularity, leaking prefix equality.
 // Both violate the Double Ratchet requirement that a message key is used
-// exactly once. Preventing rollback is therefore a *correctness* requirement
-// of the protocol, not a nice-to-have.
+// exactly once. Preventing rollback is a *correctness* requirement of the
+// protocol, not a nice-to-have.
 //
-// THE INVARIANT
-//   A ratchet state that has been durably committed must never be replaced
-//   by an older one.
+// THE INVARIANTS
+//   A. A durably committed ratchet state is never replaced by an older one.
+//   B. The revision is cryptographically inseparable from the state bytes.
 //
-// See docs/e2ee-crash-rollback-hardening.md for the full model and its limits.
+// Invariant B is what E2EE-2D.2 adds. In E2EE-2D the revision was a plain
+// number stored beside the state, so an old state could be re-labelled with a
+// high revision and accepted (audit finding C-2). Now the revision — together
+// with version, userId, connectionId and epoch — is AEAD additional data, so
+// editing any of it invalidates the tag.
+//
+// WHAT IS STILL OPEN: C-1
+// A restore of the ENTIRE origin (browser profile backup, OS-level snapshot)
+// rolls the record, the watermark and the sealing key back together. The
+// result is a genuinely sealed, internally consistent older state, and this
+// module reports it as `VALID`. No purely local anchor can detect that,
+// because every local anchor is inside the thing being restored. Closing C-1
+// needs a monotonic counter outside the origin (a server-side epoch). That is
+// explicitly NOT part of E2EE-2D.2. The `epoch` field is already threaded
+// through the AAD so that anchoring it later is a value change, not a format
+// change.
 
 import { CryptoError } from './errors.ts';
 import {
-  CRYPTO_STATE_VERSION,
   CRYPTO_STORE_RATCHET,
   ratchetKeyFor,
   ratchetUserPrefix,
   watermarkKeyFor,
 } from './types.ts';
-import { openDatabase } from './storage.ts';
+import { openDatabase, promisifyRequest, txComplete } from './storage.ts';
+import {
+  INITIAL_EPOCH,
+  INITIAL_REVISION,
+  MAX_REVISION,
+  compareVersion,
+  decodeRevision,
+  encodeRevision,
+  incrementRevision,
+  isValidRevision,
+  revisionFromNumber,
+  tryDecodeRevision,
+} from './revision.ts';
+import {
+  type SealedEnvelope,
+  type UnsealedState,
+  isEnvelopeShaped,
+  loadSealingKey,
+  ensureSealingKey,
+  seal,
+  unseal,
+} from './sealed-state.ts';
+
+export { INITIAL_EPOCH, INITIAL_REVISION, MAX_REVISION } from './revision.ts';
 
 /**
- * A durably committed ratchet state snapshot.
+ * The authenticated contents of a committed ratchet state.
  *
- * The revision is part of the same record as the state bytes, so a snapshot
- * can never be observed with a revision belonging to different state. This is
- * the reason revision and state are not stored in separate keys.
+ * Revision and epoch are BigInt in memory and `Uint8Array(8)` big-endian on
+ * disk. There is no `Number` revision anywhere on this path.
  */
-export interface PersistedRatchetState {
-  /** Format version of this record (not the protocol version). */
-  version: number;
-  /** Supabase user id that owns this state. */
+export interface RatchetStateRecord {
   userId: string;
-  /** 1:1 connection this session belongs to. */
   connectionId: string;
-  /** Monotonically increasing revision. First commit is 1. */
-  revision: number;
+  /** Session generation. Advances only through explicit establishment. */
+  epoch: bigint;
+  /** Monotonic revision within the epoch. First commit of an epoch is 1. */
+  revision: bigint;
   /** Opaque engine state bytes. Never interpreted here. */
   state: Uint8Array;
-  /** Unix millis of the commit that produced this record. */
+  /** Unix millis of the commit. Not authenticated; diagnostics only. */
   committedAt: number;
 }
 
-/** Result of a load attempt, including the diagnosable failure modes. */
+/**
+ * Result of a load attempt.
+ *
+ * Every failure mode is a distinct status rather than an exception, because
+ * the caller must make an explicit decision for each one. In particular
+ * `MISSING` must never be quietly turned into "start a fresh session".
+ */
 export type RatchetStateStatus =
+  /** Authenticated, not older than the watermark. Safe to use. */
   | 'VALID'
+  /** Nothing was ever committed for this (user, connection) on this device. */
   | 'MISSING'
+  /** A record exists but is structurally not an envelope. */
   | 'CORRUPTED'
+  /** The envelope failed AEAD authentication: header or ciphertext edited. */
+  | 'UNSEAL_FAILED'
+  /** An older state (or a vanished record with a live watermark) was found. */
   | 'ROLLBACK_DETECTED'
-  | 'USER_MISMATCH';
+  /** The record's epoch is older than the recorded epoch. */
+  | 'EPOCH_STALE'
+  /** The sealing key is gone, so existing envelopes cannot be read at all. */
+  | 'KEY_MISSING'
+  /** The record belongs to a different user or connection. */
+  | 'USER_MISMATCH'
+  /**
+   * Storage is internally inconsistent in a way that honest operation cannot
+   * produce (missing/garbled watermark next to a live record, revision at the
+   * uint64 ceiling). Requires an explicit decision; never auto-repaired.
+   */
+  | 'WEDGED';
+
+/** The recorded high-water mark for a (user, connection). */
+export interface RatchetWatermark {
+  epoch: bigint;
+  revision: bigint;
+}
 
 export interface RatchetStateLoad {
   status: RatchetStateStatus;
   /** Present only when status === 'VALID'. */
-  record?: PersistedRatchetState;
-  /**
-   * Highest revision ever committed for this (user, connection), as recorded
-   * by the monotonic watermark. Useful for diagnostics on rollback.
-   */
-  watermark: number;
+  record?: RatchetStateRecord;
+  /** Highest (epoch, revision) ever committed, as recorded locally. */
+  watermark: RatchetWatermark;
 }
 
-/** The first revision a fresh session receives on its first commit. */
-export const INITIAL_REVISION = 0;
+const ZERO_WATERMARK: RatchetWatermark = { epoch: INITIAL_EPOCH, revision: INITIAL_REVISION };
 
-function isUint8Array(v: unknown): v is Uint8Array {
-  return v instanceof Uint8Array;
+/** Persisted watermark shape (E2EE-2D.2). */
+interface StoredWatermark {
+  epoch: Uint8Array;
+  revision: Uint8Array;
 }
+
+type WatermarkRead =
+  | { kind: 'ABSENT' }
+  | { kind: 'OK'; value: RatchetWatermark }
+  | { kind: 'MALFORMED' };
 
 /**
- * Validate a record read back from storage. Anything unexpected is treated as
- * corruption rather than being silently coerced.
+ * Decode a watermark read from storage.
+ *
+ * A legacy E2EE-2D watermark was a bare `number`. It is accepted at epoch 0
+ * so that an existing installation is not locked out, but only when it is a
+ * non-negative safe integer — the pathological `1e308` value that motivated
+ * the uint64 migration is rejected as malformed, not silently carried over.
  */
-function validateRecord(
-  value: unknown,
-  userId: string,
-  connectionId: string,
-): { ok: true; record: PersistedRatchetState } | { ok: false; status: 'CORRUPTED' | 'USER_MISMATCH' } {
-  if (!value || typeof value !== 'object') return { ok: false, status: 'CORRUPTED' };
-  const r = value as Partial<PersistedRatchetState>;
-  if (typeof r.revision !== 'number' || !Number.isInteger(r.revision) || r.revision < 0) {
-    return { ok: false, status: 'CORRUPTED' };
+function readWatermark(raw: unknown): WatermarkRead {
+  if (raw === undefined || raw === null) return { kind: 'ABSENT' };
+
+  if (typeof raw === 'number') {
+    try {
+      return { kind: 'OK', value: { epoch: INITIAL_EPOCH, revision: revisionFromNumber(raw) } };
+    } catch {
+      return { kind: 'MALFORMED' };
+    }
   }
-  if (!isUint8Array(r.state)) return { ok: false, status: 'CORRUPTED' };
-  if (typeof r.userId !== 'string' || typeof r.connectionId !== 'string') {
-    return { ok: false, status: 'CORRUPTED' };
+
+  if (typeof raw === 'object') {
+    const w = raw as Partial<StoredWatermark>;
+    const epoch = tryDecodeRevision(w.epoch);
+    const revision = tryDecodeRevision(w.revision);
+    if (epoch === null || revision === null) return { kind: 'MALFORMED' };
+    return { kind: 'OK', value: { epoch, revision } };
   }
-  if (typeof r.version !== 'number') return { ok: false, status: 'CORRUPTED' };
-  // A record that decodes cleanly but belongs to someone else is a distinct,
-  // more alarming condition than corruption — never silently adopt it.
-  if (r.userId !== userId || r.connectionId !== connectionId) {
-    return { ok: false, status: 'USER_MISMATCH' };
-  }
-  return { ok: true, record: r as PersistedRatchetState };
+
+  return { kind: 'MALFORMED' };
+}
+
+function writeWatermark(value: RatchetWatermark): StoredWatermark {
+  return { epoch: encodeRevision(value.epoch), revision: encodeRevision(value.revision) };
 }
 
 function requireIds(userId: string, connectionId: string): void {
@@ -125,102 +199,75 @@ function requireIds(userId: string, connectionId: string): void {
   if (!connectionId) throw new CryptoError('NOT_INITIALIZED', 'connectionId is required.');
 }
 
-function promisify<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(new CryptoError('STORAGE_ERROR', undefined, req.error));
-  });
+/* ------------------------------------------------------------------ */
+/* Legacy (E2EE-2D, DB v2) record handling                             */
+/* ------------------------------------------------------------------ */
+
+interface LegacyRecord {
+  version: number;
+  userId: string;
+  connectionId: string;
+  revision: number;
+  state: Uint8Array;
+  committedAt: number;
 }
 
-function txComplete(transaction: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () =>
-      reject(new CryptoError('STORAGE_ERROR', 'Ratchet state transaction failed.', transaction.error));
-    transaction.onabort = () =>
-      reject(new CryptoError('STORAGE_ERROR', 'Ratchet state transaction aborted.', transaction.error));
-  });
-}
-
-/**
- * Load the current ratchet state.
- *
- * Never throws on a bad record: the failure mode is returned as a status so
- * callers must decide explicitly. In particular this function will NOT fall
- * back to an older snapshot — see §14 of the task and the documented recovery
- * rules. `MISSING` and `CORRUPTED` are deliberately distinct: only the former
- * may lead to establishing a fresh session.
- */
-export async function loadRatchetState(
-  userId: string,
-  connectionId: string,
-): Promise<RatchetStateLoad> {
-  requireIds(userId, connectionId);
-  const db = await openDatabase();
-  try {
-    const transaction = db.transaction(CRYPTO_STORE_RATCHET, 'readonly');
-    const store = transaction.objectStore(CRYPTO_STORE_RATCHET);
-    const raw = await promisify(store.get(ratchetKeyFor(userId, connectionId)) as IDBRequest<unknown>);
-    const wmRaw = await promisify(store.get(watermarkKeyFor(userId, connectionId)) as IDBRequest<unknown>);
-    await txComplete(transaction);
-
-    const watermark = typeof wmRaw === 'number' && Number.isInteger(wmRaw) && wmRaw >= 0 ? wmRaw : 0;
-
-    if (raw === undefined) {
-      // A missing record with a non-zero watermark means a committed state
-      // vanished — that is a rollback, not a fresh session.
-      if (watermark > INITIAL_REVISION) return { status: 'ROLLBACK_DETECTED', watermark };
-      return { status: 'MISSING', watermark };
-    }
-
-    const validated = validateRecord(raw, userId, connectionId);
-    if (!validated.ok) return { status: validated.status, watermark };
-
-    // The watermark is the monotonic high-water mark of everything ever
-    // committed. A record older than it means storage was rolled back
-    // underneath us (restored backup, stale replica, partial wipe).
-    if (validated.record.revision < watermark) {
-      return { status: 'ROLLBACK_DETECTED', watermark };
-    }
-    return { status: 'VALID', record: validated.record, watermark };
-  } finally {
-    db.close();
-  }
+/** True for an unsealed E2EE-2D record that predates the envelope format. */
+function isLegacyShaped(value: unknown): value is LegacyRecord {
+  if (!value || typeof value !== 'object') return false;
+  const r = value as Partial<LegacyRecord>;
+  return (
+    typeof r.revision === 'number' &&
+    r.state instanceof Uint8Array &&
+    typeof r.userId === 'string' &&
+    typeof r.connectionId === 'string' &&
+    !isEnvelopeShaped(value)
+  );
 }
 
 /**
- * Compare-and-swap commit of a new ratchet state.
+ * Convert a legacy record into an authenticated one.
  *
- * Succeeds only when the stored revision equals `expectedRevision`; the new
- * record is then written at `expectedRevision + 1`. The state bytes, the new
- * revision and the watermark are written in a SINGLE IndexedDB transaction, so
- * a crash can never leave a state paired with the wrong revision.
+ * Lazy, on first read, because sealing needs Web Crypto and an IndexedDB
+ * `versionchange` transaction cannot await it. Migration is a pure re-wrap:
+ * the state bytes and the revision are preserved exactly, and the record lands
+ * at epoch 0.
  *
- * Rejects (throws `CryptoError`) when:
- *   * a different writer already advanced the revision → `REVISION_CONFLICT`
- *   * the resulting revision would not exceed the watermark → `ROLLBACK_DETECTED`
- *   * the stored record is corrupt or owned by another user
- *
- * @returns the newly committed revision.
+ * This does NOT retroactively make the old record trustworthy — a legacy
+ * record could already have been tampered with before the upgrade, and nothing
+ * can detect that after the fact. It only ensures that from this point on the
+ * binding exists. That limitation is documented in the hardening doc.
  */
-export async function commitRatchetState(
+async function migrateLegacyRecord(
+  key: CryptoKey,
+  legacy: LegacyRecord,
   userId: string,
   connectionId: string,
-  expectedRevision: number,
-  state: Uint8Array,
-): Promise<number> {
-  requireIds(userId, connectionId);
-  if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
-    throw new CryptoError('CORRUPT_STATE', 'expectedRevision must be a non-negative integer.');
+): Promise<{ ok: true; record: RatchetStateRecord } | { ok: false; status: RatchetStateStatus }> {
+  if (legacy.userId !== userId || legacy.connectionId !== connectionId) {
+    return { ok: false, status: 'USER_MISMATCH' };
   }
-  if (!isUint8Array(state)) {
-    throw new CryptoError('CORRUPT_STATE', 'Ratchet state must be a Uint8Array.');
+  let revision: bigint;
+  try {
+    revision = revisionFromNumber(legacy.revision);
+  } catch {
+    // Includes the 1e308 wedge case: a legacy revision outside the safe
+    // integer range is corruption, not a number to be carried forward.
+    return { ok: false, status: 'CORRUPTED' };
   }
+
+  const envelope = await seal(
+    key,
+    userId,
+    connectionId,
+    INITIAL_EPOCH,
+    revision,
+    legacy.state,
+    typeof legacy.committedAt === 'number' ? legacy.committedAt : Date.now(),
+  );
 
   const db = await openDatabase();
   try {
-    // Single readwrite transaction: read-check-write is atomic with respect to
-    // other transactions on this store, which is what makes the CAS sound.
     const transaction = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite', {
       durability: 'strict',
     });
@@ -228,58 +275,308 @@ export async function commitRatchetState(
     const recordKey = ratchetKeyFor(userId, connectionId);
     const wmKey = watermarkKeyFor(userId, connectionId);
 
-    const existing = await promisify(store.get(recordKey) as IDBRequest<unknown>);
-    const wmRaw = await promisify(store.get(wmKey) as IDBRequest<unknown>);
-    const watermark = typeof wmRaw === 'number' && Number.isInteger(wmRaw) && wmRaw >= 0 ? wmRaw : 0;
+    // Both reads are issued before either is awaited, so the transaction never
+    // goes idle between them and cannot auto-commit underneath us.
+    const currentReq = store.get(recordKey) as IDBRequest<unknown>;
+    const wmReq = store.get(wmKey) as IDBRequest<unknown>;
+    const [current, wmRaw] = await Promise.all([
+      promisifyRequest<unknown>(currentReq),
+      promisifyRequest<unknown>(wmReq),
+    ]);
 
-    let currentRevision = INITIAL_REVISION;
-    if (existing !== undefined) {
-      const validated = validateRecord(existing, userId, connectionId);
-      if (!validated.ok) {
-        transaction.abort();
-        throw new CryptoError(
-          validated.status === 'USER_MISMATCH' ? 'USER_MISMATCH' : 'CORRUPT_STATE',
-          validated.status === 'USER_MISMATCH'
-            ? 'Stored ratchet state belongs to a different user or connection.'
-            : 'Stored ratchet state is corrupt; refusing to commit over it.',
-        );
-      }
-      currentRevision = validated.record.revision;
+    // Re-check: another tab may have migrated this record already.
+    if (!isLegacyShaped(current)) {
+      transaction.abort();
+      return { ok: false, status: 'CORRUPTED' }; // caller re-loads and re-evaluates
     }
 
-    if (currentRevision !== expectedRevision) {
-      transaction.abort();
+    const wm = readWatermark(wmRaw);
+    const wmValue = wm.kind === 'OK' ? wm.value : { epoch: INITIAL_EPOCH, revision };
+    const nextWm: RatchetWatermark = {
+      epoch: INITIAL_EPOCH,
+      revision: wmValue.revision > revision ? wmValue.revision : revision,
+    };
+
+    store.put(envelope, recordKey);
+    store.put(writeWatermark(nextWm), wmKey);
+    await txComplete(transaction);
+  } finally {
+    db.close();
+  }
+
+  return {
+    ok: true,
+    record: {
+      userId,
+      connectionId,
+      epoch: INITIAL_EPOCH,
+      revision,
+      state: new Uint8Array(legacy.state),
+      committedAt: envelope.committedAt,
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Load                                                                */
+/* ------------------------------------------------------------------ */
+
+function toRecord(u: UnsealedState): RatchetStateRecord {
+  return {
+    userId: u.userId,
+    connectionId: u.connectionId,
+    epoch: u.epoch,
+    revision: u.revision,
+    state: u.state,
+    committedAt: u.committedAt,
+  };
+}
+
+/**
+ * Load and authenticate the current ratchet state.
+ *
+ * Never throws on a bad record: the failure mode is returned as a status so
+ * callers must decide explicitly. This function will NOT fall back to an older
+ * snapshot and will NOT create anything. `MISSING` and every failure status
+ * are deliberately distinct — only an explicit establishment path may create a
+ * session, never a load and never a send.
+ */
+export async function loadRatchetState(
+  userId: string,
+  connectionId: string,
+): Promise<RatchetStateLoad> {
+  requireIds(userId, connectionId);
+
+  let raw: unknown;
+  let wmRaw: unknown;
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction(CRYPTO_STORE_RATCHET, 'readonly');
+    const store = transaction.objectStore(CRYPTO_STORE_RATCHET);
+    const rawReq = store.get(ratchetKeyFor(userId, connectionId)) as IDBRequest<unknown>;
+    const wmReq = store.get(watermarkKeyFor(userId, connectionId)) as IDBRequest<unknown>;
+    [raw, wmRaw] = await Promise.all([
+      promisifyRequest<unknown>(rawReq),
+      promisifyRequest<unknown>(wmReq),
+    ]);
+    await txComplete(transaction);
+  } finally {
+    db.close();
+  }
+
+  const wm = readWatermark(wmRaw);
+
+  // A garbled watermark is not "no watermark". Treating it as zero is exactly
+  // how an attacker would switch rollback detection off (audit finding C-3).
+  if (wm.kind === 'MALFORMED') return { status: 'WEDGED', watermark: ZERO_WATERMARK };
+
+  const watermark = wm.kind === 'OK' ? wm.value : ZERO_WATERMARK;
+
+  if (raw === undefined || raw === null) {
+    // Record gone but the watermark says something was committed: the record
+    // was deleted or lost. That is a rollback, never a fresh session.
+    if (wm.kind === 'OK' && (watermark.epoch > 0n || watermark.revision > 0n)) {
+      return { status: 'ROLLBACK_DETECTED', watermark };
+    }
+    return { status: 'MISSING', watermark };
+  }
+
+  // Record present but the watermark is absent. Both are written in one
+  // transaction, so honest operation cannot produce this. Fail closed.
+  if (wm.kind === 'ABSENT') return { status: 'WEDGED', watermark: ZERO_WATERMARK };
+
+  let key: CryptoKey | null;
+  try {
+    key = await loadSealingKey(userId);
+  } catch {
+    return { status: 'CORRUPTED', watermark };
+  }
+  if (!key) {
+    // Sealed data exists but the key that authenticates it is gone. The state
+    // is unreadable; it must not be replaced by a fresh session silently.
+    return { status: isLegacyShaped(raw) ? 'MISSING' : 'KEY_MISSING', watermark };
+  }
+
+  if (isLegacyShaped(raw)) {
+    const migrated = await migrateLegacyRecord(key, raw, userId, connectionId);
+    if (!migrated.ok) return { status: migrated.status, watermark };
+    if (migrated.record.revision < watermark.revision) {
+      return { status: 'ROLLBACK_DETECTED', watermark };
+    }
+    return { status: 'VALID', record: migrated.record, watermark };
+  }
+
+  const result = await unseal(key, raw, userId, connectionId);
+  if (!result.ok) return { status: result.reason, watermark };
+
+  const record = toRecord(result.value);
+
+  // Authenticated, but is it CURRENT? The tag proves the header was not edited
+  // after sealing; it says nothing about whether a newer state existed.
+  if (record.epoch < watermark.epoch) return { status: 'EPOCH_STALE', watermark };
+  if (compareVersion(record, watermark) < 0) return { status: 'ROLLBACK_DETECTED', watermark };
+
+  // At the ceiling the session can no longer advance. Refuse before a caller
+  // derives a key it will not be able to commit.
+  if (record.revision >= MAX_REVISION) return { status: 'WEDGED', watermark };
+
+  return { status: 'VALID', record, watermark };
+}
+
+/* ------------------------------------------------------------------ */
+/* Commit (compare-and-swap)                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Compare-and-swap commit of an advanced ratchet state.
+ *
+ * Succeeds only when the stored (epoch, revision) equals the expected pair;
+ * the new envelope is then written at `revision + 1` in the same epoch. The
+ * envelope and the watermark are written in a SINGLE IndexedDB transaction, so
+ * a crash can never leave a state paired with the wrong revision.
+ *
+ * The state is sealed BEFORE the transaction opens. Web Crypto is async, and
+ * awaiting it inside a transaction would let the transaction auto-commit while
+ * the await is pending. Sealing first also means the transaction window stays
+ * as short as possible.
+ *
+ * Throws `CryptoError` when:
+ *   * another writer already advanced the state → `REVISION_CONFLICT`
+ *   * the result would not exceed the watermark → `ROLLBACK_DETECTED`
+ *   * the stored record is corrupt, foreign, or unauthenticated
+ *   * the revision would leave the uint64 domain → `REVISION_OVERFLOW`
+ *
+ * @returns the newly committed revision.
+ */
+export async function commitRatchetState(
+  userId: string,
+  connectionId: string,
+  expected: { epoch: bigint; revision: bigint },
+  state: Uint8Array,
+): Promise<bigint> {
+  requireIds(userId, connectionId);
+  if (!isValidRevision(expected?.revision) || !isValidRevision(expected?.epoch)) {
+    throw new CryptoError('CORRUPT_STATE', 'expected epoch/revision must be uint64 bigints.');
+  }
+  if (!(state instanceof Uint8Array)) {
+    throw new CryptoError('CORRUPT_STATE', 'Ratchet state must be a Uint8Array.');
+  }
+
+  // Throws REVISION_OVERFLOW at the ceiling rather than wrapping to zero.
+  const nextRevision = incrementRevision(expected.revision);
+
+  const key = await loadSealingKey(userId);
+  if (!key) {
+    throw new CryptoError('KEY_MISSING', 'No sealing key; refusing to commit ratchet state.');
+  }
+
+  // --- Phase 1: everything asynchronous, OUTSIDE any transaction. ----------
+  //
+  // Web Crypto and IndexedDB transactions do not mix. An IndexedDB transaction
+  // stays alive only while requests are pending or while control is still in
+  // the microtask queue; awaiting `crypto.subtle.decrypt` yields to the event
+  // loop, the transaction auto-commits, and the subsequent `put` throws
+  // TransactionInactiveError. Sealing and verifying therefore happen here, and
+  // the transaction below performs only synchronous checks.
+  const preRead = await readRecordAndWatermark(userId, connectionId);
+  if (preRead.watermark.kind === 'MALFORMED') {
+    throw new CryptoError('WEDGED', 'Watermark is malformed; refusing to commit.');
+  }
+  const watermark = preRead.watermark.kind === 'OK' ? preRead.watermark.value : ZERO_WATERMARK;
+  const existing = preRead.record;
+
+  let current: { epoch: bigint; revision: bigint };
+  if (existing === undefined || existing === null) {
+    if (preRead.watermark.kind === 'OK' && (watermark.epoch > 0n || watermark.revision > 0n)) {
+      throw new CryptoError('ROLLBACK_DETECTED', 'Ratchet record vanished beneath a live watermark.');
+    }
+    current = { epoch: INITIAL_EPOCH, revision: INITIAL_REVISION };
+  } else if (isLegacyShaped(existing)) {
+    throw new CryptoError(
+      'CORRUPT_STATE',
+      'Unmigrated legacy ratchet record; load it once before committing.',
+    );
+  } else {
+    // The stored envelope must AUTHENTICATE before it may define "current".
+    // Reading the cleartext header of an unverified record and trusting its
+    // revision is precisely the C-2 hole.
+    const verified = await unseal(key, existing, userId, connectionId);
+    if (!verified.ok) {
       throw new CryptoError(
-        'REVISION_CONFLICT',
-        `Ratchet revision conflict (stored=${currentRevision}, expected=${expectedRevision}).`,
+        verified.reason === 'USER_MISMATCH'
+          ? 'USER_MISMATCH'
+          : verified.reason === 'UNSEAL_FAILED'
+            ? 'UNSEAL_FAILED'
+            : 'CORRUPT_STATE',
+        'Stored ratchet state failed authentication; refusing to commit over it.',
       );
     }
+    current = { epoch: verified.value.epoch, revision: verified.value.revision };
+  }
 
-    const nextRevision = expectedRevision + 1;
+  if (current.epoch !== expected.epoch || current.revision !== expected.revision) {
+    throw new CryptoError('REVISION_CONFLICT', 'Ratchet state was advanced concurrently.');
+  }
 
-    // Defence in depth: even a caller that somehow presents a matching but
-    // stale revision cannot land at or below the high-water mark.
-    if (nextRevision <= watermark) {
+  // Defence in depth: even a caller presenting a matching but stale pair
+  // cannot land at or below the high-water mark.
+  if (compareVersion({ epoch: expected.epoch, revision: nextRevision }, watermark) <= 0) {
+    throw new CryptoError(
+      'ROLLBACK_DETECTED',
+      'Refusing to commit at or below the recorded high-water mark.',
+    );
+  }
+
+  const envelope = await seal(key, userId, connectionId, expected.epoch, nextRevision, state);
+
+  // --- Phase 2: the atomic compare-and-swap. -------------------------------
+  //
+  // Everything above was advisory: it ran outside the transaction, so another
+  // writer may have committed in the meantime. The transaction therefore
+  // re-checks — synchronously — that storage still holds EXACTLY the bytes
+  // that were authenticated in phase 1. Byte identity is the right comparison
+  // here: it needs no key, cannot itself be spoofed by a re-labelled header,
+  // and any change at all (including a same-revision overwrite) fails it.
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite', {
+      durability: 'strict',
+    });
+    const store = transaction.objectStore(CRYPTO_STORE_RATCHET);
+    const recordKey = ratchetKeyFor(userId, connectionId);
+    const wmKey = watermarkKeyFor(userId, connectionId);
+
+    const nowRecordReq = store.get(recordKey) as IDBRequest<unknown>;
+    const nowWmReq = store.get(wmKey) as IDBRequest<unknown>;
+    const [nowRecord, nowWmRaw] = await Promise.all([
+      promisifyRequest<unknown>(nowRecordReq),
+      promisifyRequest<unknown>(nowWmReq),
+    ]);
+    const nowWm = readWatermark(nowWmRaw);
+
+    if (!sameEnvelopeBytes(nowRecord, existing)) {
+      transaction.abort();
+      throw new CryptoError('REVISION_CONFLICT', 'Ratchet state was advanced concurrently.');
+    }
+    if (nowWm.kind === 'MALFORMED') {
+      transaction.abort();
+      throw new CryptoError('WEDGED', 'Watermark is malformed; refusing to commit.');
+    }
+    const nowWatermark = nowWm.kind === 'OK' ? nowWm.value : ZERO_WATERMARK;
+    if (nowWatermark.epoch !== watermark.epoch || nowWatermark.revision !== watermark.revision) {
+      transaction.abort();
+      throw new CryptoError('REVISION_CONFLICT', 'Watermark advanced concurrently.');
+    }
+    if (compareVersion({ epoch: expected.epoch, revision: nextRevision }, nowWatermark) <= 0) {
       transaction.abort();
       throw new CryptoError(
         'ROLLBACK_DETECTED',
-        `Refusing to commit revision ${nextRevision} at or below watermark ${watermark}.`,
+        'Refusing to commit at or below the recorded high-water mark.',
       );
     }
 
-    const record: PersistedRatchetState = {
-      version: CRYPTO_STATE_VERSION,
-      userId,
-      connectionId,
-      revision: nextRevision,
-      // Copy so a later mutation of the caller's buffer cannot alter the
-      // record that structured-clone will serialize.
-      state: new Uint8Array(state),
-      committedAt: Date.now(),
-    };
-
-    store.put(record, recordKey);
-    store.put(nextRevision, wmKey);
+    store.put(envelope, recordKey);
+    store.put(writeWatermark({ epoch: expected.epoch, revision: nextRevision }), wmKey);
     await txComplete(transaction);
     return nextRevision;
   } finally {
@@ -287,28 +584,123 @@ export async function commitRatchetState(
   }
 }
 
-/**
- * Explicitly attempt to restore a previously exported snapshot.
- *
- * This exists so that backup/restore has one auditable entry point rather than
- * ad-hoc writes. Restoring a snapshot that is not strictly newer than
- * everything ever committed is rejected — there is intentionally no "force"
- * flag, because a silent downgrade is precisely the failure this module exists
- * to prevent.
- */
-export async function restoreRatchetSnapshot(
+/** Read the record and its watermark in one consistent transaction. */
+async function readRecordAndWatermark(
   userId: string,
   connectionId: string,
-  snapshot: PersistedRatchetState,
-): Promise<number> {
-  requireIds(userId, connectionId);
-  const validated = validateRecord(snapshot, userId, connectionId);
-  if (!validated.ok) {
-    throw new CryptoError(
-      validated.status === 'USER_MISMATCH' ? 'USER_MISMATCH' : 'CORRUPT_STATE',
-      'Snapshot is not a valid ratchet state record for this user/connection.',
-    );
+): Promise<{ record: unknown; watermark: WatermarkRead }> {
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction(CRYPTO_STORE_RATCHET, 'readonly');
+    const store = transaction.objectStore(CRYPTO_STORE_RATCHET);
+    const recordReq = store.get(ratchetKeyFor(userId, connectionId)) as IDBRequest<unknown>;
+    const wmReq = store.get(watermarkKeyFor(userId, connectionId)) as IDBRequest<unknown>;
+    const [record, wmRaw] = await Promise.all([
+      promisifyRequest<unknown>(recordReq),
+      promisifyRequest<unknown>(wmReq),
+    ]);
+    await txComplete(transaction);
+    return { record, watermark: readWatermark(wmRaw) };
+  } finally {
+    db.close();
   }
+}
+
+function bytesEqual(a: unknown, b: unknown): boolean {
+  if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/**
+ * Byte-identity of two stored records, used as the compare-and-swap witness.
+ *
+ * Both `undefined` (no record) counts as equal, which is the "first commit"
+ * case. Anything else requires every authenticated field plus the ciphertext
+ * and IV to match exactly.
+ */
+function sameEnvelopeBytes(a: unknown, b: unknown): boolean {
+  const aEmpty = a === undefined || a === null;
+  const bEmpty = b === undefined || b === null;
+  if (aEmpty || bEmpty) return aEmpty && bEmpty;
+  if (!isEnvelopeShaped(a) || !isEnvelopeShaped(b)) return false;
+  return (
+    a.version === b.version &&
+    a.userId === b.userId &&
+    a.connectionId === b.connectionId &&
+    bytesEqual(a.epoch, b.epoch) &&
+    bytesEqual(a.revision, b.revision) &&
+    bytesEqual(a.iv, b.iv) &&
+    bytesEqual(a.sealed, b.sealed)
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Establishment                                                       */
+/* ------------------------------------------------------------------ */
+
+export interface AdoptOptions {
+  /**
+   * The epoch the caller observed. Required when a session already exists:
+   * adopting over a live session is a compare-and-swap, not a force.
+   */
+  replacesEpoch?: bigint;
+}
+
+/**
+ * Install the initial state of a NEWLY ESTABLISHED session.
+ *
+ * This replaces `restoreRatchetSnapshot()`, which was removed in E2EE-2D.2.
+ * It is deliberately NOT a restore primitive, and the difference is not
+ * cosmetic:
+ *
+ *   * the revision is not a parameter — a new session always starts at 1,
+ *   * the epoch is not a parameter either — it is derived as
+ *     `watermark.epoch + 1`, so adoption is strictly forward-only,
+ *   * there is no force flag; adopting over an existing session requires
+ *     naming that session's current epoch,
+ *   * the caller supplies engine output from an actual handshake, not a blob
+ *     recovered from storage.
+ *
+ * Because the epoch advances, an adopted session is ordered ABOVE everything
+ * previously committed even though its revision restarts at 1. That is why
+ * freshness is compared as the pair (epoch, revision) and not on revision
+ * alone.
+ *
+ * What this does NOT provide: proof that the handshake itself was fresh. A
+ * local caller can still establish a session from stale handshake material.
+ * Detecting that needs the external epoch anchor (C-1).
+ */
+export async function adoptSessionFromEstablishment(
+  userId: string,
+  connectionId: string,
+  initialState: Uint8Array,
+  options: AdoptOptions = {},
+): Promise<{ epoch: bigint; revision: bigint }> {
+  requireIds(userId, connectionId);
+  if (!(initialState instanceof Uint8Array) || initialState.length === 0) {
+    throw new CryptoError('CORRUPT_STATE', 'Initial session state must be non-empty bytes.');
+  }
+  if (options.replacesEpoch !== undefined && !isValidRevision(options.replacesEpoch)) {
+    throw new CryptoError('CORRUPT_STATE', 'replacesEpoch must be a uint64 bigint.');
+  }
+
+  const key = await ensureSealingKey(userId);
+
+  // Determine the target epoch from the current watermark, then seal, then
+  // re-verify inside the write transaction. Sealing cannot happen inside the
+  // transaction (async Web Crypto), so the transaction re-checks that nothing
+  // moved in between and aborts if it did.
+  const pre = await readWatermarkOnce(userId, connectionId);
+  if (pre.kind === 'MALFORMED') {
+    throw new CryptoError('WEDGED', 'Watermark is malformed; refusing to establish.');
+  }
+  const preWm = pre.kind === 'OK' ? pre.value : ZERO_WATERMARK;
+  const targetEpoch = incrementRevision(preWm.epoch);
+  const targetRevision = 1n;
+
+  const envelope = await seal(key, userId, connectionId, targetEpoch, targetRevision, initialState);
 
   const db = await openDatabase();
   try {
@@ -316,25 +708,72 @@ export async function restoreRatchetSnapshot(
       durability: 'strict',
     });
     const store = transaction.objectStore(CRYPTO_STORE_RATCHET);
+    const recordKey = ratchetKeyFor(userId, connectionId);
     const wmKey = watermarkKeyFor(userId, connectionId);
-    const wmRaw = await promisify(store.get(wmKey) as IDBRequest<unknown>);
-    const watermark = typeof wmRaw === 'number' && Number.isInteger(wmRaw) && wmRaw >= 0 ? wmRaw : 0;
 
-    if (validated.record.revision <= watermark) {
+    // Issue both reads before awaiting either — see the note in
+    // `commitRatchetState`: an await that yields to the event loop lets the
+    // transaction auto-commit.
+    const existingReq = store.get(recordKey) as IDBRequest<unknown>;
+    const wmReq = store.get(wmKey) as IDBRequest<unknown>;
+    const [existing, wmRaw] = await Promise.all([
+      promisifyRequest<unknown>(existingReq),
+      promisifyRequest<unknown>(wmReq),
+    ]);
+    const wm = readWatermark(wmRaw);
+    if (wm.kind === 'MALFORMED') {
       transaction.abort();
-      throw new CryptoError(
-        'ROLLBACK_DETECTED',
-        `Snapshot revision ${validated.record.revision} is not newer than watermark ${watermark}.`,
-      );
+      throw new CryptoError('WEDGED', 'Watermark is malformed; refusing to establish.');
+    }
+    const watermark = wm.kind === 'OK' ? wm.value : ZERO_WATERMARK;
+
+    if (watermark.epoch !== preWm.epoch || watermark.revision !== preWm.revision) {
+      transaction.abort();
+      throw new CryptoError('REVISION_CONFLICT', 'State changed while establishing the session.');
     }
 
-    store.put(
-      { ...validated.record, state: new Uint8Array(validated.record.state) },
-      ratchetKeyFor(userId, connectionId),
-    );
-    store.put(validated.record.revision, wmKey);
+    if (existing !== undefined && existing !== null) {
+      if (options.replacesEpoch === undefined) {
+        transaction.abort();
+        throw new CryptoError(
+          'REVISION_CONFLICT',
+          'A session already exists; establishment must name the epoch it replaces.',
+        );
+      }
+      if (options.replacesEpoch !== watermark.epoch) {
+        transaction.abort();
+        throw new CryptoError('REVISION_CONFLICT', 'replacesEpoch does not match the current epoch.');
+      }
+    }
+
+    if (targetEpoch <= watermark.epoch) {
+      transaction.abort();
+      throw new CryptoError('ROLLBACK_DETECTED', 'Establishment must advance the epoch.');
+    }
+
+    store.put(envelope, recordKey);
+    store.put(writeWatermark({ epoch: targetEpoch, revision: targetRevision }), wmKey);
     await txComplete(transaction);
-    return validated.record.revision;
+  } finally {
+    db.close();
+  }
+
+  return { epoch: targetEpoch, revision: targetRevision };
+}
+
+/* ------------------------------------------------------------------ */
+/* Diagnostics + deletion                                              */
+/* ------------------------------------------------------------------ */
+
+async function readWatermarkOnce(userId: string, connectionId: string): Promise<WatermarkRead> {
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction(CRYPTO_STORE_RATCHET, 'readonly');
+    const raw = await promisifyRequest<unknown>(
+      transaction.objectStore(CRYPTO_STORE_RATCHET).get(watermarkKeyFor(userId, connectionId)) as IDBRequest<unknown>,
+    );
+    await txComplete(transaction);
+    return readWatermark(raw);
   } finally {
     db.close();
   }
@@ -342,33 +781,28 @@ export async function restoreRatchetSnapshot(
 
 /**
  * Read the monotonic high-water mark for diagnostics.
- * Returns 0 when nothing was ever committed.
+ * Returns {0, 0} when nothing was ever committed. Throws `WEDGED` when the
+ * stored watermark is malformed — a caller must not read that as "zero".
  */
 export async function getRatchetWatermark(
   userId: string,
   connectionId: string,
-): Promise<number> {
+): Promise<RatchetWatermark> {
   requireIds(userId, connectionId);
-  const db = await openDatabase();
-  try {
-    const transaction = db.transaction(CRYPTO_STORE_RATCHET, 'readonly');
-    const raw = await promisify(
-      transaction.objectStore(CRYPTO_STORE_RATCHET).get(watermarkKeyFor(userId, connectionId)) as IDBRequest<unknown>,
-    );
-    await txComplete(transaction);
-    return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 ? raw : 0;
-  } finally {
-    db.close();
+  const wm = await readWatermarkOnce(userId, connectionId);
+  if (wm.kind === 'MALFORMED') {
+    throw new CryptoError('WEDGED', 'Stored watermark is malformed.');
   }
+  return wm.kind === 'OK' ? wm.value : ZERO_WATERMARK;
 }
 
 /**
  * Delete all ratchet state for a user (account deletion).
  *
- * The watermark is deleted together with the records. That is correct for
- * account deletion — the identity itself is going away — but it does mean a
- * deleted-then-recreated account starts from a clean slate. See the
- * limitations section of the hardening doc.
+ * The watermark goes with the records. That is correct for account deletion —
+ * the identity itself is going away — but it does mean a deleted-then-recreated
+ * account starts from a clean slate. See the limitations section of the
+ * hardening doc. The sealing key is removed by `deleteUserCryptoState`.
  */
 export async function deleteUserRatchetState(userId: string): Promise<void> {
   if (!userId) return;
@@ -399,3 +833,6 @@ export async function deleteUserRatchetState(userId: string): Promise<void> {
     db.close();
   }
 }
+
+export type { SealedEnvelope };
+export { decodeRevision, encodeRevision };
