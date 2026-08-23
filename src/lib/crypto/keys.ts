@@ -33,7 +33,7 @@ import {
   bytesToBase64,
   toBufferSource,
 } from './serialization.ts';
-import { getState, putState, deleteState } from './storage.ts';
+import { getState, putState, deleteState, registerCacheResetter } from './storage.ts';
 import {
   CRYPTO_STATE_VERSION,
   RECORD_X25519_IDENTITY,
@@ -223,6 +223,13 @@ export async function deleteX25519Identity(userId: string): Promise<void> {
 export function _resetX25519CacheForTests(): void {
   x25519Cache.clear();
 }
+
+// See identity.ts: deletion of persisted state must also evict the live
+// CryptoKey objects held here, or `loadIdentityKeyPair()` keeps returning the
+// deleted account's keypair from memory.
+registerCacheResetter((userId) => {
+  x25519Cache.delete(userId);
+});
 
 function validateX25519Record(rec: PersistedX25519Identity, expectedUserId: string): void {
   if (
