@@ -49,6 +49,10 @@ function defaultMessage(code: CryptoErrorCode): string {
       return 'A cryptographic operation failed.';
     case 'DESERIALIZATION_ERROR':
       return 'Crypto data could not be deserialized.';
+    case 'REVISION_CONFLICT':
+      return 'Crypto state was modified concurrently.';
+    case 'ROLLBACK_DETECTED':
+      return 'An outdated crypto state was rejected.';
     default:
       return 'Crypto error.';
   }

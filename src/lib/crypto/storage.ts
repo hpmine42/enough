@@ -20,6 +20,7 @@ import {
   CRYPTO_DB_NAME,
   CRYPTO_DB_VERSION,
   CRYPTO_STORE_PREKEYS,
+  CRYPTO_STORE_RATCHET,
   CRYPTO_STORE_STATE,
   RECORD_IDENTITY,
   RECORD_SIGNED_PREKEY,
@@ -33,6 +34,7 @@ import {
 export {
   CRYPTO_STORE_STATE,
   CRYPTO_STORE_PREKEYS,
+  CRYPTO_STORE_RATCHET,
   stateKeyFor,
   prekeyCompositeKey,
   prekeyPrefix,
@@ -86,6 +88,11 @@ export function openDatabase(): Promise<DbHandle> {
         // keyPath because the "primary key" is a composite and we want to
         // be able to prefix-scan by userId for bulk deletion.
         db.createObjectStore(CRYPTO_STORE_PREKEYS);
+      }
+      // E2EE-2D (DB version 2). Additive: created if absent, so upgrading
+      // from version 1 preserves existing identities and prekeys.
+      if (!db.objectStoreNames.contains(CRYPTO_STORE_RATCHET)) {
+        db.createObjectStore(CRYPTO_STORE_RATCHET);
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -262,7 +269,7 @@ export async function deleteUserCryptoState(userId: string): Promise<void> {
   try {
     const transaction = tx(
       db,
-      [CRYPTO_STORE_STATE, CRYPTO_STORE_PREKEYS],
+      [CRYPTO_STORE_STATE, CRYPTO_STORE_PREKEYS, CRYPTO_STORE_RATCHET],
       'readwrite',
     );
     const stateStore = transaction.objectStore(CRYPTO_STORE_STATE);
@@ -274,6 +281,29 @@ export async function deleteUserCryptoState(userId: string): Promise<void> {
     const range = IDBKeyRange.bound(prekeyPrefix(userId), prekeyPrefix(userId) + '\uffff', false, false);
     await new Promise<void>((resolve, reject) => {
       const req = prekeyStore.openCursor(range);
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+        } else {
+          resolve();
+        }
+      };
+      req.onerror = () => reject(new CryptoError('STORAGE_ERROR', undefined, req.error));
+    });
+    // E2EE-2D: ratchet state and its watermarks must go too. Leaving them
+    // behind would let a recreated account inherit a stale session state.
+    // Both live under the `${userId}:` prefix, so one cursor covers them.
+    const ratchetStore = transaction.objectStore(CRYPTO_STORE_RATCHET);
+    const ratchetRange = IDBKeyRange.bound(
+      prekeyPrefix(userId),
+      prekeyPrefix(userId) + '\uffff',
+      false,
+      false,
+    );
+    await new Promise<void>((resolve, reject) => {
+      const req = ratchetStore.openCursor(ratchetRange);
       req.onsuccess = () => {
         const cursor = req.result;
         if (cursor) {

@@ -9,11 +9,22 @@ export const CRYPTO_STATE_VERSION = 1;
 
 /** IndexedDB database name. */
 export const CRYPTO_DB_NAME = 'enough-crypto';
-export const CRYPTO_DB_VERSION = 1;
+/**
+ * Bumped to 2 in E2EE-2D to add the `ratchet` object store. The upgrade is
+ * purely additive: existing `state` and `prekeys` stores are untouched, so
+ * identities and prekeys created under version 1 survive the upgrade.
+ */
+export const CRYPTO_DB_VERSION = 2;
 
 /** IndexedDB object-store names. */
 export const CRYPTO_STORE_STATE = 'state';      // keyed by `${userId}:${recordKey}`
 export const CRYPTO_STORE_PREKEYS = 'prekeys';  // keyed by composite: `${userId}:${keyId}`
+/**
+ * Ratchet session state + monotonic revision watermarks (E2EE-2D).
+ * Keyed by `${userId}:${connectionId}` for records and
+ * `${userId}:${connectionId}:__watermark` for the high-water mark.
+ */
+export const CRYPTO_STORE_RATCHET = 'ratchet';
 
 /**
  * Record keys for per-user singleton state. At rest these are stored under
@@ -45,6 +56,33 @@ export function prekeyPrefix(userId: string): string {
 /** Composite key used for one-time prekey records (per-user unique). */
 export function prekeyCompositeKey(userId: string, keyId: number): string {
   return `${userId}:${keyId}`;
+}
+
+/**
+ * Composite key for a per-connection ratchet state record.
+ *
+ * Binding BOTH userId and connectionId into the key is a security requirement,
+ * not a convenience: two accounts sharing one browser profile must never share
+ * a ratchet state, and two connections of the same account must never share
+ * one either (a 1:1 messenger has one session per peer).
+ */
+export function ratchetKeyFor(userId: string, connectionId: string): string {
+  return `${userId}:${connectionId}`;
+}
+
+/**
+ * Key holding the monotonic high-water mark for a (user, connection).
+ *
+ * The suffix contains characters that cannot appear in a UUID, so it can never
+ * collide with a real `${userId}:${connectionId}` record key.
+ */
+export function watermarkKeyFor(userId: string, connectionId: string): string {
+  return `${userId}:${connectionId}:__watermark`;
+}
+
+/** Prefix used to scope all ratchet entries of a user (for bulk deletion). */
+export function ratchetUserPrefix(userId: string): string {
+  return `${userId}:`;
 }
 
 /** Serialized (bytes) form of an Ed25519 public key. 32 bytes. */
@@ -116,7 +154,9 @@ export type CryptoErrorCode =
   | 'STORAGE_ERROR'        // IndexedDB failure
   | 'CRYPTO_ERROR'         // Web Crypto failure (algorithm, key ops, etc.)
   | 'DESERIALIZATION_ERROR'
-  | 'USER_MISMATCH';       // identity bound to a different user id
+  | 'USER_MISMATCH'        // identity bound to a different user id
+  | 'REVISION_CONFLICT'    // CAS failed: another writer advanced the revision
+  | 'ROLLBACK_DETECTED';   // an older ratchet state tried to replace a newer one
 
 export interface SerializedKeyPair<K extends CryptoKey = CryptoKey> {
   privateKey: K;
