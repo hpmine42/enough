@@ -4,7 +4,7 @@
 //   node --test --experimental-strip-types src/lib/crypto/__tests__/migration.test.mjs
 //
 // Covers:
-//   * lazy migration of E2EE-2D (unsealed, Number-revision) records,
+//   * the sealed-envelope baseline on a freshly created schema,
 //   * account deletion clearing persistent state AND in-memory caches,
 //   * the `onversionchange` upgrade blocker.
 
@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { loadRatchetState, commitRatchetState, adoptSessionFromEstablishment } from '../ratchet-state.ts';
-import { ensureSealingKey, loadSealingKey, isEnvelopeShaped } from '../sealed-state.ts';
+import { ensureSealingKey, loadSealingKey } from '../sealed-state.ts';
 import {
   CRYPTO_STORE_RATCHET,
   _resetSchemaObsoleteForTests,
@@ -23,7 +23,7 @@ import {
   onSchemaObsolete,
   openDatabase,
 } from '../storage.ts';
-import { CRYPTO_DB_NAME, CRYPTO_DB_VERSION, ratchetKeyFor, watermarkKeyFor } from '../types.ts';
+import { CRYPTO_DB_NAME, CRYPTO_DB_VERSION } from '../types.ts';
 import { hasIdentity, generateIdentity, loadIdentity } from '../identity.ts';
 import { loadIdentityKeyPair, generateIdentityKeyPair, saveIdentityKeyPair } from '../keys.ts';
 
@@ -36,127 +36,9 @@ async function reset() {
   await deleteCryptoDatabase();
 }
 
-async function rawPut(key, value) {
-  const db = await openDatabase();
-  try {
-    const t = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite');
-    t.objectStore(CRYPTO_STORE_RATCHET).put(value, key);
-    await new Promise((res, rej) => {
-      t.oncomplete = () => res();
-      t.onerror = () => rej(t.error);
-    });
-  } finally {
-    db.close();
-  }
-}
-
-async function rawGet(key) {
-  const db = await openDatabase();
-  try {
-    const t = db.transaction(CRYPTO_STORE_RATCHET, 'readonly');
-    const req = t.objectStore(CRYPTO_STORE_RATCHET).get(key);
-    return await new Promise((res, rej) => {
-      req.onsuccess = () => res(req.result);
-      req.onerror = () => rej(req.error);
-    });
-  } finally {
-    db.close();
-  }
-}
-
-/** A record in the exact E2EE-2D (v2) shape: unsealed, Number revision. */
-function legacyRecord(userId, connectionId, revision, state) {
-  return {
-    version: 1,
-    userId,
-    connectionId,
-    revision,
-    state,
-    committedAt: 1700000000000,
-  };
-}
-
 /* ------------------------------------------------------------------ */
-/* M1-M4. Lazy migration of v2 records                                 */
+/* M5-M6. Load/schema baseline                                         */
 /* ------------------------------------------------------------------ */
-
-test('M1: a healthy v2 record is migrated to a sealed envelope on first read', async () => {
-  await reset();
-  const u = freshUser();
-  await ensureSealingKey(u);
-
-  const state = new Uint8Array([1, 2, 3, 4, 5]);
-  await rawPut(ratchetKeyFor(u, CONN), legacyRecord(u, CONN, 4, state));
-  await rawPut(watermarkKeyFor(u, CONN), 4);
-
-  const loaded = await loadRatchetState(u, CONN);
-  assert.equal(loaded.status, 'VALID');
-  assert.equal(loaded.record.revision, 4n, 'the revision must be preserved exactly');
-  assert.equal(loaded.record.epoch, 0n, 'migrated records land at epoch 0');
-  assert.deepEqual(loaded.record.state, state, 'the state bytes must be preserved exactly');
-
-  // On disk it must now be a sealed envelope, not the legacy shape.
-  const stored = await rawGet(ratchetKeyFor(u, CONN));
-  assert.equal(isEnvelopeShaped(stored), true);
-  assert.equal(stored.revision instanceof Uint8Array, true);
-
-  // And the session continues from there.
-  const next = await commitRatchetState(u, CONN, { epoch: 0n, revision: 4n }, new Uint8Array([9]));
-  assert.equal(next, 5n);
-});
-
-test('M2: migration is idempotent and stable across repeated loads', async () => {
-  await reset();
-  const u = freshUser();
-  await ensureSealingKey(u);
-  await rawPut(ratchetKeyFor(u, CONN), legacyRecord(u, CONN, 2, new Uint8Array([7, 7])));
-  await rawPut(watermarkKeyFor(u, CONN), 2);
-
-  const a = await loadRatchetState(u, CONN);
-  const b = await loadRatchetState(u, CONN);
-  const c = await loadRatchetState(u, CONN);
-  for (const l of [a, b, c]) {
-    assert.equal(l.status, 'VALID');
-    assert.equal(l.revision, undefined);
-    assert.equal(l.record.revision, 2n);
-    assert.deepEqual(l.record.state, new Uint8Array([7, 7]));
-  }
-});
-
-test('M3: a malformed v2 record is REJECTED, not migrated', async () => {
-  await reset();
-  const u = freshUser();
-  await ensureSealingKey(u);
-
-  // The H-2 payload in a legacy record: it must not be carried forward.
-  await rawPut(ratchetKeyFor(u, CONN), legacyRecord(u, CONN, 1e308, new Uint8Array([1])));
-  await rawPut(watermarkKeyFor(u, CONN), 1);
-  assert.equal((await loadRatchetState(u, CONN)).status, 'CORRUPTED');
-
-  // Foreign owner in a legacy record.
-  await rawPut(ratchetKeyFor(u, CONN), legacyRecord('someone-else', CONN, 3, new Uint8Array([1])));
-  assert.equal((await loadRatchetState(u, CONN)).status, 'USER_MISMATCH');
-
-  // Negative and fractional revisions.
-  await rawPut(ratchetKeyFor(u, CONN), legacyRecord(u, CONN, -1, new Uint8Array([1])));
-  assert.equal((await loadRatchetState(u, CONN)).status, 'CORRUPTED');
-  await rawPut(ratchetKeyFor(u, CONN), legacyRecord(u, CONN, 1.5, new Uint8Array([1])));
-  assert.equal((await loadRatchetState(u, CONN)).status, 'CORRUPTED');
-});
-
-test('M4: a legacy watermark alone is honoured for rollback detection', async () => {
-  await reset();
-  const u = freshUser();
-  await ensureSealingKey(u);
-
-  // Legacy record at 2, legacy watermark at 9 → the record is stale.
-  await rawPut(ratchetKeyFor(u, CONN), legacyRecord(u, CONN, 2, new Uint8Array([1])));
-  await rawPut(watermarkKeyFor(u, CONN), 9);
-
-  const loaded = await loadRatchetState(u, CONN);
-  assert.equal(loaded.status, 'ROLLBACK_DETECTED');
-  assert.equal(loaded.watermark.revision, 9n);
-});
 
 test('M5: missing state on an upgraded DB is MISSING, not an error', async () => {
   await reset();

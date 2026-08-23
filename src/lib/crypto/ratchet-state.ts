@@ -45,11 +45,29 @@
 // rolls the record, the watermark and the sealing key back together. The
 // result is a genuinely sealed, internally consistent older state, and this
 // module reports it as `VALID`. No purely local anchor can detect that,
-// because every local anchor is inside the thing being restored. Closing C-1
-// needs a monotonic counter outside the origin (a server-side epoch). That is
-// explicitly NOT part of E2EE-2D.2. The `epoch` field is already threaded
-// through the AAD so that anchoring it later is a value change, not a format
-// change.
+// because every local anchor is inside the thing being restored.
+//
+// This affects BOTH directions of the version pair: a revision rollback
+// within one epoch (test C8) and a rollback across an epoch boundary (test
+// C9). In the cross-epoch case the `record.epoch < watermark.epoch` check
+// below does not help, because a coordinated restore moves the watermark too.
+// The rolled-back state is also still writable, so the ratchet keeps deriving
+// keys from a chain that was already retired.
+//
+// A server-side epoch incremented at session establishment would NOT close
+// this — that approach was evaluated and rejected. Such a counter is constant
+// between two establishments, so it takes the same value before and after an
+// intra-epoch rollback and cannot separate the two states. A sender-side
+// sequence counter is also insufficient: it cannot observe a receiver-side
+// rollback, which resurrects already-consumed message keys without the sender
+// transmitting anything.
+//
+// Genuinely closing C-1 needs an external, append-only, bidirectional anchor
+// that advances per ratchet step and binds state identity (a checkpoint/hash
+// chain), plus tombstones for consumed message keys. That would make the
+// server authoritative over ratchet progress and rule out offline sending, so
+// it is deferred to a later E2EE architecture phase and is explicitly NOT part
+// of E2EE-2D.2. See docs/e2ee-crash-rollback-hardening.md §8.0/§8.1.
 
 import { CryptoError } from './errors.ts';
 import {
@@ -68,7 +86,6 @@ import {
   encodeRevision,
   incrementRevision,
   isValidRevision,
-  revisionFromNumber,
   tryDecodeRevision,
 } from './revision.ts';
 import {
@@ -163,21 +180,14 @@ type WatermarkRead =
 /**
  * Decode a watermark read from storage.
  *
- * A legacy E2EE-2D watermark was a bare `number`. It is accepted at epoch 0
- * so that an existing installation is not locked out, but only when it is a
- * non-negative safe integer — the pathological `1e308` value that motivated
- * the uint64 migration is rejected as malformed, not silently carried over.
+ * The only accepted shape is the E2EE-2D.2 `{epoch, revision}` pair of
+ * big-endian `Uint8Array(8)` values. Anything else — including a bare
+ * `number` — is MALFORMED and fails closed via `WEDGED`, because treating an
+ * unrecognised watermark as "no watermark" is exactly how rollback detection
+ * would be switched off (audit finding C-3).
  */
 function readWatermark(raw: unknown): WatermarkRead {
   if (raw === undefined || raw === null) return { kind: 'ABSENT' };
-
-  if (typeof raw === 'number') {
-    try {
-      return { kind: 'OK', value: { epoch: INITIAL_EPOCH, revision: revisionFromNumber(raw) } };
-    } catch {
-      return { kind: 'MALFORMED' };
-    }
-  }
 
   if (typeof raw === 'object') {
     const w = raw as Partial<StoredWatermark>;
@@ -197,124 +207,6 @@ function writeWatermark(value: RatchetWatermark): StoredWatermark {
 function requireIds(userId: string, connectionId: string): void {
   if (!userId) throw new CryptoError('NOT_INITIALIZED', 'userId is required.');
   if (!connectionId) throw new CryptoError('NOT_INITIALIZED', 'connectionId is required.');
-}
-
-/* ------------------------------------------------------------------ */
-/* Legacy (E2EE-2D, DB v2) record handling                             */
-/* ------------------------------------------------------------------ */
-
-interface LegacyRecord {
-  version: number;
-  userId: string;
-  connectionId: string;
-  revision: number;
-  state: Uint8Array;
-  committedAt: number;
-}
-
-/** True for an unsealed E2EE-2D record that predates the envelope format. */
-function isLegacyShaped(value: unknown): value is LegacyRecord {
-  if (!value || typeof value !== 'object') return false;
-  const r = value as Partial<LegacyRecord>;
-  return (
-    typeof r.revision === 'number' &&
-    r.state instanceof Uint8Array &&
-    typeof r.userId === 'string' &&
-    typeof r.connectionId === 'string' &&
-    !isEnvelopeShaped(value)
-  );
-}
-
-/**
- * Convert a legacy record into an authenticated one.
- *
- * Lazy, on first read, because sealing needs Web Crypto and an IndexedDB
- * `versionchange` transaction cannot await it. Migration is a pure re-wrap:
- * the state bytes and the revision are preserved exactly, and the record lands
- * at epoch 0.
- *
- * This does NOT retroactively make the old record trustworthy — a legacy
- * record could already have been tampered with before the upgrade, and nothing
- * can detect that after the fact. It only ensures that from this point on the
- * binding exists. That limitation is documented in the hardening doc.
- */
-async function migrateLegacyRecord(
-  key: CryptoKey,
-  legacy: LegacyRecord,
-  userId: string,
-  connectionId: string,
-): Promise<{ ok: true; record: RatchetStateRecord } | { ok: false; status: RatchetStateStatus }> {
-  if (legacy.userId !== userId || legacy.connectionId !== connectionId) {
-    return { ok: false, status: 'USER_MISMATCH' };
-  }
-  let revision: bigint;
-  try {
-    revision = revisionFromNumber(legacy.revision);
-  } catch {
-    // Includes the 1e308 wedge case: a legacy revision outside the safe
-    // integer range is corruption, not a number to be carried forward.
-    return { ok: false, status: 'CORRUPTED' };
-  }
-
-  const envelope = await seal(
-    key,
-    userId,
-    connectionId,
-    INITIAL_EPOCH,
-    revision,
-    legacy.state,
-    typeof legacy.committedAt === 'number' ? legacy.committedAt : Date.now(),
-  );
-
-  const db = await openDatabase();
-  try {
-    const transaction = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite', {
-      durability: 'strict',
-    });
-    const store = transaction.objectStore(CRYPTO_STORE_RATCHET);
-    const recordKey = ratchetKeyFor(userId, connectionId);
-    const wmKey = watermarkKeyFor(userId, connectionId);
-
-    // Both reads are issued before either is awaited, so the transaction never
-    // goes idle between them and cannot auto-commit underneath us.
-    const currentReq = store.get(recordKey) as IDBRequest<unknown>;
-    const wmReq = store.get(wmKey) as IDBRequest<unknown>;
-    const [current, wmRaw] = await Promise.all([
-      promisifyRequest<unknown>(currentReq),
-      promisifyRequest<unknown>(wmReq),
-    ]);
-
-    // Re-check: another tab may have migrated this record already.
-    if (!isLegacyShaped(current)) {
-      transaction.abort();
-      return { ok: false, status: 'CORRUPTED' }; // caller re-loads and re-evaluates
-    }
-
-    const wm = readWatermark(wmRaw);
-    const wmValue = wm.kind === 'OK' ? wm.value : { epoch: INITIAL_EPOCH, revision };
-    const nextWm: RatchetWatermark = {
-      epoch: INITIAL_EPOCH,
-      revision: wmValue.revision > revision ? wmValue.revision : revision,
-    };
-
-    store.put(envelope, recordKey);
-    store.put(writeWatermark(nextWm), wmKey);
-    await txComplete(transaction);
-  } finally {
-    db.close();
-  }
-
-  return {
-    ok: true,
-    record: {
-      userId,
-      connectionId,
-      epoch: INITIAL_EPOCH,
-      revision,
-      state: new Uint8Array(legacy.state),
-      committedAt: envelope.committedAt,
-    },
-  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -394,16 +286,7 @@ export async function loadRatchetState(
   if (!key) {
     // Sealed data exists but the key that authenticates it is gone. The state
     // is unreadable; it must not be replaced by a fresh session silently.
-    return { status: isLegacyShaped(raw) ? 'MISSING' : 'KEY_MISSING', watermark };
-  }
-
-  if (isLegacyShaped(raw)) {
-    const migrated = await migrateLegacyRecord(key, raw, userId, connectionId);
-    if (!migrated.ok) return { status: migrated.status, watermark };
-    if (migrated.record.revision < watermark.revision) {
-      return { status: 'ROLLBACK_DETECTED', watermark };
-    }
-    return { status: 'VALID', record: migrated.record, watermark };
+    return { status: 'KEY_MISSING', watermark };
   }
 
   const result = await unseal(key, raw, userId, connectionId);
@@ -491,11 +374,6 @@ export async function commitRatchetState(
       throw new CryptoError('ROLLBACK_DETECTED', 'Ratchet record vanished beneath a live watermark.');
     }
     current = { epoch: INITIAL_EPOCH, revision: INITIAL_REVISION };
-  } else if (isLegacyShaped(existing)) {
-    throw new CryptoError(
-      'CORRUPT_STATE',
-      'Unmigrated legacy ratchet record; load it once before committing.',
-    );
   } else {
     // The stored envelope must AUTHENTICATE before it may define "current".
     // Reading the cleartext header of an unverified record and trusting its

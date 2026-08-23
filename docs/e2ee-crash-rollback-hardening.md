@@ -25,7 +25,7 @@
 | H-1 — Engine-Divergenz nach verlorenem CAS | **geschlossen** — Ephemeral Engine, siehe §4.1 |
 | H-2 — `Number`-Revision, `1e308` wedged die Session | **geschlossen** — uint64, siehe §5.6 |
 | H-3 — `MISSING` wurde wie eine neue Session behandelt | **geschlossen** — `NEEDS_ESTABLISH`, siehe §7 |
-| C-1 — koordinierter Full-Origin-Rollback | **OFFEN** — braucht externen Anchor, siehe §8.1 |
+| C-1 — koordinierter Rollback (intra- **und** cross-epoch) | **OFFEN, bewusst** — ein Establishment-Epoch-Anker löst das nachweislich nicht; siehe §8.0/§8.1 |
 
 ---
 
@@ -142,8 +142,9 @@ Der Grund ist strukturell und nicht durch bessere lokale Krypto behebbar: Jeder
 lokale Anker liegt **innerhalb** dessen, was zurückgerollt wird. Ein weiterer
 IndexedDB-Wert würde mit zurückgerollt. Siehe §8.1.
 
-Regressionstest `C8` in `ratchet-state.test.mjs` hält diese Grenze fest und
-behauptet ausdrücklich **nicht**, dass der Fall erkannt wird.
+Die Regressionstests `C8` (intra-epoch) und `C9` (cross-epoch) in
+`ratchet-state.test.mjs` halten diese Grenze fest und behaupten ausdrücklich
+**nicht**, dass der Fall erkannt wird.
 
 **Wichtig zu T6:** Ein Angreifer, der bereits same-origin-JavaScript ausführen
 kann, ist durch diese Schicht **nicht** abwehrbar. Das ist eine dokumentierte
@@ -180,8 +181,10 @@ Frühere Fassungen behaupteten hier, **jeder** Rollback werde erkannt.
   älteres Backup.
 
 Invariante B gilt also **relativ zum lokalen Anker**, nicht absolut. Absolut
-wird sie erst mit einem externen, monoton wachsenden Epoch-Anker.
-Tests: `C1`–`C7` (Erkennung), `C8` (dokumentierte Grenze).
+würde sie erst mit einer externen, bidirektionalen, an die Zustandsidentität
+gebundenen Verankerung des Ratchet-Fortschritts (§8.1) — ein Zähler, der nur
+beim Establishment steigt, genügt dafür nachweislich nicht.
+Tests: `C1`–`C7` (Erkennung), `C8`/`C9` (dokumentierte Grenzen).
 
 ### Invariante F — Cryptographic Binding (neu in 2D.2)
 Revision, Epoch, User-Id, Connection-Id und Envelope-Version sind **AEAD
@@ -541,13 +544,34 @@ Committeten, obwohl ihre Revision wieder bei 1 beginnt. Genau deshalb wird
 Frische als Paar `(epoch, revision)` verglichen. Tests `G1`–`G5`.
 
 **Was das nicht leistet:** Es beweist nicht, dass das Handshake-Material selbst
-frisch war. Auch das braucht den externen Anker (C-1).
+frisch war. Auch das braucht eine externe Verankerung (C-1, §8.1) — und zwar
+eine, die den Ratchet-Fortschritt bindet, nicht nur das Establishment-Ereignis.
 
 ---
 
 ## 8. Remaining Limitations
 
 Ehrliche Auflistung dessen, was **nicht** gelöst ist.
+
+### 8.0 Welche Eigenschaft ist eigentlich erfüllt?
+
+„Rollback-Schutz" ist keine einzelne Eigenschaft. Die folgenden sind
+unabhängig voneinander und in E2EE-2D.2 **unterschiedlich weit** erfüllt.
+Insbesondere gilt: die lokale Monotonie-/CAS-Prüfung löst C-1 **nicht**.
+
+| Eigenschaft | Stand nach 2D.2 | Wodurch / warum nicht |
+|---|---|---|
+| **Integrität** des gespeicherten States | **erfüllt** | AES-GCM, AAD bindet `version｜userId｜connectionId｜epoch｜revision` an die State-Bytes (Invariante F) |
+| **Lokale CAS-/Monotonie-Prüfung** | **erfüllt** | Atomare CAS in einer IDB-Transaktion, Watermark, `(epoch, revision)`-Vergleich (Invarianten A, B, D) |
+| **Replay-Schutz gegen unveränderten Live-State** | **erfüllt** | Engine lehnt Wiederverwendung ab (`DuplicatedMessage`); Storage-Ebene lehnt Stale-Writes ab |
+| **Rollback-Freshness** (ist der State der *neueste*?) | **NICHT erfüllt** | Jeder lokale Anker liegt in der Rollback-Domäne und wird mitrestauriert (C-1, §8.1) |
+| **Forward Secrecy unter Rollback** | **NICHT erfüllt** | Konsumierte Message Keys werden wieder nutzbar; keine Tombstones (§8.2) |
+| **Post-Compromise Security unter Rollback** | **NICHT erfüllt** | Ein Rollback vor einen DH-Ratchet-Schritt macht die Schlüsselerneuerung rückgängig (§8.2) |
+
+Die ersten drei Zeilen sind das, was 2D.2 liefert. Sie verhindern *Fälschung*
+und *versehentliches Zurückfallen*. Sie beweisen **nicht**, dass ein
+authentischer, in sich konsistenter Zustand der aktuellste ist — genau das ist
+C-1.
 
 ### 8.1 C-1 — Koordinierter Full-Origin-Rollback (OFFEN, bewusst)
 
@@ -573,21 +597,72 @@ datenbanklokal, sodass eine zweite Datenbank die Atomarität zwischen Record und
 Anker verlöre, ohne den Restore zu verhindern — Eviction und Backup sind
 origin-weit.
 
-**Die Lösung, die NICHT Teil von E2EE-2D.2 ist:**
+**C-1 ist breiter als „Revision zurückgerollt".** Der Audit C-1.1 hat zwei
+weitere Ausprägungen reproduziert:
+
+* **Cross-Epoch-Rollback.** Auch ein Rücksprung über eine Epoch-Grenze hinweg
+  (Epoch 2 → Epoch 1) wird als `VALID` akzeptiert, wenn Record und Watermark
+  gemeinsam restauriert werden. Der `record.epoch < watermark.epoch`-Vergleich
+  greift nur, wenn die Watermark **nicht** mitrestauriert wird.
+* **Der zurückgerollte Zustand ist beschreibbar.** Auf den restaurierten Stand
+  lässt sich weiter committen (verifiziert: Revision 3 → 4). C-1 ist damit kein
+  reines Lese-/Stale-Problem, sondern führt real zur Wiederverwendung bereits
+  verbrauchter `(cipher key, IV)`-Paare.
+
+Regressionstests: `C8` (intra-epoch), `C9` (cross-epoch inkl. Commitbarkeit).
+
+#### Verworfener Lösungsansatz: server-seitiger Epoch-Anker beim Establishment
+
+Frühere Fassungen dieses Dokuments nannten als künftige Lösung:
 
 ```
-sealed local state  +  server-seitiger monotoner Epoch-Anker
+sealed local state  +  server-seitiger monotoner Epoch-Anker   ← VERWORFEN
 ```
 
-Ein Zähler außerhalb des Origins, der bei jedem Session-Establishment steigt und
-dessen Wert in die AAD eingeht. Das `epoch`-Feld ist **jetzt schon** durch AAD
-und Envelope geführt, damit dieser Schritt später eine Wert- und keine
-Formatänderung ist. Solange kein Server-Epoch existiert, unterscheidet die
-lokale Epoch nur Session-Generationen auf diesem Gerät.
+also einen Zähler außerhalb des Origins, der bei jedem Session-Establishment
+steigt und dessen Wert in die AAD eingeht.
+
+**Dieser Ansatz ist nachweislich unzureichend, und diese Dokumentation war hier
+falsch.** Begründung: C-1 tritt *innerhalb* einer bestehenden Epoch auf. Ein
+Wert, der nur beim Establishment steigt, ist zwischen zwei Establishments
+konstant. Er hat für den Zustand vor dem Rollback und den Zustand danach
+denselben Wert und kann die beiden folglich nicht unterscheiden — unabhängig von
+Nonces, Signaturen oder Freshness-Beweisen. Empirisch nachgestellt: bei einem
+Rollback 5 → 2 innerhalb Epoch 1 stimmt die AAD-Epoch weiterhin mit der
+Server-Epoch überein, die Prüfung besteht, der Angriff gelingt. Dasselbe
+Argument gilt für Session-Tokens, Epoch-Wechsel und Key-Rotation.
+
+**Auch ein sender-seitiger Sequenzzähler reicht nicht.** Er erfasst den
+Receiver-Rollback nicht: Werden beim Empfänger konsumierte Message Keys durch
+einen Restore reaktiviert, sendet der Angreifer nichts, und die
+Sender-Sequenz bleibt unverändert. Gegen die echte Engine gemessen wurden nach
+einem Receiver-Rollback **4 von 4** bereits konsumierte Nachrichten erneut
+entschlüsselt (Klartext vollständig wiederhergestellt), während dieselben
+Chiffrate gegen den lebenden State abgelehnt werden — für einen serverseitigen
+Sender-Zähler ist dieser Angriff unsichtbar (§8.2).
+
+#### Was C-1 tatsächlich lösen würde
+
+Ein Anker muss auf der Granularität dessen fortschreiten, was zurückgerollt
+wird, und an die Zustands*identität* binden, nicht bloß an einen Zählerstand:
+
+* extern, außerhalb der Rollback-Domäne, restore-resistent (append-only),
+* **bidirektional** — Sende- *und* Empfangsfortschritt,
+* **pro Nachricht** bzw. pro Ratchet-Schritt, nicht pro Session,
+* als authentifizierter Checkpoint/Hash-Chain über Zustandsübergänge,
+* ergänzt um Tombstones konsumierter Message Keys außerhalb der Rollback-Domäne,
+  da sonst die Forward Secrecy der Empfängerseite ungeschützt bleibt.
+
+Das macht den Server zur Autorität über den Fortschritt kryptografischen
+Zustands und schließt Offline-Senden praktisch aus. Beides widerspricht der
+bisherigen Architektur von enough. (Offline-Fähigkeit als Designziel; der Server
+soll keine Autorität über Ratchet-Zustand haben). **Deshalb bleibt C-1 in v0.2
+bewusst offen** und wird auf eine spätere E2EE-Architekturphase verschoben, in
+der zugleich das Offline-Modell entschieden wird.
 
 **Diese Dokumentation behauptet ausdrücklich nicht, dass C-1 gelöst ist.**
-Regressionstest `C8` hält die Grenze fest und würde rot, wenn jemand sie
-stillschweigend als gelöst markierte.
+Die Regressionstests `C8` und `C9` halten die Grenze fest und würden rot, wenn
+jemand sie stillschweigend als gelöst markierte.
 
 ### 8.2 Forward Secrecy und Post-Compromise Security bei Receiver-Rollback
 
@@ -658,8 +733,10 @@ Message Keys wäre die passende zusätzliche Maßnahme; es ist in diesem Auftrag
 
 8. **Kein Tombstone-Log konsumierter Message Keys** (§8.2).
 
-9. **Kein serverseitiger Epoch** (§8.1). Keine Supabase-Migration, keine RPC,
-   keine RLS-Änderung in diesem Auftrag.
+9. **Keine externe Freshness-Verankerung** (§8.1). Keine Supabase-Migration,
+   keine RPC, keine RLS-Änderung, keine Server-Epoch und keine
+   Server-Sequenznummern. Der zunächst erwogene Establishment-Epoch-Anker ist
+   als unzureichend verworfen (§8.1), nicht bloß verschoben.
 
 ---
 
@@ -712,18 +789,22 @@ Supabase-Migrationen, RLS, Routing, Theme, i18n. Keine neue Dependency.
 ## 11. Testabdeckung
 
 ```
-npm run test:crypto          → 193/193 bestanden
+npm run test:crypto          → 190/190 bestanden
 npm run test:crypto:engine   →   5/5   bestanden (echte @getmaapp/signal-wasm 0.6.6)
 npm run build                → erfolgreich
 npm run smoke                → bestanden
 ```
 
+(Der Suite-Umfang hat sich gegenüber der ursprünglichen 2D.2-Fassung geändert:
+die vier Tests des nie veröffentlichten v2-Migrationspfads sind entfallen,
+`C9` ist als zweite dokumentierte C-1-Grenze hinzugekommen.)
+
 | Gruppe | Kern |
 |---|---|
 | `revision` R1–R16 | uint64-Grenzen, `2^64` abgelehnt, Overflow, Malformed, 1e308-Wedge |
 | `sealed-state` S1–S25 | Nicht-Extrahierbarkeit, C-2, State-Substitution, Cross-User/Connection, Header-Manipulation, dokumentierte AAD-Grenze |
-| `ratchet-state` A–J | Revision, Crash-Punkte, Rollback, Concurrency, Isolation, Missing-State, Establishment, Ephemeral Engine, Property |
-| `migration` M1–M13 | v2-Migration, Account-Löschung inkl. Caches, `onversionchange`, Durability-Flag |
+| `ratchet-state` A–J | Revision, Crash-Punkte, Rollback (inkl. `C8`/`C9` als dokumentierte C-1-Grenzen), Concurrency, Isolation, Missing-State, Establishment, Ephemeral Engine, Property |
+| `migration` M5–M13 | Schema-Baseline v3, Account-Löschung inkl. Caches, `onversionchange`, Durability-Flag |
 | `real-engine` RE1–RE4 | H-1 gegen die echte Engine, kein Engine-Residue |
 
 ### Mutation Testing

@@ -98,10 +98,9 @@ export function openDatabase(): Promise<DbHandle> {
       if (!db.objectStoreNames.contains(CRYPTO_STORE_RATCHET)) {
         db.createObjectStore(CRYPTO_STORE_RATCHET);
       }
-      // E2EE-2D.2 (DB version 3). Also additive. No data is rewritten here:
-      // sealing existing ratchet records would need Web Crypto, which is not
-      // usable inside an upgrade transaction, so v2 records are migrated
-      // lazily on first read instead.
+      // E2EE-2D.2 (DB version 3). Also additive. No data is rewritten here,
+      // and none needs to be: version 2 was never released, so no stored
+      // ratchet record predates the sealed envelope format.
       if (!db.objectStoreNames.contains(CRYPTO_STORE_VAULTKEYS)) {
         db.createObjectStore(CRYPTO_STORE_VAULTKEYS);
       }
@@ -337,6 +336,38 @@ export async function countPreKeys(userId: string): Promise<number> {
 }
 
 /**
+ * The single definition of "erase this user's sealing key".
+ *
+ * It takes an existing transaction so that the two callers cannot drift apart:
+ * `deleteUserCryptoState` needs the delete to be part of its atomic
+ * multi-store transaction, while `deleteSealingKey` wraps it in a transaction
+ * of its own. Both erase exactly the same key with the same semantics.
+ *
+ * The caller owns the transaction and must await its completion.
+ */
+function deleteSealingKeyIn(transaction: IDBTransaction, userId: string): void {
+  transaction.objectStore(CRYPTO_STORE_VAULTKEYS).delete(sealingKeyFor(userId));
+}
+
+/**
+ * Delete a user's sealing key on its own.
+ *
+ * Same semantics as the sealing-key step of `deleteUserCryptoState`, because
+ * it is literally the same code.
+ */
+export async function deleteSealingKey(userId: string): Promise<void> {
+  if (!userId || typeof indexedDB === 'undefined') return;
+  const db = await openDatabase();
+  try {
+    const transaction = tx(db, CRYPTO_STORE_VAULTKEYS, 'readwrite');
+    deleteSealingKeyIn(transaction, userId);
+    await txComplete(transaction);
+  } finally {
+    db.close();
+  }
+}
+
+/**
  * Delete ALL crypto state for a specific user (identity, signed prekey,
  * one-time prekeys). Called on account deletion to ensure no orphaned
  * identity remains on the device.
@@ -398,8 +429,10 @@ export async function deleteUserCryptoState(userId: string): Promise<void> {
     });
     // E2EE-2D.2: the per-user sealing key must go with the data it sealed.
     // Leaving it behind would keep a key alive for envelopes that no longer
-    // exist, and a recreated account would inherit it.
-    transaction.objectStore(CRYPTO_STORE_VAULTKEYS).delete(sealingKeyFor(userId));
+    // exist, and a recreated account would inherit it. This runs inside the
+    // same transaction as the state/prekey/ratchet deletes, so the key can
+    // never outlive the data by a partial commit.
+    deleteSealingKeyIn(transaction, userId);
     await txComplete(transaction);
   } finally {
     db.close();

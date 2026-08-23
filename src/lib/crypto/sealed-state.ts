@@ -42,10 +42,15 @@
 // gets a genuinely sealed, genuinely self-consistent old envelope together
 // with the matching old watermark and the same sealing key. Every check in
 // this file passes. That is audit finding C-1, and it is deliberately still
-// open at the end of E2EE-2D.2: detecting it requires a monotonic counter that
-// does not live in the same storage as the state (a server-side epoch).
-// The `epoch` field is wired through the AAD *now* so that anchoring it later
-// is a value change rather than a format change. Until then the local epoch
+// open at the end of E2EE-2D.2. It applies both within one epoch and across an
+// epoch boundary (tests C8 and C9).
+//
+// Detecting it requires an anchor outside this origin — but NOT the
+// establishment-scoped server epoch that earlier drafts proposed: such a
+// counter does not change during a session and therefore cannot distinguish
+// two states inside the same epoch. See
+// docs/e2ee-crash-rollback-hardening.md §8.1 for the rejected approach and
+// what an adequate anchor would have to observe. Until then the local epoch
 // only distinguishes session generations on this device.
 //
 // NO OWN CRYPTOGRAPHY. AES-GCM and the key generation come from WebCrypto.
@@ -222,20 +227,15 @@ export async function ensureSealingKey(userId: string): Promise<CryptoKey> {
   }
 }
 
-/** Delete a user's sealing key (account deletion). */
-export async function deleteSealingKey(userId: string): Promise<void> {
-  if (!userId || typeof indexedDB === 'undefined') return;
-  const db = await openDatabase();
-  try {
-    const transaction = db.transaction(CRYPTO_STORE_VAULTKEYS, 'readwrite', {
-      durability: 'strict',
-    });
-    transaction.objectStore(CRYPTO_STORE_VAULTKEYS).delete(sealingKeyFor(userId));
-    await txComplete(transaction);
-  } finally {
-    db.close();
-  }
-}
+/**
+ * Delete a user's sealing key (account deletion).
+ *
+ * Re-exported from `storage.ts`, which owns the vaultkeys store and holds the
+ * single implementation. Account deletion performs the same erase inside its
+ * atomic multi-store transaction, so there is exactly one definition of the
+ * deletion semantics.
+ */
+export { deleteSealingKey } from './storage.ts';
 
 /* ------------------------------------------------------------------ */
 /* Seal / unseal                                                       */

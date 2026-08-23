@@ -501,8 +501,12 @@ test('C8: EXPECTED_LIMITATION — a coordinated full-origin rollback is NOT dete
   // watermark AND the sealing key back together; every local check then
   // passes because everything the checks consult was restored consistently.
   //
-  // Closing this requires a monotonic counter outside the origin — a
-  // server-side epoch. That is explicitly NOT part of this stage.
+  // Closing this requires an anchor outside the origin. Note that a
+  // server-side epoch incremented at ESTABLISHMENT would not be enough: it is
+  // constant during a session and so takes the same value before and after the
+  // rollback performed here. See C9 for the cross-epoch variant and
+  // docs/e2ee-crash-rollback-hardening.md §8.1 for the rejected designs.
+  // Either way it is explicitly NOT part of this stage.
   await reset();
   const u = freshUser();
   const { epoch } = await establish(u, CONN, S(1));
@@ -537,6 +541,82 @@ test('C8: EXPECTED_LIMITATION — a coordinated full-origin rollback is NOT dete
   // whole-origin case slips through.
   await rawPut(watermarkKeyFor(u, CONN), { epoch: encodeRevision(1n), revision: encodeRevision(5n) });
   assert.equal((await loadRatchetState(u, CONN)).status, 'ROLLBACK_DETECTED');
+});
+
+test('C9: EXPECTED_LIMITATION — a coordinated rollback ACROSS an epoch boundary is not detected either', async () => {
+  // Audit finding C-1, second half. C8 covers the INTRA-epoch case
+  // (revision 5 → 2 while the epoch stays constant). This test covers the
+  // complementary CROSS-epoch case: a whole-origin restore that also undoes a
+  // later re-establishment, taking the session from epoch 2 back to epoch 1.
+  //
+  // Why it needs its own test: the `record.epoch < watermark.epoch` check in
+  // `loadRatchetState` looks like it would catch an epoch regression, and it
+  // does — but only when the watermark is NOT restored along with the record.
+  // A coordinated restore moves both, so the comparison is satisfied again at
+  // the older epoch. This test pins that distinction so nobody concludes from
+  // the presence of `EPOCH_STALE` that cross-epoch rollback is covered.
+  //
+  // It also records the practical consequence, which C8 does not assert: the
+  // rolled-back state is not merely readable, it is WRITABLE. That is what
+  // turns C-1 from a stale-read problem into re-use of already-consumed
+  // (cipher key, IV) pairs.
+  //
+  // As in C8 the assertions describe the CURRENT, deliberately open behaviour.
+  // If a future external freshness anchor closes C-1, this test is expected to
+  // fail and must be rewritten — it is not a guarantee that must be preserved.
+  await reset();
+  const u = freshUser();
+
+  // Epoch 1, advanced to revision 3.
+  const first = await establish(u, CONN, S(1));
+  assert.deepEqual(first, { epoch: 1n, revision: 1n });
+  let revision = await commitRatchetState(u, CONN, { epoch: 1n, revision: 1n }, S(2));
+  revision = await commitRatchetState(u, CONN, { epoch: 1n, revision }, S(3));
+  assert.equal(revision, 3n);
+
+  // Snapshot the entire origin state while it is still on epoch 1.
+  const snapshotRecord = await rawGet(ratchetKeyFor(u, CONN));
+  const snapshotWatermark = await rawGet(watermarkKeyFor(u, CONN));
+
+  // A new establishment supersedes it: epoch 2, revision back to 1.
+  const second = await adoptSessionFromEstablishment(u, CONN, S(9), { replacesEpoch: 1n });
+  assert.deepEqual(second, { epoch: 2n, revision: 1n });
+
+  const live = await loadRatchetState(u, CONN);
+  assert.equal(live.status, 'VALID');
+  assert.equal(live.record.epoch, 2n, 'the live session must be on the new epoch');
+
+  // Restore record AND watermark together, as a profile/backup restore would.
+  await rawPut(ratchetKeyFor(u, CONN), snapshotRecord);
+  await rawPut(watermarkKeyFor(u, CONN), snapshotWatermark);
+
+  // EXPECTED_LIMITATION: the epoch regression 2 → 1 is NOT detected. Both the
+  // record and the watermark are genuine, sealed and mutually consistent.
+  const rolled = await loadRatchetState(u, CONN);
+  assert.equal(
+    rolled.status,
+    'VALID',
+    'EXPECTED_LIMITATION: C-1 also covers cross-epoch rollback, which is not locally detectable',
+  );
+  assert.equal(rolled.record.epoch, 1n, 'the session is back on the superseded epoch');
+  assert.equal(rolled.record.revision, 3n);
+  assert.equal(rolled.watermark.epoch, 1n);
+
+  // EXPECTED_LIMITATION: and the superseded state accepts further commits, so
+  // the ratchet would keep deriving keys from a chain that was already retired.
+  const next = await commitRatchetState(u, CONN, { epoch: 1n, revision: 3n }, S(7));
+  assert.equal(next, 4n, 'EXPECTED_LIMITATION: the rolled-back epoch is still writable');
+  const after = await loadRatchetState(u, CONN);
+  assert.equal(after.status, 'VALID');
+  assert.equal(after.record.epoch, 1n);
+  assert.equal(after.record.revision, 4n);
+
+  // Contrast — the UNCOORDINATED variant is still caught. Restoring only the
+  // record while the watermark stays on the newer epoch is `EPOCH_STALE`, so
+  // the epoch check itself is intact; only the coordinated restore defeats it.
+  await rawPut(ratchetKeyFor(u, CONN), snapshotRecord);
+  await rawPut(watermarkKeyFor(u, CONN), { epoch: encodeRevision(2n), revision: encodeRevision(1n) });
+  assert.equal((await loadRatchetState(u, CONN)).status, 'EPOCH_STALE');
 });
 
 /* ------------------------------------------------------------------ */

@@ -516,10 +516,19 @@ E2EE identity material only; no frequent reads/writes. No performance concern.
 | `ciphertext` data-format migration | Real ciphertext in the existing column |
 | Broken-key detection and rotation | Resilience |
 | Secure deletion semantics under E2EE | Delete-for-everyone interplay |
+| External freshness anchor for ratchet state (audit finding **C-1**) | Rollback detection; see below |
+
+### C-1 — rollback freshness (deliberately open in v0.2)
+
+The local ratchet-state layer (`src/lib/crypto/ratchet-state.ts`) provides integrity, atomic CAS and local monotonicity. It does **not** provide *freshness*: if the whole origin is restored from a backup, the record, the watermark and the sealing key move back together, and the older state is accepted as `VALID` and remains writable. This applies both within one epoch and across an epoch boundary. Regression tests `C8` and `C9` assert this current behaviour so the gap stays visible in CI.
+
+A server-side epoch incremented at session establishment was evaluated as the fix and **rejected**: it is constant between establishments and therefore cannot distinguish two states inside the same epoch. A sender-side sequence counter is also insufficient, because it cannot observe receiver-side rollback. An adequate anchor would have to be external, append-only, bidirectional, advance per ratchet step and bind state identity — which makes the server authoritative over ratchet progress and rules out offline sending.
+
+C-1 is therefore **not** a v0.2 item. It is deferred to the dedicated E2EE phase, where it must be decided together with the offline model. Details and the rejected approaches: `docs/e2ee-crash-rollback-hardening.md` §8.0/§8.1.
 
 ### Decision
 
-**E2EE remains paused for v0.2.** Wiring the foundation into the message flow would touch `Chat.tsx`, `MessageBubble.tsx`, `MessageComposer.tsx`, and `api.ts` — substantive refactoring that belongs in a dedicated E2EE phase (v0.3+).
+**E2EE remains paused for v0.2.** Wiring the foundation into the message flow would touch `Chat.tsx`, `MessageBubble.tsx`, `MessageComposer.tsx`, and `api.ts` — substantive refactoring that belongs in a dedicated E2EE phase (v0.3+). C-1 stays open by design and is not a blocker for v0.2, because no encryption is wired into the message flow — `sendMessage()` still writes plaintext.
 
 ---
 

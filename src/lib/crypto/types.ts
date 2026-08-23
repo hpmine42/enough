@@ -26,10 +26,13 @@ export const CRYPTO_DB_NAME = 'enough-crypto';
  *
  * Every upgrade so far is purely additive: existing stores are never dropped
  * or rewritten in `onupgradeneeded`, so identities and prekeys created under
- * an older version survive. Ratchet records written under version 2 are
- * migrated lazily on read (see `ratchet-state.ts`), not in the upgrade
- * transaction — an upgrade transaction cannot use Web Crypto, which the
- * sealing step requires.
+ * an older version survive.
+ *
+ * There is no v2 ratchet-record migration path. Version 2 was never released:
+ * the `ratchet` store and the version-3 sealed envelope format were introduced
+ * in the same unreleased change, so no installation can hold an unsealed v2
+ * record. A record that is not a valid sealed envelope is therefore treated as
+ * corruption and fails closed, never migrated.
  */
 export const CRYPTO_DB_VERSION = 3;
 
