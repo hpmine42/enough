@@ -36,12 +36,8 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          # Build-time Supabase configuration injected from GitHub secrets.
-          # These are the public (publishable) values only — never a
-          # service-role / secret key.
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
-          # GitHub Pages serves this project at https://<user>.github.io/enough/
           VITE_BASE: /enough/
 
       - name: Test crypto
@@ -67,7 +63,6 @@ jobs:
           
       - name: Setup Pages
         uses: actions/configure-pages@v6
-      
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
