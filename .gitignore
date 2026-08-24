@@ -4,6 +4,11 @@ node_modules
 # build output
 dist
 
+# ephemeral embedded-postgres data (local F3 harness)
+data/db
+.tmp-pg
+
+
 # environment files — never commit real credentials
 .env
 .env.local

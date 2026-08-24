@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "smoke": "node --experimental-strip-types scripts/smoke-test.mjs",
     "test:crypto": "node --test --experimental-strip-types src/lib/crypto/__tests__/crypto.test.mjs src/lib/crypto/__tests__/keys.test.mjs src/lib/crypto/__tests__/primitives.test.mjs src/lib/crypto/__tests__/revision.test.mjs src/lib/crypto/__tests__/sealed-state.test.mjs src/lib/crypto/__tests__/ratchet-state.test.mjs src/lib/crypto/__tests__/migration.test.mjs src/lib/e2ee/__tests__/device-store.test.mjs src/lib/e2ee/__tests__/message-flow.test.mjs",
-    "test:crypto:engine": "node --test --experimental-strip-types src/lib/e2ee/__tests__/engine-adapter.test.mjs src/lib/e2ee/__tests__/session-manager.test.mjs src/lib/crypto/__tests__/real-engine.integration.test.mjs"
+    "test:crypto:engine": "node --test --experimental-strip-types src/lib/e2ee/__tests__/engine-adapter.test.mjs src/lib/e2ee/__tests__/session-manager.test.mjs src/lib/crypto/__tests__/real-engine.integration.test.mjs",
+    "test:crypto:prekeys": "node scripts/run-crypto-prekeys-tests.mjs"
   },
   "dependencies": {
     "@getmaapp/signal-wasm": "0.6.6",
@@ -21,8 +22,10 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "embedded-postgres": "^18.4.0-beta.17",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^24.1.3",
+    "pg": "^8.16.3",
     "typescript": "^5.7.2",
     "vite": "^6.4.3"
   }

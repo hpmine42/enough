@@ -139,12 +139,24 @@ schema so real E2EE can be introduced later without renaming columns.
 ## Testing
 
 - `npm run build` — TypeScript check + production build
+- `npm run test:crypto` / `npm run test:crypto:engine` — Node crypto and
+  Signal-engine suites (no database)
+- `npm run test:crypto:prekeys` — **live PostgreSQL** RPC/RLS tests for
+  `claim_prekey_bundle` and the `crypto_*` policies (F3). Starts an embedded
+  real Postgres, applies `supabase/tests/bootstrap_supabase_auth.sql` +
+  migration `0011_crypto_prekeys.sql`, runs `supabase/crypto-prekeys-tests.sql`
+  (Cases 1–8), then probes concurrent claims / `FOR UPDATE SKIP LOCKED`.
+  No Supabase cloud credentials or service-role keys required.
 - `npm run smoke` — renders the production bundle in jsdom with a stubbed
   Supabase API and walks through the main flows (auth screens, localization,
   theme, settings, search, connection request lifecycle, chat, deletion,
   My Notes, sign out). It is not a substitute for live-backend testing.
 - `supabase/rls-tests.sql` — authorization checks against the real database
   using your two existing test users (see `docs/MIGRATIONS.md`).
+
+CI (`.github/workflows/deploy.yml`) should run `npm run test:crypto:prekeys`
+after the existing build/crypto/engine/smoke gates and **before** the Pages
+deploy steps, so a failed live prekey test blocks shipping.
 
 ## Theme
 
