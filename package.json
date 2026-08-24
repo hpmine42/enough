@@ -10,7 +10,8 @@
     "smoke": "node --experimental-strip-types scripts/smoke-test.mjs",
     "test:crypto": "node --test --experimental-strip-types src/lib/crypto/__tests__/crypto.test.mjs src/lib/crypto/__tests__/keys.test.mjs src/lib/crypto/__tests__/primitives.test.mjs src/lib/crypto/__tests__/revision.test.mjs src/lib/crypto/__tests__/sealed-state.test.mjs src/lib/crypto/__tests__/ratchet-state.test.mjs src/lib/crypto/__tests__/migration.test.mjs src/lib/e2ee/__tests__/device-store.test.mjs src/lib/e2ee/__tests__/message-flow.test.mjs",
     "test:crypto:engine": "node --test --experimental-strip-types src/lib/e2ee/__tests__/engine-adapter.test.mjs src/lib/e2ee/__tests__/session-manager.test.mjs src/lib/crypto/__tests__/real-engine.integration.test.mjs",
-    "test:crypto:prekeys": "node scripts/run-crypto-prekeys-tests.mjs"
+    "test:crypto:prekeys": "node scripts/run-crypto-prekeys-tests.mjs",
+    "verify:signal-wasm": "node scripts/verify-signal-wasm.mjs"
   },
   "dependencies": {
     "@getmaapp/signal-wasm": "0.6.6",
