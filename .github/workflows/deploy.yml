@@ -60,6 +60,11 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_BASE: /enough/
+
+      # F3: real PostgreSQL RPC/RLS tests (embedded Postgres, no cloud secrets).
+      # Runs after the existing F4 gates and before deploy so a failure blocks Pages.
+      - name: Test crypto prekeys (live Postgres RPC/RLS)
+        run: npm run test:crypto:prekeys
           
       - name: Setup Pages
         uses: actions/configure-pages@v6
