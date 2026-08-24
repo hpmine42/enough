@@ -1,8 +1,13 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const key = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  import.meta.env.VITE_SUPABASE_ANON_KEY) as string | undefined;
+// `import.meta.env` is a Vite provision; guard it so this module does not
+// crash on import in non-Vite runtimes (e.g. the Node test runner loading the
+// e2ee layer). In the browser/Vite, import.meta.env is always defined.
+const env = (import.meta.env ?? {}) as Record<string, string | undefined>;
+
+const url = env.VITE_SUPABASE_URL as string | undefined;
+const key = (env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  env.VITE_SUPABASE_ANON_KEY) as string | undefined;
 
 export const isSupabaseConfigured: boolean = Boolean(url && key);
 

@@ -12,11 +12,15 @@ interface MessageBubbleProps {
   group: 'alone' | 'first' | 'middle' | 'last';
   onLongPress: (message: Message) => void;
   focusable: boolean;
+  /** Display plaintext (decrypted / cached / legacy). Empty while unresolved. */
+  text: string;
 }
 
 /**
  * A single message. Deleted and system events render as subtle centered
- * lines; regular messages render as Signal-like grouped bubbles.
+ * lines; regular messages render as Signal-like grouped bubbles. The bubble
+ * never sees ciphertext or any key material — only the display plaintext the
+ * parent resolved for it.
  */
 export default function MessageBubble({
   message,
@@ -25,6 +29,7 @@ export default function MessageBubble({
   group,
   onLongPress,
   focusable,
+  text,
 }: MessageBubbleProps) {
   const timerRef = useRef<number | null>(null);
 
@@ -109,9 +114,9 @@ export default function MessageBubble({
         }
       }}
       role={focusable ? 'button' : undefined}
-      aria-label={message.ciphertext}
+      aria-label={text}
     >
-      <MarkdownText text={message.ciphertext} />
+      <MarkdownText text={text} />
       {showTime && (
         <div className="time">{formatRelative(message.created_at, getLang())}</div>
       )}

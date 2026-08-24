@@ -28,16 +28,14 @@ import {
   sendMessage,
   unblockUser,
 } from '../lib/api';
-import {
-  displayName,
-  effectiveStatus,
-  formatDate,
-  isSelfConnection,
-  otherUserId,
-} from '../lib/helpers';
+import { displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
 import { supabase } from '../lib/supabase';
 import { getLang, t, useLang } from '../i18n';
 import { BlockState, Connection, Message, Profile } from '../lib/types';
+import { useE2EE } from '../context/E2EEContext';
+import { prepareSend, decryptForDisplay, isEnvelope } from '../lib/e2ee/message-flow';
+import { cachePlaintext, getCachedPlaintext } from '../lib/e2ee/message-cache';
+import { isCryptoError } from '../lib/crypto/errors';
 import MessageBubble from './MessageBubble';
 import MessageComposer from './MessageComposer';
 import BottomSheet from './BottomSheet';
@@ -57,6 +55,7 @@ interface SheetTarget {
 
 export default function Chat({ connectionId }: { connectionId: string }) {
   const { user } = useAuth();
+  const { manager } = useE2EE();
   useLang(); // re-render relative timestamps on language change
 
   const [conn, setConn] = useState<Connection | null>(null);
@@ -87,6 +86,18 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const [blockConfirmOpen, setBlockConfirmOpen] = useState(false);
   const [declineOpen, setDeclineOpen] = useState(false);
   const [blockState, setBlockState] = useState<BlockState>('none');
+
+  // E2EE display state: resolved plaintext per message, and permanently
+  // undecryptable messages. Resolved plaintext comes from the local cache, a
+  // legacy row, My Notes, or a real decrypt — never invented.
+  const [plain, setPlain] = useState<Record<string, string>>({});
+  const [undecryptable, setUndecryptable] = useState<Set<string>>(new Set());
+  // Ids for which a real engine decrypt has been attempted (the ratchet
+  // advances on each attempt, so each message is decrypted at most once).
+  const decryptedRef = useRef<Set<string>>(new Set());
+  // Ids with a final display outcome (plaintext resolved or permanently
+  // undecryptable). Prevents reprocessing on every render.
+  const resolvedRef = useRef<Set<string>>(new Set());
 
   // scroll / read state
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -286,6 +297,60 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     };
   }, [connectionId, valid, conn, me]);
 
+  /* Decrypt message bodies for display (load + realtime share one path).
+     Plaintext is resolved from the local cache, a legacy row, My Notes, or a
+     real decrypt — never invented. A real engine decrypt runs at most once per
+     message (the ratchet advances on each attempt). */
+  useEffect(() => {
+    if (!conn) return;
+    const isSelf = isSelfConnection(conn);
+    let active = true;
+    void (async () => {
+      for (const m of messages) {
+        if (!active) return;
+        if (m.deleted_at || (m.kind && m.kind !== 'text')) continue;
+        if (resolvedRef.current.has(m.id)) continue;
+        const cached = getCachedPlaintext(me, m.id);
+        const needsDecrypt =
+          !cached && !isSelf && isEnvelope(m.ciphertext) && m.sender_id !== me;
+        if (needsDecrypt) {
+          if (!manager) continue; // not ready yet; retried when the manager arrives
+          if (decryptedRef.current.has(m.id)) continue;
+          decryptedRef.current.add(m.id);
+        }
+        try {
+          const { plaintext } = await decryptForDisplay({
+            e2ee: manager,
+            isSelf,
+            me,
+            message: m,
+            connectionId: conn.id,
+          });
+          if (!active) return;
+          resolvedRef.current.add(m.id);
+          if (plaintext !== null) setPlain((p) => ({ ...p, [m.id]: plaintext }));
+          else setUndecryptable((s) => new Set(s).add(m.id));
+        } catch {
+          if (!active) return;
+          resolvedRef.current.add(m.id);
+          setUndecryptable((s) => new Set(s).add(m.id));
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, manager, conn, me]);
+
+  // Reset display state when switching conversations.
+  useEffect(() => {
+    resolvedRef.current = new Set();
+    decryptedRef.current = new Set();
+    setPlain({});
+    setUndecryptable(new Set());
+  }, [connectionId]);
+
   /* --------------------------- scroll / read --------------------------- */
 
   const scrollToBottom = useCallback((smooth: boolean) => {
@@ -438,12 +503,35 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   async function handleSend(text: string) {
     if (!conn || blocked) return;
     setError(null);
-    const { message, error: err } = await sendMessage(conn.id, me, text);
+    const peerId = self ? me : otherUserId(conn, me);
+    // Encrypt for peer conversations (fail-closed on any error); My Notes
+    // (self) stays plaintext. The plaintext is cached LOCALLY for the sender's
+    // own display; only the ciphertext reaches Supabase.
+    let ciphertext: string;
+    try {
+      ciphertext = await prepareSend({
+        e2ee: manager,
+        isSelf: self,
+        peerUserId: peerId,
+        connectionId: conn.id,
+        plaintext: text,
+      });
+    } catch (e) {
+      setError(
+        isCryptoError(e) && e.code === 'NOT_AVAILABLE'
+          ? t('chat.e2eeUnavailable')
+          : t('chat.e2eeFailed'),
+      );
+      return; // fail-closed: no insert, no plaintext to Supabase.
+    }
+    const { message, error: err } = await sendMessage(conn.id, me, ciphertext);
     if (err) {
       setError(err);
       return;
     }
     if (message) {
+      cachePlaintext(me, message.id, text);
+      setPlain((prev) => ({ ...prev, [message.id]: text }));
       setMessages((prev) =>
         prev.some((m) => m.id === message.id)
           ? prev
@@ -581,7 +669,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
 
   async function handleCopy() {
     if (!sheetTarget) return;
-    const text = sheetTarget.message.ciphertext;
+    const text = plain[sheetTarget.message.id] ?? '';
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -890,6 +978,10 @@ export default function Chat({ connectionId }: { connectionId: string }) {
                 peerUsername={peerUsername}
                 group={group}
                 focusable={canChat && !message.deleted_at}
+                text={
+                  plain[message.id] ??
+                  (undecryptable.has(message.id) ? t('chat.undecryptable') : '')
+                }
                 onLongPress={(m) => {
                   const within24h =
                     Date.now() - new Date(m.created_at).getTime() < 24 * 60 * 60 * 1000;

@@ -15,7 +15,20 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { JSDOM } from 'jsdom';
+import 'fake-indexeddb/auto';
+import {
+  initEngineSyncForTests,
+  generateIdentity,
+  identityPublicKeyFromPair,
+  generateSignedPreKey,
+  generateOneTimePreKeys,
+  generateKyberPreKey,
+} from '../src/lib/e2ee/engine-adapter.ts';
+import { E2EESessionManager } from '../src/lib/e2ee/session-manager.ts';
+import { bytesToBase64 } from '../src/lib/crypto/serialization.ts';
+import { deleteCryptoDatabase } from '../src/lib/crypto/storage.ts';
 
 /* ------------------------------------------------------------------ */
 /* 0. Build with dummy (public) env vars                               */
@@ -652,6 +665,71 @@ console.log('\nenough. UI smoke test\n');
 // notifications preference. It must be dropped on load without affecting any
 // other preference.
 window.localStorage.setItem('enough-notifications', '1');
+
+/* E2EE in jsdom: there is no real Supabase/WASM-fetch here, so inject a REAL
+   session manager (genuine Signal engine, initialised from disk) backed by an
+   in-memory fake server — the same proven pattern as session-manager.test.mjs.
+   Production never sets this hook (E2EEContext only reads it when present).
+   Benno (user-2) never logs in during the scenario, so his device is
+   pre-provisioned so Anna can claim his bundle when she sends. */
+const require = createRequire(import.meta.url);
+const engineEntry = require.resolve('@getmaapp/signal-wasm');
+initEngineSyncForTests(readFileSync(engineEntry.replace(/signal_wasm\.js$/, 'signal_wasm_bg.wasm')));
+await deleteCryptoDatabase();
+
+const fakeServer = { devices: new Map() };
+fakeServer.publisher = (userId) => async (material) => { fakeServer.devices.set(userId, material); return null; };
+fakeServer.claim = async (peerUserId) => {
+  const m = fakeServer.devices.get(peerUserId);
+  if (!m) return { kind: 'no-device' };
+  const otp = m.oneTimePreKeys[0] ?? null;
+  const oneTimeKpk = m.kyberPreKeys.find((k) => !k.isLastResort) ?? null;
+  const lastResort = m.kyberPreKeys.find((k) => k.isLastResort) ?? null;
+  const kpk = oneTimeKpk ?? lastResort;
+  if (!kpk) return { kind: 'no-device' };
+  if (otp) m.oneTimePreKeys = m.oneTimePreKeys.filter((o) => o.keyId !== otp.keyId);
+  if (oneTimeKpk) m.kyberPreKeys = m.kyberPreKeys.filter((k) => k.keyId !== oneTimeKpk.keyId);
+  return {
+    kind: 'ok',
+    bundle: {
+      userId: peerUserId, deviceId: 1, registrationId: m.registrationId,
+      identityKey: m.identityKey, signedPreKey: m.signedPreKey,
+      oneTimePreKey: otp, kyberPreKey: kpk,
+    },
+  };
+};
+
+async function provisionPeer(userId) {
+  const ident = await generateIdentity();
+  const spk = await generateSignedPreKey(ident.identityPairBytes, 1);
+  const otps = await generateOneTimePreKeys(1, 3);
+  const lastResort = await generateKyberPreKey(ident.identityPairBytes, 1);
+  const oneTimeKpks = await Promise.all([2, 3, 4].map((id) => generateKyberPreKey(ident.identityPairBytes, id)));
+  fakeServer.devices.set(userId, {
+    identityKey: bytesToBase64(await identityPublicKeyFromPair(ident.identityPairBytes)),
+    registrationId: ident.registrationId,
+    signedPreKey: { keyId: spk.id, publicKey: bytesToBase64(spk.publicKey), signature: bytesToBase64(spk.signature) },
+    oneTimePreKeys: otps.map((o) => ({ keyId: o.id, publicKey: bytesToBase64(o.publicKey) })),
+    kyberPreKeys: [
+      { keyId: lastResort.id, publicKey: bytesToBase64(lastResort.publicKey), signature: bytesToBase64(lastResort.signature), isLastResort: true },
+      ...oneTimeKpks.map((k) => ({ keyId: k.id, publicKey: bytesToBase64(k.publicKey), signature: bytesToBase64(k.signature), isLastResort: false })),
+    ],
+  });
+}
+await provisionPeer('user-2'); // Benno, the peer Anna messages.
+
+const passthroughLock = async (_name, fn) => fn();
+window.__enoughE2EEManagerFactory = (userId) =>
+  new E2EESessionManager({
+    userId,
+    publisher: fakeServer.publisher(userId),
+    bundleProvider: (peer) => fakeServer.claim(peer),
+    acquireLock: passthroughLock,
+    otkPoolSize: 5,
+    otkThreshold: 2,
+    kyberPoolSize: 3,
+    kyberThreshold: 1,
+  });
 
 await import(`${dist}/assets/${asset}`).catch((e) => {
   console.error('bundle import failed:', e);
