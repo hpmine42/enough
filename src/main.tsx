@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { AuthProvider } from './context/AuthContext';
+import { E2EEProvider } from './context/E2EEContext';
 import { PreferencesProvider } from './context/PreferencesContext';
 import { checkSchemaCompatibility } from './lib/api';
 import { registerServiceWorker } from './lib/pwa';
@@ -15,11 +16,13 @@ watchSystemTheme();
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
-    <AuthProvider>
-      <PreferencesProvider>
+  <AuthProvider>
+    <PreferencesProvider>
+      <E2EEProvider>
         <App />
-      </PreferencesProvider>
-    </AuthProvider>
+      </E2EEProvider>
+    </PreferencesProvider>
+  </AuthProvider>
   </StrictMode>,
 );
 

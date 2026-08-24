@@ -738,28 +738,33 @@ test('boundary: src/lib/api.ts uses no message crypto', () => {
   }
 });
 
-test('boundary: sendMessage() still writes the existing plaintext path', () => {
+test('boundary: sendMessage() inserts prepared ciphertext and does no cryptography', () => {
   const api = fs.readFileSync(new URL('../../api.ts', import.meta.url), 'utf-8');
   const fn = api.match(/export async function sendMessage\([\s\S]*?\n}\n/);
   assert.ok(fn, 'sendMessage() must exist');
   const body = fn[0];
   assert.match(body, /\.from\('messages'\)/);
-  assert.match(body, /connection_id: connectionId, sender_id: senderId, ciphertext: text/);
-  for (const forbidden of ['encrypt', 'nonce', 'aad', 'sealed', 'derive']) {
+  // sendMessage is a pure transport: it inserts the already-prepared
+  // `ciphertext` value (an E2EE envelope, or plaintext for My Notes). It must
+  // not take a raw `text` param or perform any encryption itself.
+  assert.match(body, /sender_id: senderId, ciphertext\b/);
+  assert.equal(/ciphertext:\s*text\b/.test(body), false, 'sendMessage must not insert a raw text param');
+  for (const forbidden of ['encrypt', 'nonce', 'aad', 'sealed', 'derive', 'ratchet']) {
     assert.equal(body.toLowerCase().includes(forbidden), false, `sendMessage must not mention ${forbidden}`);
   }
 });
 
-test('boundary: no Supabase migration or messages-schema change in this phase', () => {
+test('boundary: prekey migration is additive and touches no messages / hand-rolled crypto', () => {
   const dir = new URL('../../../../supabase/migrations/', import.meta.url);
   const files = fs.readdirSync(dir).sort();
-  // 0010 is the latest live migration; E2EE-2A adds none.
+  // Phase 2 adds exactly the prekey infrastructure migration; it must exist.
   assert.equal(files.includes('0010_identity_public_key.sql'), true);
-  assert.equal(
-    files.some((f) => /^00(1[1-9]|[2-9]\d)/.test(f)),
-    false,
-    'E2EE-2A must not add a migration beyond 0010',
-  );
+  assert.equal(files.includes('0011_crypto_prekeys.sql'), true, 'Phase 2 prekey migration present');
+  const m0011 = fs.readFileSync(new URL('0011_crypto_prekeys.sql', dir), 'utf-8');
+  // The prekey migration must not alter the messages table or its schema.
+  assert.equal(/alter\s+table\s+public\.messages/i.test(m0011), false, '0011 must not alter messages');
+  assert.equal(/create\s+table.*messages/i.test(m0011), false, '0011 must not create a messages table');
+  // No hand-rolled cryptography in any migration (Signal owns the protocol).
   const combined = files.map((f) => fs.readFileSync(new URL(f, dir), 'utf-8')).join('\n');
   for (const forbidden of ['aes-gcm', 'hkdf', 'shared_secret', 'nonce']) {
     assert.equal(combined.toLowerCase().includes(forbidden), false, `migrations must not mention ${forbidden}`);

@@ -23,6 +23,7 @@ import {
   CRYPTO_STORE_RATCHET,
   CRYPTO_STORE_STATE,
   CRYPTO_STORE_VAULTKEYS,
+  DEVICE_RECORD_PREFIX,
   RECORD_IDENTITY,
   RECORD_SIGNED_PREKEY,
   RECORD_X25519_IDENTITY,
@@ -388,6 +389,31 @@ export async function deleteUserCryptoState(userId: string): Promise<void> {
     for (const rec of [RECORD_IDENTITY, RECORD_SIGNED_PREKEY, RECORD_X25519_IDENTITY]) {
       stateStore.delete(stateKeyFor(userId, rec));
     }
+    // E2EE-v0.2: wipe Signal device-store records (identity, signed prekey,
+    // one-time/kyber prekeys, kyber usage) stored under `${userId}:signal:`.
+    // They live in this same store, so they go in the same atomic transaction.
+    // The sealing key is deleted further below, so any record that somehow
+    // survived would already be unreadable — wiping the rows is defence in
+    // depth and keeps the prefix clean for a recreated account.
+    const deviceRange = IDBKeyRange.bound(
+      `${userId}:${DEVICE_RECORD_PREFIX}`,
+      `${userId}:${DEVICE_RECORD_PREFIX}\uffff`,
+      false,
+      false,
+    );
+    await new Promise<void>((resolve, reject) => {
+      const req = stateStore.openCursor(deviceRange);
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+        } else {
+          resolve();
+        }
+      };
+      req.onerror = () => reject(new CryptoError('STORAGE_ERROR', undefined, req.error));
+    });
     // Prefix-delete all prekeys for this user.
     const prekeyStore = transaction.objectStore(CRYPTO_STORE_PREKEYS);
     const range = IDBKeyRange.bound(prekeyPrefix(userId), prekeyPrefix(userId) + '\uffff', false, false);

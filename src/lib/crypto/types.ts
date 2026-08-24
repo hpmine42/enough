@@ -54,6 +54,19 @@ export const CRYPTO_STORE_RATCHET = 'ratchet';
 export const CRYPTO_STORE_VAULTKEYS = 'vaultkeys';
 
 /**
+ * Record-key prefix for E2EE-v0.2 Signal device-store records (E2EE Phase 1).
+ *
+ * These records — the serialized Signal identity keypair, registration id,
+ * signed prekey, one-time prekeys, kyber prekeys and kyber usage — are sealed
+ * by `src/lib/e2ee/device-store.ts` and stored in the EXISTING `state` object
+ * store under composite keys `${userId}:signal:<...>`. The prefix keeps them
+ * disjoint from the E2EE-1 foundation records (`identity`, `signed-prekey`,
+ * `x25519-identity`), so account deletion can wipe them with a single prefix
+ * range scan without touching the older records.
+ */
+export const DEVICE_RECORD_PREFIX = 'signal:';
+
+/**
  * Record keys for per-user singleton state. At rest these are stored under
  * composite keys `<userId>:<record-key>` to guarantee user isolation when
  * multiple accounts share a single browser profile (e.g. logout/login,

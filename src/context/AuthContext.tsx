@@ -29,6 +29,7 @@ import {
   getX25519IdentityPublicKeyBase64,
   ensureX25519Identity,
 } from '../lib/crypto';
+import { clearMessageCache } from '../lib/e2ee/message-cache';
 
 interface SignUpResult {
   error: string | null;
@@ -334,6 +335,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isE2eeSupported()) {
       try { await deleteUserCryptoState(deletedUserId); } catch { /* swallow */ }
     }
+    // Drop the local message plaintext cache for this account too.
+    try { clearMessageCache(deletedUserId); } catch { /* swallow */ }
     // Clear the local session only, then reset the in-memory state.
     await supabase.auth.signOut({ scope: 'local' });
     setUser(null);

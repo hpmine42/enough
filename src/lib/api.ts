@@ -591,17 +591,25 @@ export async function getLastMessages(
   return map;
 }
 
+/**
+ * Insert a message. `ciphertext` is the ALREADY-PREPARED value to store:
+ * an E2EE envelope for peer conversations, or plaintext for My Notes
+ * (self-connections). The caller (Chat) encrypts first via the session
+ * manager; this function performs no cryptography and never receives raw
+ * user text for a peer conversation. Supabase therefore never sees peer
+ * plaintext.
+ */
 export async function sendMessage(
   connectionId: string,
   senderId: string,
-  text: string,
+  ciphertext: string,
 ): Promise<{ message: Message | null; error: string | null }> {
   if (!supabase) {
     return { message: null, error: t('errors.network') };
   }
   const { data, error } = await supabase
     .from('messages')
-    .insert({ connection_id: connectionId, sender_id: senderId, ciphertext: text })
+    .insert({ connection_id: connectionId, sender_id: senderId, ciphertext })
     .select()
     .single();
   if (error) {

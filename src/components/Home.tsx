@@ -25,6 +25,8 @@ import {
 import { supabase } from '../lib/supabase';
 import { getLang, t } from '../i18n';
 import { Connection, Message, Profile } from '../lib/types';
+import { getCachedPlaintext } from '../lib/e2ee/message-cache';
+import { isEnvelope } from '../lib/e2ee/message-flow';
 import ThemeButton from './ThemeButton';
 import { GearIcon, NoteIcon } from './icons';
 import Dialog from './Dialog';
@@ -37,7 +39,12 @@ interface RowData {
   unread: number;
 }
 
-function previewOf(last: Message | undefined, lang: string, peerUsername: string): string | null {
+function previewOf(
+  last: Message | undefined,
+  lang: string,
+  peerUsername: string,
+  me: string,
+): string | null {
   if (!last) return null;
   if (last.deleted_at) {
     return t('chat.deletedForEveryoneOther', { username: peerUsername });
@@ -53,6 +60,11 @@ function previewOf(last: Message | undefined, lang: string, peerUsername: string
       username: last.meta?.username ?? peerUsername,
     });
   }
+  // E2EE: show cached plaintext if we have it; otherwise the envelope is
+  // opaque, so show a placeholder. Legacy plaintext / My Notes show as-is.
+  const cached = getCachedPlaintext(me, last.id);
+  if (cached !== null) return cached;
+  if (isEnvelope(last.ciphertext)) return t('chat.encryptedPreview');
   return last.ciphertext;
 }
 
@@ -348,6 +360,7 @@ export default function Home() {
                                 last ?? undefined,
                                 getLang(),
                                 other?.username ?? '',
+                                me,
                               ) ?? ''}
                             </span>
                           )}

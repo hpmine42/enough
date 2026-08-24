@@ -217,6 +217,11 @@ export const translations = {
       noMessages: 'No messages yet.',
       loadingOlder: 'Loading…',
       you: 'You',
+      encryptedPreview: 'Encrypted message',
+      undecryptable: 'Couldn’t decrypt this message.',
+      e2eeUnavailable:
+        'Secure messaging is unavailable in this browser. Update or reopen the app to send messages.',
+      e2eeFailed: 'Message could not be encrypted. It was not sent.',
       deleteChatForMe: 'Delete chat for me',
       deleteChatConfirmTitle: 'Delete chat?',
       deleteChatConfirmText:
@@ -480,6 +485,11 @@ export const translations = {
       noMessages: 'Noch keine Nachrichten.',
       loadingOlder: 'Laden…',
       you: 'Du',
+      encryptedPreview: 'Verschlüsselte Nachricht',
+      undecryptable: 'Diese Nachricht konnte nicht entschlüsselt werden.',
+      e2eeUnavailable:
+        'Sichere Nachrichten sind in diesem Browser nicht verfügbar. Aktualisiere oder öffne die App erneut, um Nachrichten zu senden.',
+      e2eeFailed: 'Die Nachricht konnte nicht verschlüsselt werden und wurde nicht gesendet.',
       deleteChatForMe: 'Chat für mich löschen',
       deleteChatConfirmTitle: 'Chat löschen?',
       deleteChatConfirmText:
