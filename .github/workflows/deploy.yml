@@ -33,6 +33,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # F5: supply-chain hash assertion for @getmaapp/signal-wasm@0.6.6.
+      # Byte-exact SHA-256 verification of the installed WASM/crypto artifacts
+      # against the audited manifest (docs/e2ee-f5-supply-chain.md). Pure
+      # filesystem check: no secrets, no network beyond the npm ci above.
+      # Any mismatch fails the workflow before build, tests and deploy.
+      - name: Verify signal-wasm artifacts (F5)
+        run: npm run verify:signal-wasm
+
       - name: Build
         run: npm run build
         env:
