@@ -44,6 +44,27 @@ jobs:
           # GitHub Pages serves this project at https://<user>.github.io/enough/
           VITE_BASE: /enough/
 
+      - name: Test crypto
+        run: npm run test:crypto
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_BASE: /enough/
+
+      - name: Test crypto engine
+        run: npm run test:crypto:engine
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_BASE: /enough/
+
+      - name: Smoke test
+        run: npm run smoke
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_BASE: /enough/
+          
       - name: Setup Pages
         uses: actions/configure-pages@v6
       
