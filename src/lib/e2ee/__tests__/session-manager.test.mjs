@@ -18,6 +18,7 @@ import { initEngineSyncForTests } from '../engine-adapter.ts';
 import { E2EESessionManager, parseEnvelope } from '../session-manager.ts';
 import { deleteCryptoDatabase } from '../../crypto/storage.ts';
 import { isCryptoError } from '../../crypto/errors.ts';
+import { listKyberPreKeys, loadKyberLastResort } from '../device-store.ts';
 
 const require = createRequire(import.meta.url);
 const entry = require.resolve('@getmaapp/signal-wasm');
@@ -62,13 +63,16 @@ class FakeServer {
 
 async function reset() { await deleteCryptoDatabase(); }
 
-async function newManager(server, userId) {
+async function newManager(server, userId, opts = {}) {
   const m = new E2EESessionManager({
     userId,
     publisher: server.publisher(userId),
     bundleProvider: (peer) => server.claim(peer),
     acquireLock: passthroughLock,
-    otkPoolSize: 5, otkThreshold: 2, kyberPoolSize: 3, kyberThreshold: 1,
+    otkPoolSize: opts.otkPoolSize ?? 5,
+    otkThreshold: opts.otkThreshold ?? 2,
+    kyberPoolSize: opts.kyberPoolSize ?? 3,
+    kyberThreshold: opts.kyberThreshold ?? 1,
   });
   await m.initialize();
   return m;
@@ -200,4 +204,87 @@ test('SM7: out-of-order delivery decrypts via the manager', async () => {
     assert.equal((await bob.decryptFromPeer(alice.userId, 'c', c)).plaintext, 'C');
     assert.equal((await bob.decryptFromPeer(alice.userId, 'c', a)).plaintext, 'A');
   } finally { alice.destroy(); bob.destroy(); }
+});
+
+/* ---------------- Kyber last-resort correctness (audit F1) ---------------- */
+
+test('SM8: Kyber id isolation — last-resort id=1, one-time ids start at 2', async () => {
+  assert.ifError(initErr);
+  await reset();
+  const server = new FakeServer();
+  const u = freshUser();
+  const m = await newManager(server, u);
+  try {
+    const lastResort = await loadKyberLastResort(u);
+    assert.ok(lastResort, 'last-resort kyber present');
+    const oneTimeIds = (await listKyberPreKeys(u)).map((k) => Number(k.keyId));
+    assert.ok(oneTimeIds.length > 0, 'one-time kyber pool generated');
+    assert.ok(oneTimeIds.every((id) => id >= 2), 'one-time ids are all >= 2: ' + JSON.stringify(oneTimeIds));
+    assert.equal(oneTimeIds.includes(1), false, 'no one-time kyber uses the reserved last-resort id 1');
+    const pub = server.devices.get(u);
+    const lr = pub.kyberPreKeys.find((k) => k.isLastResort);
+    const ot = pub.kyberPreKeys.filter((k) => !k.isLastResort);
+    assert.equal(lr.keyId, 1);
+    assert.ok(ot.every((k) => k.keyId >= 2), 'published one-time kyber ids >= 2');
+  } finally { m.destroy(); }
+});
+
+test('SM9: last-resort fallback — no one-time kyber, establishment still works', async () => {
+  assert.ifError(initErr);
+  await reset();
+  const server = new FakeServer();
+  const bob = await newManager(server, freshUser(), { kyberPoolSize: 0, kyberThreshold: 0 });
+  const alice = await newManager(server, freshUser());
+  try {
+    const pub = server.devices.get(bob.userId);
+    assert.equal(pub.kyberPreKeys.filter((k) => !k.isLastResort).length, 0, 'bob has no one-time kyber');
+    assert.ok(pub.kyberPreKeys.some((k) => k.isLastResort), 'bob has last-resort');
+    const env = await alice.encryptForPeer(bob.userId, 'c', 'via last-resort');
+    const out = await bob.decryptFromPeer(alice.userId, 'c', env);
+    assert.equal(out.plaintext, 'via last-resort');
+  } finally { alice.destroy(); bob.destroy(); }
+});
+
+test('SM10: last-resort reuse — a second sender establishes over the same last-resort', async () => {
+  assert.ifError(initErr);
+  await reset();
+  const server = new FakeServer();
+  const bob = await newManager(server, freshUser(), { kyberPoolSize: 0, kyberThreshold: 0 });
+  const alice = await newManager(server, freshUser());
+  const carol = await newManager(server, freshUser());
+  try {
+    const e1 = await alice.encryptForPeer(bob.userId, 'c1', 'first');
+    assert.equal((await bob.decryptFromPeer(alice.userId, 'c1', e1)).plaintext, 'first');
+    assert.ok(await loadKyberLastResort(bob.userId), 'last-resort survives first use');
+    const e2 = await carol.encryptForPeer(bob.userId, 'c2', 'second');
+    assert.equal((await bob.decryptFromPeer(carol.userId, 'c2', e2)).plaintext, 'second');
+    assert.ok(await loadKyberLastResort(bob.userId), 'last-resort survives second use');
+  } finally { alice.destroy(); bob.destroy(); carol.destroy(); }
+});
+
+test('SM11: one-time kyber lifecycle — consumed key evicted from engine + device-store, not re-imported on reload', async () => {
+  assert.ifError(initErr);
+  await reset();
+  const server = new FakeServer();
+  const bob = await newManager(server, freshUser());
+  const alice = await newManager(server, freshUser());
+  try {
+    const before = (await listKyberPreKeys(bob.userId)).map((k) => Number(k.keyId)).sort();
+    assert.ok(before.length > 0 && before.every((id) => id >= 2), 'one-time kyber present, ids >= 2');
+    assert.ok(await loadKyberLastResort(bob.userId), 'last-resort present before use');
+    const env = await alice.encryptForPeer(bob.userId, 'c', 'consume');
+    await bob.decryptFromPeer(alice.userId, 'c', env);
+    const after = (await listKyberPreKeys(bob.userId)).map((k) => Number(k.keyId)).sort();
+    assert.equal(after.length, before.length - 1, 'exactly one one-time kyber removed from device-store');
+    const removed = before.find((id) => !after.includes(id));
+    assert.ok(removed !== undefined && removed !== 1, 'a one-time kyber (not the last-resort) was removed');
+    assert.ok(await loadKyberLastResort(bob.userId), 'last-resort intact after one-time use');
+    bob.destroy();
+    const bob2 = await newManager(server, bob.userId);
+    try {
+      const reloaded = (await listKyberPreKeys(bob.userId)).map((k) => Number(k.keyId));
+      assert.equal(reloaded.includes(removed), false, 'consumed one-time kyber not re-imported on reload');
+      assert.ok(await loadKyberLastResort(bob.userId), 'last-resort intact after reload');
+    } finally { bob2.destroy(); }
+  } finally { alice.destroy(); }
 });

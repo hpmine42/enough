@@ -174,6 +174,13 @@ Postgres/Supabase to execute** and are not run by the Node suite.
   (#41). Pinned version + (recommended follow-up) vendored hash-pinned artifacts.
 - **Signed-prekey rotation deferred** (id fixed at 1 this phase); refill of
   one-time pools is implemented.
+- **Kyber last-resort correctness (audit F1): FIXED.** One-time Kyber ids are
+  reserved to start at 2 so they never collide with the reusable last-resort
+  (id 1) in the engine's kyber store; a consumed ONE-TIME Kyber is now evicted
+  from both the engine store and the durable device-store (never re-imported on
+  reload), while the reusable LAST-RESORT Kyber is never evicted. Covered by
+  real-engine tests SM8–SM11 (id isolation, last-resort fallback, last-resort
+  reuse, one-time lifecycle).
 
 ---
 

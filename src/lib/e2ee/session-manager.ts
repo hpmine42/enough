@@ -55,7 +55,7 @@ import {
   saveRegistrationId, loadRegistrationId,
   saveSignedPreKey, loadSignedPreKey,
   saveOneTimePreKey, listOneTimePreKeys, removeOneTimePreKey, countOneTimePreKeys,
-  saveKyberPreKey, listKyberPreKeys, countKyberPreKeys,
+  saveKyberPreKey, listKyberPreKeys, countKyberPreKeys, removeKyberPreKey,
   saveKyberLastResort, loadKyberLastResort,
   saveKyberUsage, loadKyberUsage,
   savePeerTrust, loadPeerTrust,
@@ -377,11 +377,17 @@ export class E2EESessionManager {
     const { type, body } = decodeWireCiphertext(wire);
     const established = await decryptEstablishingMessage(this.device!, local, sender, body, type);
     await adoptSessionFromEstablishment(this.userId, connectionId, established.nextState);
-    // Tombstone consumed one-time keys and persist updated kyber anti-replay.
+    // Tombstone consumed one-time keys and persist the updated Kyber anti-replay
+    // memory. A consumed ONE-TIME Kyber is evicted from the engine store AND the
+    // durable device-store (so it is never re-imported on reload). The reusable
+    // LAST-RESORT Kyber is never evicted — it must serve future establishments.
     const consumed = established.consumed;
     if (consumed.kyberPreKeyId !== undefined) {
-      removeConsumedKyberPreKey(this.device!, consumed.kyberPreKeyId);
       await saveKyberUsage(this.userId, exportKyberUsage(this.device!.kyberPreKeyStore));
+      if (consumed.kyberPreKeyId !== LAST_RESORT_KYBER_ID) {
+        removeConsumedKyberPreKey(this.device!, consumed.kyberPreKeyId);
+        await removeKyberPreKey(this.userId, consumed.kyberPreKeyId);
+      }
     }
     if (consumed.oneTimePreKeyId !== undefined) {
       await removeOneTimePreKey(this.userId, consumed.oneTimePreKeyId);
@@ -445,7 +451,10 @@ export class E2EESessionManager {
 
   private async nextKyberId(): Promise<number> {
     const all = await listKyberPreKeys(this.userId);
-    return all.reduce((max, k) => Math.max(max, Number(k.keyId)), 0) + 1;
+    const maxUsed = all.reduce((max, k) => Math.max(max, Number(k.keyId)), 0);
+    // Reserve id 1 for the reusable last-resort Kyber; one-time ids start at 2
+    // so they never collide with the last-resort in the engine's kyber store.
+    return Math.max(maxUsed, LAST_RESORT_KYBER_ID) + 1;
   }
 
   /**
