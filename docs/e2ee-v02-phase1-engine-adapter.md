@@ -189,8 +189,11 @@ Postgres/Supabase to execute** and are not run by the Node suite.
 - **`AuthContext`** no longer needs E2EE wiring (the `E2EEContext` handles it);
   the legacy E2EE-1 `initCrypto`/`identity_public_key` path still runs alongside
   and will be removed with the primitive-layer deprecation.
-- **Vendoring + CI hash-pinning** of the WASM artifacts (recommended hardening;
-  the dependency is pinned exact at `0.6.6`).
+- **Vendoring + CI hash-pinning** of the WASM artifacts was resolved in F5:
+  the installed `@getmaapp/signal-wasm@0.6.6` artifacts are now byte-exactly
+  verified by a CI hash assertion (`scripts/verify-signal-wasm.mjs`,
+  `docs/e2ee-f5-supply-chain.md`); vendoring was evaluated and rejected as
+  net-negative complexity (see that doc).
 - **Signed-prekey rotation; full identity-change UI** (safety-number display).
 - **Removal of the legacy hand-built primitive layer** (`keys.ts`/`identity.ts`/
   `prekeys.ts`/`kdf.ts`/…) — deferred.
