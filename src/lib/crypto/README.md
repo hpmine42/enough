@@ -2,6 +2,17 @@
 
 End-to-end encryption **foundation** for enough. (E2EE-1) — **NOT yet E2EE**.
 
+> **Status update (audit finding F2):** the E2EE-1 login initialization
+> (`AuthContext.ensureCryptoReady` → `initCrypto`, including the publish of an
+> X25519 public key to `profiles.identity_public_key`) has been **removed from
+> the app** — the production message flow uses the Signal-based E2EE
+> architecture in `src/lib/e2ee/`, which does not depend on this layer.
+> The modules below remain as a tested library (and for the shared
+> storage/serialization primitives the Signal layer builds on); their removal
+> is deferred. `profiles.identity_public_key` is no longer written or read by
+> any production path; the column and migration `0010` stay in place
+> unchanged.
+
 ## Status — Explicitly NOT yet E2EE
 
 This directory contains **identity and prekey infrastructure only**.
@@ -20,13 +31,12 @@ plaintext to `messages.ciphertext` — this is intentional and documented in
   This encoding is deterministic, reversible, and documented for
   `profiles.identity_public_key`. The column contains **only public-key
   material** — private keys never leave the browser.
-- `profiles.identity_public_key` (`text`, nullable, migration `0010`) stores
-  **strictly X25519 public keys** (base64, 32 bytes decoded). Ed25519 must
-  never be written there. Existing users are backfilled lazily on next
-  `initCrypto(userId)`; `Supabase never receives a private key`. If X25519 is
-  not available in the current browser/context, the foundation is marked
-  **not available** and **no alternative key** is stored — the messenger
-  continues unchanged in plaintext mode.
+- `profiles.identity_public_key` (`text`, nullable, migration `0010`) was
+  specified to store **strictly X25519 public keys** (base64, 32 bytes
+  decoded); Ed25519 must never be written there. Since F2 the app no longer
+  initializes E2EE-1 at login and **no production path writes or reads this
+  column**; the column, its rules and migration `0010` remain in the schema
+  unchanged. `Supabase never receives a private key` under either regime.
 - The mere storage of a public key in `profiles` **does NOT yet provide
   complete E2EE identity verification** (no fingerprint/safety-number
   verification, no trust-on-first-use UI).
@@ -65,10 +75,12 @@ The code here establishes:
 4. **Serialization** (`serialization.ts`) — base64 helpers for **public**
    key material only. Never use these to serialize private keys.
 5. **Errors** (`errors.ts`) — generic messages that contain no secret material.
-6. **Initialization** (`index.ts:initCrypto`) — on authenticated session,
-   loads or generates the identity, ensures signed prekey + OTK pool,
-   ensures the X25519 identity, and (via `AuthContext`) publishes **only**
-   the public key to `profiles.identity_public_key`.
+6. **Initialization** (`index.ts:initCrypto`) — loads or generates the
+   identity, ensures signed prekey + OTK pool, and ensures the X25519
+   identity. **No longer called by application code** (removed from login
+   with F2); it remains a library entry point exercised by the crypto test
+   suite. Production E2EE initialization lives in
+   `src/context/E2EEContext.tsx` → `src/lib/e2ee/session-manager.ts`.
 
 ## Public API
 

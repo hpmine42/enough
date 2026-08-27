@@ -294,15 +294,17 @@ test('X25519-only: Ed25519 public key must never be written to identity_public_k
   assert.equal(toPublish, xB64);
   assert.notEqual(toPublish, edB64);
 
-  // Ensure no code path in AuthContext would fallback to Ed25519:
-  // read AuthContext source and assert it does NOT contain fallback to bundle.identityKey for publish
+  // F2: the E2EE-1 login initialization/publish path was removed from the
+  // app. The strongest guarantee is now that AuthContext performs no E2EE-1
+  // wiring at all — no initCrypto call, no identity_public_key read/write.
+  // (This subsumes the old "must not fall back to Ed25519" assertion:
+  // nothing is published, so no wrong key can ever reach the column.)
   const fs = await import('node:fs');
   const ctx = fs.readFileSync(new URL('../../../context/AuthContext.tsx', import.meta.url), 'utf-8');
-  // The corrected code must NOT contain the old fallback pattern
-  assert.equal(ctx.includes('bundle.identityKey'), false, 'AuthContext must not fallback to Ed25519 bundle for identity_public_key');
-  assert.equal(ctx.includes('Strict X25519-only'), true);
-  // It must contain the X25519-only comment and early return on failure
-  assert.match(ctx, /X25519 not available/);
+  assert.equal(ctx.includes('initCrypto'), false, 'AuthContext must not initialize the legacy E2EE-1 subsystem');
+  assert.equal(ctx.includes('ensureCryptoReady'), false, 'AuthContext must not contain the legacy E2EE-1 login hook');
+  assert.equal(ctx.includes('identity_public_key'), false, 'AuthContext must not touch profiles.identity_public_key');
+  assert.equal(ctx.includes('updateMyIdentityPublicKey'), false, 'AuthContext must not publish an identity public key');
 });
 
 test('X25519-only: initCrypto publishes X25519, not Ed25519 bundle', async () => {
@@ -353,13 +355,13 @@ test('profile API: updates send only allow-listed fields', async () => {
   assert.equal(displayUpdate[1].includes('identity_public_key'), false);
   assert.equal(displayUpdate[1].includes('private'), false);
 
-  // updateMyIdentityPublicKey must only send identity_public_key
-  const idUpdate = api.match(/updateMyIdentityPublicKey[\s\S]*?\.update\(\s*\{([^}]+)\}/);
-  assert.ok(idUpdate, 'updateMyIdentityPublicKey update block found');
-  assert.match(idUpdate[1], /identity_public_key/);
-  assert.equal(idUpdate[1].includes('display_name'), false);
-  assert.equal(idUpdate[1].includes('privateKey'), false);
-  assert.equal(idUpdate[1].includes('private'), false);
+  // F2: the E2EE-1 publish path was removed, so the profile API must not
+  // contain any identity_public_key write surface at all. (This subsumes the
+  // old assertion that updateMyIdentityPublicKey only sent that column.)
+  assert.equal(api.includes('updateMyIdentityPublicKey'), false, 'identity public key publish helper must not exist');
+  assert.equal(api.includes('getMyIdentityPublicKey'), false, 'identity public key read helper must not exist');
+  assert.equal(/\.update\(\s*\{\s*identity_public_key/.test(api), false, 'api.ts must not write identity_public_key');
+  assert.equal(/\.select\([^)]*identity_public_key/.test(api), false, 'api.ts must not select identity_public_key');
 });
 
 // ---------------------------------------------------------------------------

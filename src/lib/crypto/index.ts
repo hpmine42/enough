@@ -169,7 +169,7 @@ export async function initCrypto(userId: string): Promise<PublicIdentityBundle> 
       }
     } catch {
       // X25519 generation failure must not break the main Ed25519 flow.
-      // The caller (AuthContext) will handle fallback and not leak keys.
+      // Callers handle the fallback and never leak keys.
     }
     return bundle;
   })();

@@ -187,8 +187,8 @@ Postgres/Supabase to execute** and are not run by the Node suite.
 ## 5. What is NOT implemented (later phases)
 
 - **`AuthContext`** no longer needs E2EE wiring (the `E2EEContext` handles it);
-  the legacy E2EE-1 `initCrypto`/`identity_public_key` path still runs alongside
-  and will be removed with the primitive-layer deprecation.
+  the legacy E2EE-1 `initCrypto`/`identity_public_key` login path was removed
+  (audit finding F2) — only the deferred primitive-layer file removal remains.
 - **Vendoring + CI hash-pinning** of the WASM artifacts was resolved in F5:
   the installed `@getmaapp/signal-wasm@0.6.6` artifacts are now byte-exactly
   verified by a CI hash assertion (`scripts/verify-signal-wasm.mjs`,

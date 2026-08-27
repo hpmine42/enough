@@ -23,8 +23,9 @@
 // both: Ed25519 remains the signing identity, X25519 here is the key-
 // agreement identity. Future message encryption will use X25519 +
 // HKDF-SHA256 + AES-256-GCM. The profile column `profiles.identity_public_key`
-// is strictly X25519 only — Ed25519 must never be written there (see
-// AuthContext ensureCryptoReady). If X25519 is unavailable, the foundation
+// is strictly X25519 only — Ed25519 must never be written there. (The
+// login-time publish path was removed with audit finding F2; the app no
+// longer writes this column.) If X25519 is unavailable, the foundation
 // is marked not available and no alternative key is stored.
 
 import { CryptoError } from './errors.ts';

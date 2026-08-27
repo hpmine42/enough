@@ -17,17 +17,13 @@ import {
   deleteOwnAccount,
   getMyProfile,
   updateMyDisplayName,
-  updateMyIdentityPublicKey,
   upsertProfile,
 } from '../lib/api';
 import { t } from '../i18n';
 import { Profile } from '../lib/types';
 import {
-  initCrypto,
   isE2eeSupported,
   deleteUserCryptoState,
-  getX25519IdentityPublicKeyBase64,
-  ensureX25519Identity,
 } from '../lib/crypto';
 import { clearMessageCache } from '../lib/e2ee/message-cache';
 
@@ -73,72 +69,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(p);
   }, []);
 
-  /**
-   * Initialize local E2EE identity for the signed-in user.
-   * Receives the current Supabase user id so crypto state is correctly
-   * isolated per account on shared devices.
-   * Errors are caught — E2EE-1 never breaks login; if crypto isn't available
-   * (old browser, restricted context) we log a generic warning and continue.
-   * We deliberately do NOT log any key material or bundle contents.
-   *
-   * Flow (per PR scope — X25519 only):
-   *   1. determine user id (caller)
-   *   2. look for X25519 identity in IndexedDB (inside initCrypto)
-   *   3. if found, load; if not, generate X25519 keypair (non-extractable)
-   *   4. store locally (IndexedDB, per-user, non-extractable)
-   *   5. export ONLY X25519 public key (base64, 32 bytes)
-   *   6. upload ONLY X25519 public key to profiles.identity_public_key
-   * No private key ever leaves the browser. No Ed25519 fallback is ever
-   * written to identity_public_key — that column is strictly X25519.
-   */
-  const ensureCryptoReady = useCallback((userId: string) => {
-    if (!isE2eeSupported() || !userId) return;
-    initCrypto(userId)
-      .then(async () => {
-        try {
-          // Strict X25519-only: identity_public_key must contain ONLY an
-          // X25519 public key. If X25519 is not available, mark foundation
-          // as unavailable and do NOT store an alternative (e.g. Ed25519).
-          let publicKeyBase64: string | null = null;
-          try {
-            publicKeyBase64 = await getX25519IdentityPublicKeyBase64(userId);
-            if (!publicKeyBase64) {
-              publicKeyBase64 = await ensureX25519Identity(userId);
-            }
-          } catch {
-            // X25519 not available in this browser/context — E2EE foundation
-            // not available. Do not store an alternative key; keep messenger
-            // in plaintext mode unchanged.
-            return;
-          }
-          if (!publicKeyBase64 || !supabase) return;
-          // Avoid redundant writes: check current DB value first.
-          // This is best-effort; failures are non-fatal.
-          try {
-            const { data } = await supabase
-              .from('profiles')
-              .select('identity_public_key')
-              .eq('id', userId)
-              .maybeSingle();
-            const current = (data as { identity_public_key?: string | null } | null)?.identity_public_key ?? null;
-            if (current === publicKeyBase64) return;
-          } catch {
-            // ignore read failure, proceed to write
-          }
-          // Only the X25519 public key field is ever sent — never private material,
-          // never an Ed25519 fallback.
-          await updateMyIdentityPublicKey(userId, publicKeyBase64);
-        } catch {
-          // Swallow publish errors; do not block messenger and do not leak keys.
-        }
-      })
-      .catch(() => {
-        // Fail closed-silent: message flow continues in plaintext mode.
-        // A future UI phase can surface this to the user.
-        console.warn('enough.: E2EE initialization failed; continuing in plaintext mode.');
-      });
-  }, []);
-
   useEffect(() => {
     if (!supabase) {
       setLoading(false);
@@ -160,7 +90,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       if (sessionUser) {
         loadProfile(sessionUser.id);
-        ensureCryptoReady(sessionUser.id);
       } else {
         setProfile(null);
       }
@@ -172,7 +101,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(sessionUser);
       if (sessionUser) {
         loadProfile(sessionUser.id);
-        ensureCryptoReady(sessionUser.id);
         if (hasImplicitRecoveryCallback) setRecovery(true);
       }
       setLoading(false);
@@ -328,10 +256,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const deletedUserId = user.id;
     const err = await deleteOwnAccount();
     if (err) return err;
-    // The account is gone server-side. Remove the local crypto identity
-    // for this account so no orphaned half-identity remains on the device.
-    // This is a best-effort local cleanup; failures are non-fatal because
-    // the server-side deletion is already committed.
+    // The account is gone server-side. Remove the local E2EE device state
+    // for this account (Signal identity/prekeys/sessions plus any remaining
+    // legacy E2EE-1 records and the sealing key) so no orphaned half-identity
+    // remains on the device. This is a best-effort local cleanup; failures
+    // are non-fatal because the server-side deletion is already committed.
     if (isE2eeSupported()) {
       try { await deleteUserCryptoState(deletedUserId); } catch { /* swallow */ }
     }
