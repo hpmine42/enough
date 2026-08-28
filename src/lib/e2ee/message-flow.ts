@@ -94,18 +94,18 @@ export async function decryptForDisplay(opts: {
   if (message.kind && message.kind !== 'text') return { plaintext: null };
 
   // 1. Local cache first (idempotent — never re-decrypts an advanced ratchet).
-  const cached = getCachedPlaintext(me, message.id);
+  const cached = await getCachedPlaintext(me, message.id);
   if (cached !== null) return { plaintext: cached };
 
   // 2. My Notes: plaintext is stored in the row.
   if (isSelf) {
-    cachePlaintext(me, message.id, message.ciphertext);
+    await cachePlaintext(me, message.id, message.ciphertext);
     return { plaintext: message.ciphertext };
   }
 
   // 3. Legacy plaintext row (pre-E2EE): show as-is and cache.
   if (!isEnvelope(message.ciphertext)) {
-    cachePlaintext(me, message.id, message.ciphertext);
+    await cachePlaintext(me, message.id, message.ciphertext);
     return { plaintext: message.ciphertext };
   }
 
@@ -115,6 +115,6 @@ export async function decryptForDisplay(opts: {
   // 5. Incoming envelope: decrypt (establishing on the first PreKey message).
   if (!e2ee) return { plaintext: null };
   const outcome = await e2ee.decryptFromPeer(message.sender_id, connectionId, message.ciphertext);
-  cachePlaintext(me, message.id, outcome.plaintext);
+  await cachePlaintext(me, message.id, outcome.plaintext);
   return { plaintext: outcome.plaintext };
 }

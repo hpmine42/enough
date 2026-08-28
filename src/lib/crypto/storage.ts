@@ -25,6 +25,7 @@ import {
   CRYPTO_STORE_VAULTKEYS,
   DEVICE_RECORD_PREFIX,
   RECORD_IDENTITY,
+  RECORD_MESSAGE_CACHE,
   RECORD_SIGNED_PREKEY,
   RECORD_X25519_IDENTITY,
   prekeyCompositeKey,
@@ -386,7 +387,7 @@ export async function deleteUserCryptoState(userId: string): Promise<void> {
       'readwrite',
     );
     const stateStore = transaction.objectStore(CRYPTO_STORE_STATE);
-    for (const rec of [RECORD_IDENTITY, RECORD_SIGNED_PREKEY, RECORD_X25519_IDENTITY]) {
+    for (const rec of [RECORD_IDENTITY, RECORD_SIGNED_PREKEY, RECORD_X25519_IDENTITY, RECORD_MESSAGE_CACHE]) {
       stateStore.delete(stateKeyFor(userId, rec));
     }
     // E2EE-v0.2: wipe Signal device-store records (identity, signed prekey,

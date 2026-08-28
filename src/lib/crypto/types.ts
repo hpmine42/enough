@@ -83,9 +83,23 @@ export const RECORD_SIGNED_PREKEY = 'signed-prekey';
  */
 export const RECORD_X25519_IDENTITY = 'x25519-identity';
 
+/**
+ * Record key for the sealed local message cache envelope (E2EE v0.2 audit F6).
+ *
+ * Persisted in `CRYPTO_STORE_STATE` under composite key `${userId}:msgcache`.
+ * Sealed with AES-GCM-256 under the user's non-extractable sealing key
+ * (`vaultkeys` store) with AAD bound to the user id.
+ */
+export const RECORD_MESSAGE_CACHE = 'msgcache';
+
 /** Build the composite state key for a given user + record type. */
 export function stateKeyFor(userId: string, recordKey: string): string {
   return `${userId}:${recordKey}`;
+}
+
+/** Composite key for the sealed message cache record of a user. */
+export function messageCacheKeyFor(userId: string): string {
+  return stateKeyFor(userId, RECORD_MESSAGE_CACHE);
 }
 
 /** Prefix used to scope one-time-prekey entries per user in the prekeys store. */

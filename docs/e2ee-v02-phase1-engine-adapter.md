@@ -69,9 +69,11 @@ owner decision.
   `prepareSend` (encrypt for peer / My-Notes plaintext exception / fail-closed
   when the manager is unavailable) and `decryptForDisplay` (local cache →
   My Notes → legacy → real decrypt → placeholder, never invented).
-- **`src/lib/e2ee/message-cache.ts`** — LOCAL plaintext cache (the Signal
-  model: the device holds plaintext for messages it can show; Supabase holds
-  only ciphertext). Local-only, per-user, never transmitted.
+- **`src/lib/e2ee/message-cache.ts`** — LOCAL sealed message cache (audit
+  finding F6: sealed with AES-256-GCM under the per-user non-extractable
+  WebCrypto key in `enough-crypto`; the Signal model: the device holds local
+  sealed plaintext for messages it can show; Supabase holds only ciphertext).
+  Local-only, per-user, never transmitted.
 - **`src/context/E2EEContext.tsx`** — per-authenticated-user session manager.
   Created on sign-in, **destroyed on logout/account switch** (no cross-user
   reuse). Fail-closed while the manager is unavailable.

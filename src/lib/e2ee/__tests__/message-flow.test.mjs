@@ -23,7 +23,12 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { prepareSend, decryptForDisplay, isEnvelope } from '../message-flow.ts';
-import { getCachedPlaintext, cachePlaintext, clearMessageCache } from '../message-cache.ts';
+import {
+  getCachedPlaintext,
+  cachePlaintext,
+  clearMessageCache,
+  _resetMessageCacheForTests,
+} from '../message-cache.ts';
 import { isCryptoError } from '../../crypto/errors.ts';
 
 let seq = 0;
@@ -61,6 +66,7 @@ function msg(over = {}) {
 
 beforeEach(() => {
   memStore.clear();
+  _resetMessageCacheForTests();
 });
 
 test('MF1: prepareSend for a peer encrypts and returns an envelope (not plaintext)', async () => {
@@ -95,7 +101,7 @@ test('MF4: prepareSend on encryption failure throws and returns nothing (no plai
 test('MF5: decryptForDisplay serves a cached plaintext without calling the engine', async () => {
   const me = freshUser();
   const m = mockManager();
-  cachePlaintext(me, 'm-1', 'cached-text');
+  await cachePlaintext(me, 'm-1', 'cached-text');
   const { plaintext } = await decryptForDisplay({ e2ee: m, isSelf: false, me, message: msg({ ciphertext: '{"v":1,"e":"sw","t":2,"b":"YQ=="}' }), connectionId: CONN });
   assert.equal(plaintext, 'cached-text');
   assert.equal(m.calls.decrypt, 0, 'cache hit must not invoke the engine');
@@ -131,7 +137,7 @@ test('MF9: decryptForDisplay for an incoming envelope decrypts once and caches t
   const { plaintext } = await decryptForDisplay({ e2ee: m, isSelf: false, me, message: msg({ ciphertext: '{"v":1,"e":"sw","t":2,"b":"YQ=="}', sender_id: 'peer' }), connectionId: CONN });
   assert.equal(plaintext, 'DECRYPTED-TEXT');
   assert.equal(m.calls.decrypt, 1);
-  assert.equal(getCachedPlaintext(me, 'm-1'), 'DECRYPTED-TEXT', 'decrypted plaintext is cached locally');
+  assert.equal(await getCachedPlaintext(me, 'm-1'), 'DECRYPTED-TEXT', 'decrypted plaintext is cached locally');
 });
 
 test('MF10: decryptForDisplay for an incoming envelope with no manager returns null (no invented text)', async () => {
@@ -162,16 +168,16 @@ test('MF12: a tampered / unparseable value is treated as legacy plaintext, never
 
 test('MF13: clearMessageCache wipes local plaintext but is local-only', async () => {
   const me = freshUser();
-  cachePlaintext(me, 'm-1', 'secret');
-  assert.equal(getCachedPlaintext(me, 'm-1'), 'secret');
-  clearMessageCache(me);
-  assert.equal(getCachedPlaintext(me, 'm-1'), null);
+  await cachePlaintext(me, 'm-1', 'secret');
+  assert.equal(await getCachedPlaintext(me, 'm-1'), 'secret');
+  await clearMessageCache(me);
+  assert.equal(await getCachedPlaintext(me, 'm-1'), null);
 });
 
 test('MF14: user isolation — A and B caches do not cross', async () => {
   const a = freshUser();
   const b = freshUser();
-  cachePlaintext(a, 'm-1', 'alice-text');
-  assert.equal(getCachedPlaintext(a, 'm-1'), 'alice-text');
-  assert.equal(getCachedPlaintext(b, 'm-1'), null, 'B cannot read A cache');
+  await cachePlaintext(a, 'm-1', 'alice-text');
+  assert.equal(await getCachedPlaintext(a, 'm-1'), 'alice-text');
+  assert.equal(await getCachedPlaintext(b, 'm-1'), null, 'B cannot read A cache');
 });
