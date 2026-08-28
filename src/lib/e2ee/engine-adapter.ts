@@ -51,6 +51,7 @@ import initWasm, {
   processPreKeyBundle,
   encryptMessage,
   decryptMessage,
+  verifyIdentitySignature as wasmVerifyIdentitySignature,
 } from '@getmaapp/signal-wasm';
 import type { EphemeralEngine, EngineFactory } from '../crypto/ratchet-session.ts';
 import { CryptoError } from '../crypto/errors.ts';
@@ -157,6 +158,29 @@ export async function identityPublicKeyFromPair(pairBytes: Uint8Array): Promise<
     return pair.public_key.serialize();
   } finally {
     pair.free();
+  }
+}
+
+/**
+ * Verify an Ed25519 signature made with the identity key (`message` is the
+ * exact byte string that was signed — for a signed prekey, its serialized
+ * engine public key).
+ *
+ * Used by the F8 rotation lifecycle to confirm that advertised public
+ * material really belongs to the local identity key. No new primitive: this
+ * is the engine's own identity-signature verification.
+ */
+export async function verifyIdentitySignature(
+  identityPublicKeyBytes: Uint8Array,
+  message: Uint8Array,
+  signature: Uint8Array,
+): Promise<boolean> {
+  await ensureEngineReady();
+  const pub = WasmPublicKey.deserialize(identityPublicKeyBytes);
+  try {
+    return wasmVerifyIdentitySignature(pub, message, signature);
+  } finally {
+    pub.free();
   }
 }
 
@@ -296,6 +320,13 @@ export interface DeviceRecords {
   identityPairBytes: Uint8Array;
   registrationId: number;
   signedPreKey: { id: number; record: Uint8Array };
+  /**
+   * Previously advertised signed prekeys that are retained after rotation
+   * (F8). They are imported alongside the current key so a handshake that
+   * was started against an older bundle can still be completed. Entries
+   * whose id equals `signedPreKey.id` are skipped.
+   */
+  retainedSignedPreKeys?: { id: number; record: Uint8Array }[];
   oneTimePreKeys: { id: number; record: Uint8Array }[];
   kyberPreKeys: { id: number; record: Uint8Array }[];
   kyberUsage: Uint8Array | null;
@@ -324,6 +355,11 @@ export async function hydrateDevice(records: DeviceRecords): Promise<HydratedDev
   const kyberPreKeyStore = new WasmInMemKyberPreKeyStore();
 
   await signedPreKeyStore.import_signed_pre_key(records.signedPreKey.id, records.signedPreKey.record);
+  // F8: retained (rotated-out) signed prekeys stay addressable by their id.
+  for (const prev of records.retainedSignedPreKeys ?? []) {
+    if (prev.id === records.signedPreKey.id) continue;
+    await signedPreKeyStore.import_signed_pre_key(prev.id, prev.record);
+  }
   for (const otk of records.oneTimePreKeys) {
     await preKeyStore.import_pre_key(otk.id, otk.record);
   }

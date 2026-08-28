@@ -80,7 +80,16 @@ const TAG_BYTES = 16;
 export type DeviceRecordType =
   | 'identity' // serialized Signal identity keypair (private-bearing)
   | 'registration-id' // registration id bytes
-  | 'signed-prekey' // current active signed prekey export (private-bearing)
+  // LEGACY (pre-F8): the single fixed signed prekey, keyed by nothing.
+  // Superseded by `signed-prekey-record` + `signed-prekey-meta`; only read
+  // and migrated, never written, by the F8 lifecycle.
+  | 'signed-prekey'
+  // F8: one signed prekey export per signed-prekey id (private-bearing).
+  // Holds the current key AND the retained previously advertised keys.
+  | 'signed-prekey-record'
+  // F8: PUBLIC metadata (id, public key, signature, createdAt) of the
+  // CURRENT signed prekey. This is the pointer that "rotation" flips.
+  | 'signed-prekey-meta'
   | 'kyber-usage' // kyber anti-replay usage blob, if the engine exposes one
   | 'prekey' // one-time X25519 prekey export, keyed by id (private-bearing)
   | 'kyber-prekey' // one-time kyber prekey export, keyed by id (private-bearing)
@@ -261,6 +270,20 @@ function singletonRecordKey(recordType: DeviceRecordType): string {
 
 function keyedRecordKey(recordType: DeviceRecordType, keyId: string): string {
   return `${DEVICE_RECORD_PREFIX}${recordType}:${keyId}`;
+}
+
+/**
+ * Validate the key-id segment of a signed prekey record.
+ *
+ * Signed prekey ids are positive integers minted by the F8 rotation
+ * lifecycle; anything else would let a malformed caller create an
+ * unaddressable record inside the key range.
+ */
+function signedPreKeyIdKey(keyId: number): string {
+  if (!Number.isInteger(keyId) || keyId < 1) {
+    throw new CryptoError('CORRUPT_STATE', 'invalid signed prekey id');
+  }
+  return String(keyId);
 }
 
 /** Full IndexedDB key range prefix for one user's device records. */
@@ -527,13 +550,47 @@ export const saveKyberUsage = (userId: string, body: Uint8Array): Promise<void> 
 export const loadKyberUsage = (userId: string): Promise<Uint8Array | null> =>
   loadDeviceSingleton(userId, 'kyber-usage');
 
-/** Current active signed prekey export (private-bearing). Singleton. */
+/**
+ * LEGACY (pre-F8) current signed prekey export (private-bearing). Singleton.
+ *
+ * Only used to migrate an existing record into the F8 rotating key set; the
+ * F8 lifecycle never writes it.
+ */
 export const saveSignedPreKey = (userId: string, body: Uint8Array): Promise<void> =>
   saveDeviceSingleton(userId, 'signed-prekey', body);
 export const loadSignedPreKey = (userId: string): Promise<Uint8Array | null> =>
   loadDeviceSingleton(userId, 'signed-prekey');
 export const removeSignedPreKey = (userId: string): Promise<void> =>
   removeDeviceSingleton(userId, 'signed-prekey');
+
+/**
+ * Signed prekey export (private-bearing), keyed by signed-prekey id (F8).
+ *
+ * The set holds the CURRENT key plus the retained previously advertised
+ * keys, so a handshake that fetched a bundle before a rotation can still be
+ * completed. Which key is current is decided by `signed-prekey-meta`, never
+ * by a fixed id and never by this store alone.
+ */
+export const saveSignedPreKeyRecord = (
+  userId: string,
+  keyId: number,
+  body: Uint8Array,
+): Promise<void> => saveDeviceKeyed(userId, 'signed-prekey-record', signedPreKeyIdKey(keyId), body);
+export const loadSignedPreKeyRecord = (userId: string, keyId: number): Promise<Uint8Array | null> =>
+  loadDeviceKeyed(userId, 'signed-prekey-record', signedPreKeyIdKey(keyId));
+export const removeSignedPreKeyRecord = (userId: string, keyId: number): Promise<void> =>
+  removeDeviceKeyed(userId, 'signed-prekey-record', signedPreKeyIdKey(keyId));
+/** Every signed prekey record of this user (current + retained). */
+export const listSignedPreKeyRecords = (userId: string): Promise<DeviceKeyedRecord[]> =>
+  listDeviceKeyed(userId, 'signed-prekey-record');
+
+/** PUBLIC metadata of the current signed prekey (F8). Singleton. */
+export const saveSignedPreKeyMeta = (userId: string, body: Uint8Array): Promise<void> =>
+  saveDeviceSingleton(userId, 'signed-prekey-meta', body);
+export const loadSignedPreKeyMeta = (userId: string): Promise<Uint8Array | null> =>
+  loadDeviceSingleton(userId, 'signed-prekey-meta');
+export const removeSignedPreKeyMeta = (userId: string): Promise<void> =>
+  removeDeviceSingleton(userId, 'signed-prekey-meta');
 
 /** One-time X25519 prekey export (private-bearing). Keyed by id. */
 export const saveOneTimePreKey = (
