@@ -19,6 +19,7 @@ import { E2EESessionManager, parseEnvelope } from '../session-manager.ts';
 import { deleteCryptoDatabase } from '../../crypto/storage.ts';
 import { isCryptoError } from '../../crypto/errors.ts';
 import { listKyberPreKeys, loadKyberLastResort } from '../device-store.ts';
+import { loadRatchetState } from '../../crypto/ratchet-state.ts';
 
 const require = createRequire(import.meta.url);
 const entry = require.resolve('@getmaapp/signal-wasm');
@@ -287,4 +288,99 @@ test('SM11: one-time kyber lifecycle — consumed key evicted from engine + devi
       assert.ok(await loadKyberLastResort(bob.userId), 'last-resort intact after reload');
     } finally { bob2.destroy(); }
   } finally { alice.destroy(); }
+});
+
+/* --------------- Session-state / logout & account isolation (audit F7) --------------- */
+
+test('SM12: destroy() tears down the manager; it refuses further use and re-initialize restores the session', async () => {
+  assert.ifError(initErr);
+  await reset();
+  const server = new FakeServer();
+  const aId = freshUser();
+  const bId = freshUser();
+  const alice = await newManager(server, aId);
+  const bob = await newManager(server, bId);
+  const e1 = await alice.encryptForPeer(bId, 'c', 'kept');
+  await bob.decryptFromPeer(aId, 'c', e1);
+
+  // Logout: destroy() releases the in-memory engine state.
+  alice.destroy();
+  bob.destroy();
+
+  // A destroyed manager must refuse to encrypt/decrypt (fail closed), and must
+  // never fall back to an uninitialized or stale path.
+  await assert.rejects(
+    () => alice.encryptForPeer(bId, 'c', 'after logout'),
+    (err) => isCryptoError(err, 'NOT_INITIALIZED'),
+    'a destroyed manager must refuse to encrypt',
+  );
+  await assert.rejects(
+    () => bob.decryptFromPeer(aId, 'c', e1),
+    (err) => isCryptoError(err, 'NOT_INITIALIZED'),
+    'a destroyed manager must refuse to decrypt',
+  );
+
+  // Re-login of the same accounts: a fresh manager reloads the durable sealed
+  // vault and continues the SAME session (logout never wipes device state —
+  // that is account-deletion semantics).
+  const alice2 = await newManager(server, aId);
+  const bob2 = await newManager(server, bId);
+  try {
+    const e2 = await alice2.encryptForPeer(bId, 'c', 'after re-login');
+    assert.equal((await bob2.decryptFromPeer(aId, 'c', e2)).plaintext, 'after re-login');
+  } finally {
+    alice2.destroy();
+    bob2.destroy();
+  }
+});
+
+test('SM13: account switch — a second account never inherits or decrypts the first account session state', async () => {
+  assert.ifError(initErr);
+  await reset();
+  const server = new FakeServer();
+  const aId = freshUser();
+  const bId = freshUser();
+  const carolId = freshUser();
+  const alice = await newManager(server, aId);
+  const bob = await newManager(server, bId);
+  const first = await alice.encryptForPeer(bId, 'c', 'first');
+  await bob.decryptFromPeer(aId, 'c', first);
+  // Round trip so Alice's session advances past the initial PreKey message:
+  // after the reply is processed, her next message is a Whisper (t=2).
+  const reply = await bob.encryptForPeer(aId, 'c', 'reply');
+  await alice.decryptFromPeer(bId, 'c', reply);
+  const second = await alice.encryptForPeer(bId, 'c', 'second');
+  assert.equal(parseEnvelope(second).t, 2, 'second message is a Whisper (session advanced)');
+  assert.equal((await bob.decryptFromPeer(aId, 'c', second)).plaintext, 'second');
+
+  const aState = await loadRatchetState(aId, 'c');
+  assert.equal(aState.status, 'VALID', "Alice's session is committed under her user id");
+
+  // Account switch: destroy Alice and sign in as Carol on the same tab.
+  alice.destroy();
+  const carol = await newManager(server, carolId);
+  try {
+    // Carol must not inherit Alice's ratchet state for the same connection.
+    const cState = await loadRatchetState(carolId, 'c');
+    assert.equal(cState.status, 'MISSING', 'a new account must start without the previous account session state');
+
+    // Carol must not decrypt Alice's Whisper message: no session -> fail closed.
+    await assert.rejects(
+      () => carol.decryptFromPeer(aId, 'c', second),
+      (err) => isCryptoError(err, 'NEEDS_ESTABLISH'),
+      'a different account must not decrypt the previous account message',
+    );
+
+    // Carol establishes her own independent session on a separate connection.
+    const carolMsg = await carol.encryptForPeer(bId, 'c2', 'carol message');
+    assert.equal(parseEnvelope(carolMsg).t, 3, 'Carol establishes her own session');
+    assert.equal((await bob.decryptFromPeer(carolId, 'c2', carolMsg)).plaintext, 'carol message');
+
+    // Alice's records are untouched by Carol's session.
+    const aStateAfter = await loadRatchetState(aId, 'c');
+    assert.equal(aStateAfter.status, 'VALID', "Alice's session state survives a concurrent account");
+  } finally {
+    carol.destroy();
+    bob.destroy();
+  }
 });
