@@ -25,7 +25,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { getLang, t } from '../i18n';
 import { Connection, Message, Profile } from '../lib/types';
-import { getCachedPlaintext } from '../lib/e2ee/message-cache';
+import { getCachedPlaintextSync, warmMessageCache } from '../lib/e2ee/message-cache';
 import { isEnvelope } from '../lib/e2ee/message-flow';
 import ThemeButton from './ThemeButton';
 import { GearIcon, NoteIcon } from './icons';
@@ -62,7 +62,7 @@ function previewOf(
   }
   // E2EE: show cached plaintext if we have it; otherwise the envelope is
   // opaque, so show a placeholder. Legacy plaintext / My Notes show as-is.
-  const cached = getCachedPlaintext(me, last.id);
+  const cached = getCachedPlaintextSync(me, last.id);
   if (cached !== null) return cached;
   if (isEnvelope(last.ciphertext)) return t('chat.encryptedPreview');
   return last.ciphertext;
@@ -84,6 +84,7 @@ export default function Home() {
 
   const load = useCallback(async () => {
     if (!me) return;
+    await warmMessageCache(me);
     const conns = await getMyConnections(me);
     const deletions = await loadDeletionsForUser(me);
     const lastAll = await getLastMessages(conns.map((c) => c.id));

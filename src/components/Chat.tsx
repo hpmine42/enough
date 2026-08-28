@@ -310,7 +310,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         if (!active) return;
         if (m.deleted_at || (m.kind && m.kind !== 'text')) continue;
         if (resolvedRef.current.has(m.id)) continue;
-        const cached = getCachedPlaintext(me, m.id);
+        const cached = await getCachedPlaintext(me, m.id);
         const needsDecrypt =
           !cached && !isSelf && isEnvelope(m.ciphertext) && m.sender_id !== me;
         if (needsDecrypt) {
@@ -530,7 +530,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       return;
     }
     if (message) {
-      cachePlaintext(me, message.id, text);
+      await cachePlaintext(me, message.id, text);
       setPlain((prev) => ({ ...prev, [message.id]: text }));
       setMessages((prev) =>
         prev.some((m) => m.id === message.id)

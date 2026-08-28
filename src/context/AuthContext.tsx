@@ -265,7 +265,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try { await deleteUserCryptoState(deletedUserId); } catch { /* swallow */ }
     }
     // Drop the local message plaintext cache for this account too.
-    try { clearMessageCache(deletedUserId); } catch { /* swallow */ }
+    try { await clearMessageCache(deletedUserId); } catch { /* swallow */ }
     // Clear the local session only, then reset the in-memory state.
     await supabase.auth.signOut({ scope: 'local' });
     setUser(null);
