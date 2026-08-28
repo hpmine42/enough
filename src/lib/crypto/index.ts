@@ -63,6 +63,7 @@ export {
   assertCryptoEnvironment,
   deleteUserCryptoState,
   deleteCryptoDatabase,
+  resetInMemoryCaches,
 } from './storage.ts';
 
 export type {

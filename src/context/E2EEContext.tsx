@@ -9,6 +9,7 @@ import {
 import { useAuth } from './AuthContext';
 import { E2EESessionManager } from '../lib/e2ee/session-manager';
 import { publishDeviceMaterial, fetchPeerBundle } from '../lib/e2ee/prekeys-api';
+import { resetInMemoryCaches } from '../lib/crypto';
 
 /**
  * Per-authenticated-user E2EE session manager.
@@ -21,6 +22,22 @@ import { publishDeviceMaterial, fetchPeerBundle } from '../lib/e2ee/prekeys-api'
  * `manager` is null until `initialize()` (generate/load identity, publish
  * prekeys, hydrate) completes. The UI treats null as fail-closed for peer
  * conversations: it must not send plaintext while encryption is unavailable.
+ *
+ * Session teardown (audit finding F7):
+ *   The manager AND the signed-out user's in-memory crypto state are released
+ *   whenever the session ends — logout, auth SIGNED_OUT, account switch or
+ *   provider unmount. In-memory state includes the decrypted message-cache
+ *   plaintext and the per-user key-handle caches, all reset through the single
+ *   `resetInMemoryCaches(userId)` primitive. The sealed IndexedDB vault is
+ *   intentionally preserved: it is the local device identity/session state
+ *   that a re-login of the same account reloads. Only account deletion wipes
+ *   the vault (`deleteUserCryptoState`).
+ *
+ * Account isolation:
+ *   The session is stored together with the Supabase user id that owns it and
+ *   is exposed to the UI only while that user is still signed in. A render
+ *   that happens between logout and the effect teardown can therefore never
+ *   hand another (or a signed-out) user's manager to the UI.
  */
 interface E2EEContextValue {
   manager: E2EESessionManager | null;
@@ -48,21 +65,30 @@ function readTestFactory(): ManagerFactory | null {
   return (window as unknown as { __enoughE2EEManagerFactory?: ManagerFactory }).__enoughE2EEManagerFactory ?? null;
 }
 
+/** An initialized session, bound to the Supabase user id that owns it. */
+interface E2EESession {
+  userId: string;
+  manager: E2EESessionManager;
+}
+
 export function E2EEProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const userId = user?.id ?? null;
-  const [manager, setManager] = useState<E2EESessionManager | null>(null);
+  const [session, setSession] = useState<E2EESession | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const managerRef = useRef<E2EESessionManager | null>(null);
+  const sessionRef = useRef<E2EESession | null>(null);
 
   useEffect(() => {
-    // Tear down any manager from a previous (or the same) user before (re)building.
-    if (managerRef.current) {
-      managerRef.current.destroy();
-      managerRef.current = null;
+    // Tear down any session from a previous (or the same) user before
+    // (re)building. destroy() is idempotent; the in-memory crypto state of the
+    // user being signed out is released in the same step.
+    if (sessionRef.current) {
+      sessionRef.current.manager.destroy();
+      resetInMemoryCaches(sessionRef.current.userId);
+      sessionRef.current = null;
     }
-    setManager(null);
+    setSession(null);
     setReady(false);
     setError(null);
 
@@ -84,8 +110,9 @@ export function E2EEProvider({ children }: { children: ReactNode }) {
           m.destroy();
           return;
         }
-        managerRef.current = m;
-        setManager(m);
+        const s: E2EESession = { userId, manager: m };
+        sessionRef.current = s;
+        setSession(s);
         setReady(true);
       } catch (e) {
         if (!active) return;
@@ -97,16 +124,32 @@ export function E2EEProvider({ children }: { children: ReactNode }) {
 
     return () => {
       active = false;
+      // The session ends when the user changes or the provider unmounts:
+      // release the manager and the signed-out user's in-memory crypto state
+      // before any other user's session is built.
+      if (sessionRef.current) {
+        sessionRef.current.manager.destroy();
+        resetInMemoryCaches(sessionRef.current.userId);
+        sessionRef.current = null;
+      }
     };
   }, [userId]);
 
   // Final teardown on unmount.
   useEffect(() => {
     return () => {
-      managerRef.current?.destroy();
-      managerRef.current = null;
+      if (sessionRef.current) {
+        sessionRef.current.manager.destroy();
+        resetInMemoryCaches(sessionRef.current.userId);
+        sessionRef.current = null;
+      }
     };
   }, []);
+
+  // Account isolation: expose the manager only while the user who owns it is
+  // still the signed-in user. Never hand another user's session to the UI.
+  const manager =
+    session && session.userId === userId ? session.manager : null;
 
   return (
     <E2EEContext.Provider value={{ manager, ready, error }}>
