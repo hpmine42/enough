@@ -29,6 +29,7 @@ import {
   unblockUser,
 } from '../lib/api';
 import { displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
+import { sanitizeMessagePlaintext } from '../lib/input';
 import { supabase } from '../lib/supabase';
 import { getLang, t, useLang } from '../i18n';
 import { BlockState, Connection, Message, Profile } from '../lib/types';
@@ -502,6 +503,8 @@ export default function Chat({ connectionId }: { connectionId: string }) {
 
   async function handleSend(text: string) {
     if (!conn || blocked) return;
+    const cleanText = sanitizeMessagePlaintext(text).trim();
+    if (!cleanText) return;
     setError(null);
     const peerId = self ? me : otherUserId(conn, me);
     // Encrypt for peer conversations (fail-closed on any error); My Notes
@@ -514,7 +517,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         isSelf: self,
         peerUserId: peerId,
         connectionId: conn.id,
-        plaintext: text,
+        plaintext: cleanText,
       });
     } catch (e) {
       setError(
@@ -530,8 +533,8 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       return;
     }
     if (message) {
-      await cachePlaintext(me, message.id, text);
-      setPlain((prev) => ({ ...prev, [message.id]: text }));
+      await cachePlaintext(me, message.id, cleanText);
+      setPlain((prev) => ({ ...prev, [message.id]: cleanText }));
       setMessages((prev) =>
         prev.some((m) => m.id === message.id)
           ? prev

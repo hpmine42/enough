@@ -1,5 +1,6 @@
 import { FormEvent, KeyboardEvent, useRef } from 'react';
 import { usePreferences } from '../context/PreferencesContext';
+import { sanitizeMessagePlaintext } from '../lib/input';
 import { t } from '../i18n';
 import { SendIcon } from './icons';
 
@@ -32,7 +33,7 @@ export default function MessageComposer({ onSend, disabled }: MessageComposerPro
   function submit() {
     const el = textRef.current;
     if (!el) return;
-    const value = el.value.trim();
+    const value = sanitizeMessagePlaintext(el.value).trim();
     if (!value || disabled) return;
     onSend(value);
     el.value = '';

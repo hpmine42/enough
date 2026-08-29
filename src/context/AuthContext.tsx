@@ -13,6 +13,7 @@ import {
   supabase,
 } from '../lib/supabase';
 import { errorMessage } from '../lib/errors';
+import { sanitizeDisplayName } from '../lib/input';
 import {
   deleteOwnAccount,
   getMyProfile,
@@ -135,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!supabase) {
         return { error: t('errors.network'), needsConfirmation: false };
       }
+      const cleanDisplayName = sanitizeDisplayName(displayName);
       // The existing auth.users trigger creates public.profiles and reads the
       // username from raw_user_meta_data. display_name is passed along so the
       // profile trigger (see migration) can copy it when the column exists.
@@ -142,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email,
         password,
         options: {
-          data: { username, display_name: displayName },
+          data: { username, display_name: cleanDisplayName },
           emailRedirectTo: window.location.origin + window.location.pathname,
         },
       });
@@ -172,7 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const profileError = await upsertProfile(
         data.user.id,
         username,
-        displayName,
+        cleanDisplayName,
       );
       if (profileError) {
         // Avoid leaving the user signed in without a valid profile.
@@ -237,11 +239,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateDisplayName = useCallback(
     async (name: string): Promise<string | null> => {
       if (!supabase || !user) return t('errors.network');
-      const err = await updateMyDisplayName(user.id, name);
+      const cleanName = sanitizeDisplayName(name);
+      const err = await updateMyDisplayName(user.id, cleanName);
       if (err) return err;
       // Keep auth.users.raw_user_meta_data in sync too, so the display name is
       // updated everywhere in Supabase (not just public.profiles).
-      await supabase.auth.updateUser({ data: { display_name: name } });
+      await supabase.auth.updateUser({ data: { display_name: cleanName } });
       await loadProfile(user.id);
       return null;
     },

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isValidUsername, normalizeUsername } from '../lib/helpers';
+import { MAX_DISPLAY_NAME_LENGTH, sanitizeDisplayName } from '../lib/input';
 import { usernameExists } from '../lib/api';
 import { t } from '../i18n';
 import AuthChrome from './AuthChrome';
@@ -93,7 +94,8 @@ export default function Register() {
       }
     }
 
-    if (!displayName.trim()) {
+    const cleanDisplayName = sanitizeDisplayName(displayName);
+    if (!cleanDisplayName) {
       setError(t('auth.displayNameRequired'));
       return;
     }
@@ -107,7 +109,7 @@ export default function Register() {
     }
 
     setBusy(true);
-    const result = await signUp(email, password, name, displayName.trim());
+    const result = await signUp(email, password, name, cleanDisplayName);
     setBusy(false);
     if (result.error) {
       // Do not infer a duplicate username from a translated backend error.
@@ -200,7 +202,7 @@ export default function Register() {
           autoComplete="name"
           required
           aria-label={t('auth.displayName')}
-          maxLength={60}
+          maxLength={MAX_DISPLAY_NAME_LENGTH}
         />
         <input
           className="input"
