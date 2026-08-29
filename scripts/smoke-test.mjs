@@ -55,6 +55,112 @@ const asset = readdirSync(`${dist}/assets`).find((f) => f.endsWith('.js'));
 if (!asset) throw new Error('no JS asset found in dist');
 
 /* ------------------------------------------------------------------ */
+/* 0a. CSP + Referrer-Policy meta (Phase A #3)                         */
+/* ------------------------------------------------------------------ */
+// These assertions run BEFORE jsdom to verify the raw built HTML carries
+// the security meta tags. They check directive semantics rather than a
+// fragile exact-string match so harmless whitespace / attribute-order
+// changes do not break the test.
+
+let securityFailures = 0;
+function securityAssert(cond, name) {
+  if (cond) {
+    console.log(`  ✓ ${name}`);
+  } else {
+    securityFailures++;
+    console.error(`  ✗ ${name}`);
+  }
+}
+
+console.log('\nCSP + Referrer-Policy meta tags (Phase A #3)\n');
+
+// 1. CSP meta tag exists.
+const cspMatch = html.match(
+  /<meta[^>]+http-equiv\s*=\s*["']Content-Security-Policy["'][^>]*>/i,
+);
+securityAssert(cspMatch !== null, 'CSP meta tag is present');
+
+const cspContent =
+  cspMatch?.[0]?.match(/content\s*=\s*"([^"]*)"/)?.[1] ??
+  cspMatch?.[0]?.match(/content\s*=\s*'([^']*)'/)?.[1] ??
+  '';
+
+// 2. Parse the CSP into directive → value set for semantic assertions.
+const cspDirectives = {};
+for (const part of cspContent.split(';')) {
+  const trimmed = part.trim();
+  if (!trimmed) continue;
+  const [name, ...values] = trimmed.split(/\s+/);
+  cspDirectives[name.toLowerCase()] = new Set(values);
+}
+
+// Required directives with expected semantics.
+securityAssert(
+  cspDirectives['default-src']?.has("'self'"),
+  "default-src includes 'self'",
+);
+securityAssert(
+  cspDirectives['script-src']?.has("'self'") &&
+    cspDirectives['script-src']?.has("'unsafe-inline'"),
+  "script-src includes 'self' and 'unsafe-inline' (inline theme script)",
+);
+securityAssert(
+  !cspDirectives['script-src']?.has("'unsafe-eval'"),
+  "script-src does NOT include 'unsafe-eval'",
+);
+securityAssert(
+  cspDirectives['connect-src']?.has("'self'") &&
+    [...cspDirectives['connect-src']].some((v) =>
+      v.startsWith('https://') && v.includes('supabase.co'),
+    ) &&
+    [...cspDirectives['connect-src']].some((v) =>
+      v.startsWith('wss://') && v.includes('supabase.co'),
+    ),
+  'connect-src covers self, Supabase HTTPS REST and WSS Realtime',
+);
+securityAssert(
+  cspDirectives['style-src']?.has("'self'") &&
+    cspDirectives['style-src']?.has("'unsafe-inline'"),
+  "style-src includes 'self' and 'unsafe-inline'",
+);
+securityAssert(
+  cspDirectives['img-src']?.has("'self'"),
+  "img-src includes 'self'",
+);
+securityAssert(
+  cspDirectives['font-src']?.has("'self'"),
+  "font-src includes 'self'",
+);
+// No wildcard sources anywhere in the policy.
+const hasWildcard = Object.values(cspDirectives).some((set) => set.has('*'));
+securityAssert(!hasWildcard, 'no directive uses a wildcard (*) source');
+
+// 3. Referrer-Policy meta tag.
+const refMatch = html.match(
+  /<meta[^>]+name\s*=\s*["']referrer["'][^>]*>/i,
+);
+securityAssert(refMatch !== null, 'Referrer-Policy meta tag is present');
+
+const refContent =
+  refMatch?.[0]?.match(/content\s*=\s*"([^"]*)"/)?.[1] ??
+  refMatch?.[0]?.match(/content\s*=\s*'([^']*)'/)?.[1] ??
+  '';
+
+// 4. Expected referrer policy value.
+securityAssert(
+  refContent === 'strict-origin-when-cross-origin',
+  'Referrer-Policy is strict-origin-when-cross-origin',
+);
+
+if (securityFailures > 0) {
+  console.error(
+    `\n${securityFailures} security meta tag assertion(s) FAILED.`,
+  );
+  process.exit(1);
+}
+console.log('  All security meta tag assertions passed.\n');
+
+/* ------------------------------------------------------------------ */
 /* 1. jsdom environment                                                */
 /* ------------------------------------------------------------------ */
 
