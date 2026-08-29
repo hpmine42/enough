@@ -152,6 +152,23 @@ securityAssert(
   'Referrer-Policy is strict-origin-when-cross-origin',
 );
 
+// 5. robots.txt + .well-known/security.txt ship with the build (Phase A #6).
+const robotsTxt = readFileSync(`${dist}/robots.txt`, 'utf8');
+securityAssert(
+  robotsTxt.includes('User-agent: *') && robotsTxt.includes('Allow: /'),
+  'robots.txt allows crawling and is present in the build',
+);
+const securityTxt = readFileSync(`${dist}/.well-known/security.txt`, 'utf8');
+securityAssert(
+  securityTxt.includes('Contact: mailto:hpmine@web.de'),
+  'security.txt is present with a disclosure contact',
+);
+securityAssert(securityTxt.includes('Expires:'), 'security.txt declares an Expires date');
+securityAssert(
+  securityTxt.includes('https://hpmine42.github.io/enough/.well-known/security.txt'),
+  'security.txt canonical URL points at its deployed location',
+);
+
 if (securityFailures > 0) {
   console.error(
     `\n${securityFailures} security meta tag assertion(s) FAILED.`,
