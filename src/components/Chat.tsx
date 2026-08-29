@@ -68,6 +68,8 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [infoOpen, setInfoOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -135,7 +137,15 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       setValid(true);
 
       const peerId = otherUserId(found, me);
-      const profiles = await getProfiles([peerId, me]);
+      const profilesResult = await getProfiles([peerId, me]);
+      if (profilesResult.error) {
+        if (active) {
+          setLoadError(profilesResult.error);
+          setLoading(false);
+        }
+        return;
+      }
+      const profiles = profilesResult.data;
       if (active) {
         setPeer(isSelfConnection(found) ? profiles[me] ?? null : profiles[peerId] ?? null);
       }
@@ -146,17 +156,24 @@ export default function Chat({ connectionId }: { connectionId: string }) {
 
       const deletions = await loadDeletionsForUser(me);
       const until = deletions.chatUntil.get(connectionId) ?? null;
-      const { messages: page, hasMore: more } = await getMessagesPage(
+      const pageResult = await getMessagesPage(
         connectionId,
         undefined,
         undefined,
         PAGE_SIZE,
         until,
       );
+      if (pageResult.error) {
+        if (active) {
+          setLoadError(pageResult.error);
+          setLoading(false);
+        }
+        return;
+      }
       if (active) {
         setHiddenUntil(until);
-        setMessages(page);
-        setHasMore(more);
+        setMessages(pageResult.messages);
+        setHasMore(pageResult.hasMore);
         setDeletedForMe(deletions.messages);
         setLoading(false);
       }
@@ -167,7 +184,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       flushReadState();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, me]);
+  }, [connectionId, me, reloadKey]);
 
   /* ------------------------------ realtime ------------------------------ */
 
@@ -448,7 +465,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     if (!first) return;
     loadingOlderRef.current = true;
     setLoadingOlder(true);
-    const { messages: older, hasMore: more } = await getMessagesPage(
+    const result = await getMessagesPage(
       conn.id,
       first.created_at,
       first.id,
@@ -458,8 +475,16 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     const el = scrollRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
     pendingDeltaRef.current = prevHeight;
-    setMessages((prev) => [...older, ...prev]);
-    setHasMore(more);
+    if (result.error) {
+      // Pagination failure is non-fatal: keep existing messages visible
+      // and surface the error in the chat error bar.
+      setError(result.error);
+      setLoadingOlder(false);
+      loadingOlderRef.current = false;
+      return;
+    }
+    setMessages((prev) => [...result.messages, ...prev]);
+    setHasMore(result.hasMore);
   }
 
   useLayoutEffect(() => {
@@ -953,6 +978,23 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         <div className="chat-loading">{t('loading')}</div>
       ) : !valid ? (
         <div className="chat-loading">{t('chat.unavailable')}</div>
+      ) : loadError ? (
+        <section className="chat-load-error">
+          <div className="chat-empty" role="alert">
+            {loadError}
+          </div>
+          <button
+            type="button"
+            className="btn-small"
+            onClick={() => {
+              setLoadError(null);
+              setLoading(true);
+              setReloadKey((k) => k + 1);
+            }}
+          >
+            {t('errors.retry')}
+          </button>
+        </section>
       ) : (
         <>
           <section

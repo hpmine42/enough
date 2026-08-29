@@ -291,6 +291,9 @@ export const translations = {
       crashTitle: 'Something went wrong.',
       crashHint: 'Please reload the app to continue.',
       reload: 'Reload',
+      loadFailed: 'Data could not be loaded.',
+      messagesLoadFailed: 'Messages could not be loaded.',
+      retry: 'Try again',
     },
   },
 
@@ -559,6 +562,9 @@ export const translations = {
       crashTitle: 'Etwas ist schiefgelaufen.',
       crashHint: 'Bitte lade die App neu, um fortzufahren.',
       reload: 'Neu laden',
+      loadFailed: 'Daten konnten nicht geladen werden.',
+      messagesLoadFailed: 'Nachrichten konnten nicht geladen werden.',
+      retry: 'Erneut versuchen',
     },
   },
 } as const;
