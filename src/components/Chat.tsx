@@ -265,6 +265,10 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     const refresh = () => {
       getBlockState(me, peerId).then(setBlockState);
     };
+    // Scope the block-state channel to the exact me↔peer pair (audit P2-5).
+    // Realtime filters combine comma-separated conditions with AND and do not
+    // support OR, so two pair filters replace the old over-broad per-peer
+    // filters that also delivered blocks between the peer and third users.
     const channel = client
       .channel(`chat-blocks-${connectionId}`)
       .on(
@@ -273,7 +277,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           event: '*',
           schema: 'public',
           table: 'user_blocks',
-          filter: `blocker_id=eq.${peerId}`,
+          filter: `blocker_id=eq.${me},blocked_id=eq.${peerId}`,
         },
         refresh,
       )
@@ -283,7 +287,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           event: '*',
           schema: 'public',
           table: 'user_blocks',
-          filter: `blocked_id=eq.${peerId}`,
+          filter: `blocker_id=eq.${peerId},blocked_id=eq.${me}`,
         },
         refresh,
       )
