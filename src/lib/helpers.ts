@@ -1,4 +1,4 @@
-import { Connection, Profile } from './types';
+import type { Connection, Profile } from './types';
 
 /** Maximum lifetime of a pending/declined connection request attempt. */
 export const REQUEST_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
@@ -89,7 +89,10 @@ export function formatRelative(
   const dateObj = new Date(iso);
   if (Number.isNaN(dateObj.getTime())) return '';
   const diff = now.getTime() - dateObj.getTime();
-  if (diff < MINUTE) return lang === 'de' ? '1 min' : '1 min';
+  // Anything younger than a minute reads as "just now" instead of "1 min",
+  // so freshly sent messages do not look a minute old (audit P2-1). The
+  // fallback covers clock skew where the timestamp is slightly in the future.
+  if (diff < MINUTE) return lang === 'de' ? 'gerade eben' : 'just now';
   if (diff < HOUR) return `${Math.floor(diff / MINUTE)} min`;
   if (diff < DAY) return `${Math.floor(diff / HOUR)} h`;
   if (diff < 7 * DAY) return weekday(iso, lang);

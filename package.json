@@ -14,6 +14,7 @@
     "test:input": "node --test --experimental-strip-types src/lib/__tests__/input-hardening.test.mjs",
     "test:unread": "node --test --experimental-strip-types src/lib/__tests__/unread-counts.test.mjs",
     "test:home": "node --test --experimental-strip-types src/lib/__tests__/home-realtime.test.mjs",
+    "test:helpers": "node --test --experimental-strip-types src/lib/__tests__/helpers.test.mjs",
     "test:crypto:prekeys": "node scripts/run-crypto-prekeys-tests.mjs",
     "verify:signal-wasm": "node scripts/verify-signal-wasm.mjs"
   },
