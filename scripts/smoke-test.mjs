@@ -1104,6 +1104,28 @@ assert(
   dom.window.document.querySelector('.dialog') !== null,
   'password confirmation is custom (no browser alert)',
 );
+// Focus trap (P2-3): focus enters the dialog and Tab stays inside it.
+{
+  const dialogEl = dom.window.document.querySelector('.dialog');
+  assert(
+    document.activeElement === dialogEl.querySelector('.btn-primary'),
+    'dialog focuses its confirm button on open',
+  );
+  document.dispatchEvent(
+    new dom.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+  );
+  assert(
+    document.activeElement === dialogEl.querySelector('.btn-plain'),
+    'Tab wraps from the last to the first focusable element inside the dialog',
+  );
+  document.dispatchEvent(
+    new dom.window.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
+  );
+  assert(
+    document.activeElement === dialogEl.querySelector('.btn-primary'),
+    'Shift+Tab wraps back to the last focusable element inside the dialog',
+  );
+}
 click('.dialog .btn-primary');
 await waitFor(
   () => dom.window.document.querySelectorAll('.settings-inline-form input[type="password"]').length === 3,

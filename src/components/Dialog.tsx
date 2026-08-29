@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useRef } from 'react';
 import { t } from '../i18n';
+import { useFocusTrap } from './useFocusTrap';
 
 interface DialogProps {
   title: string;
@@ -33,10 +34,14 @@ export default function Dialog({
   onCancel,
   children,
 }: DialogProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
 
+  // Trap Tab/Shift+Tab inside the dialog, focus the confirm button on open and
+  // restore focus to the previously focused element on close (P2-3).
+  useFocusTrap(dialogRef, confirmRef);
+
   useEffect(() => {
-    confirmRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();
     };
@@ -53,6 +58,7 @@ export default function Dialog({
       }}
     >
       <div
+        ref={dialogRef}
         className="dialog"
         role="dialog"
         aria-modal="true"

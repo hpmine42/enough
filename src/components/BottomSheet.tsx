@@ -1,4 +1,5 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusTrap } from './useFocusTrap';
 
 interface SheetItem {
   key: string;
@@ -35,6 +36,10 @@ export default function BottomSheet({
 }: BottomSheetProps) {
   const [closing, setClosing] = useState(false);
   const pendingSelect = useRef<(() => void) | null>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  // Trap Tab/Shift+Tab inside the sheet and restore focus on close (P2-3).
+  useFocusTrap(sheetRef);
 
   const requestClose = useCallback(
     (after?: () => void) => {
@@ -72,6 +77,7 @@ export default function BottomSheet({
       }}
     >
       <div
+        ref={sheetRef}
         className={`sheet${closing ? ' closing' : ''}`}
         role="dialog"
         aria-modal="true"
