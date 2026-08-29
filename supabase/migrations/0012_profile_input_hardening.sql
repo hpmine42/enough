@@ -15,6 +15,11 @@
 
 begin;
 
+-- The authoritative database invariant is `char_length(display_name) <= 60`
+-- Unicode code points after server-side normalization. `btrim()` intentionally
+-- trims ordinary spaces only; the browser path may trim a slightly broader
+-- ECMAScript whitespace set, but direct PostgREST callers still hit this
+-- server-side normalization plus the same code-point length guard.
 create or replace function public.normalize_display_name(value text)
 returns text
 language sql

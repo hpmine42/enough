@@ -33,6 +33,10 @@ export default function MessageComposer({ onSend, disabled }: MessageComposerPro
   function submit() {
     const el = textRef.current;
     if (!el) return;
+    // Single outgoing-plaintext hardening boundary: sanitize the raw textarea
+    // value before it enters Chat / E2EE. Downstream code must treat the
+    // resulting string as already-normalized plaintext and must never sanitize
+    // ciphertext.
     const value = sanitizeMessagePlaintext(el.value).trim();
     if (!value || disabled) return;
     onSend(value);

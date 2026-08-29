@@ -5,7 +5,9 @@ export const MAX_DISPLAY_NAME_LENGTH = 60;
  *
  * We keep printable characters, braces and angle brackets literal, but strip
  * control characters and trim surrounding whitespace so stored profile data is
- * stable and single-line.
+ * stable and single-line. The database remains authoritative: migration 0012
+ * applies its own server-side normalization and enforces the 60-code-point
+ * invariant with `char_length(display_name) <= 60`.
  */
 export function sanitizeDisplayName(value: string): string {
   return value.replace(/[\u0000-\u001F\u007F-\u009F]+/g, ' ').trim();

@@ -29,7 +29,6 @@ import {
   unblockUser,
 } from '../lib/api';
 import { displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
-import { sanitizeMessagePlaintext } from '../lib/input';
 import { supabase } from '../lib/supabase';
 import { getLang, t, useLang } from '../i18n';
 import { BlockState, Connection, Message, Profile } from '../lib/types';
@@ -502,14 +501,13 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   /* ------------------------------ actions ------------------------------ */
 
   async function handleSend(text: string) {
-    if (!conn || blocked) return;
-    const cleanText = sanitizeMessagePlaintext(text).trim();
-    if (!cleanText) return;
+    if (!conn || blocked || !text) return;
     setError(null);
     const peerId = self ? me : otherUserId(conn, me);
-    // Encrypt for peer conversations (fail-closed on any error); My Notes
-    // (self) stays plaintext. The plaintext is cached LOCALLY for the sender's
-    // own display; only the ciphertext reaches Supabase.
+    // `text` is the single sanitized plaintext value produced by
+    // MessageComposer immediately before this send path. From here on it is
+    // treated as DATA only: encrypt it for peers, keep it plaintext only for
+    // My Notes, and never sanitize the resulting ciphertext.
     let ciphertext: string;
     try {
       ciphertext = await prepareSend({
@@ -517,7 +515,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         isSelf: self,
         peerUserId: peerId,
         connectionId: conn.id,
-        plaintext: cleanText,
+        plaintext: text,
       });
     } catch (e) {
       setError(
@@ -533,8 +531,8 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       return;
     }
     if (message) {
-      await cachePlaintext(me, message.id, cleanText);
-      setPlain((prev) => ({ ...prev, [message.id]: cleanText }));
+      await cachePlaintext(me, message.id, text);
+      setPlain((prev) => ({ ...prev, [message.id]: text }));
       setMessages((prev) =>
         prev.some((m) => m.id === message.id)
           ? prev
