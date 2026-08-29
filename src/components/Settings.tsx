@@ -19,6 +19,7 @@ import {
 } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { displayName, normalizeUsername } from '../lib/helpers';
+import { MAX_DISPLAY_NAME_LENGTH, sanitizeDisplayName } from '../lib/input';
 import { setLang, t, useLang } from '../i18n';
 import { Lang } from '../i18n/translations';
 import { applyMode, getStoredMode, THEME_CHANGE_EVENT, ThemeMode } from '../lib/theme';
@@ -343,8 +344,8 @@ export default function Settings() {
   }, [open, profile]);
 
   async function saveDisplayName() {
-    const name = nameDraft.trim();
-    if (!name || name === displayName(profile)) return;
+    const name = sanitizeDisplayName(nameDraft);
+    if (!name || name === sanitizeDisplayName(displayName(profile))) return;
     setNameBusy(true);
     setNameError(null);
     setNameSaved(false);
@@ -627,7 +628,7 @@ export default function Settings() {
                 className="input"
                 type="text"
                 value={nameDraft}
-                maxLength={60}
+                maxLength={MAX_DISPLAY_NAME_LENGTH}
                 onChange={(e) => {
                   setNameDraft(e.target.value);
                   setNameSaved(false);

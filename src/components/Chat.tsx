@@ -501,12 +501,13 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   /* ------------------------------ actions ------------------------------ */
 
   async function handleSend(text: string) {
-    if (!conn || blocked) return;
+    if (!conn || blocked || !text) return;
     setError(null);
     const peerId = self ? me : otherUserId(conn, me);
-    // Encrypt for peer conversations (fail-closed on any error); My Notes
-    // (self) stays plaintext. The plaintext is cached LOCALLY for the sender's
-    // own display; only the ciphertext reaches Supabase.
+    // `text` is the single sanitized plaintext value produced by
+    // MessageComposer immediately before this send path. From here on it is
+    // treated as DATA only: encrypt it for peers, keep it plaintext only for
+    // My Notes, and never sanitize the resulting ciphertext.
     let ciphertext: string;
     try {
       ciphertext = await prepareSend({

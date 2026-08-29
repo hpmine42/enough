@@ -63,7 +63,7 @@ Two documented consequences for the future:
 
 1. Open your Supabase project → **SQL Editor**.
 2. Run the full contents of every file in `supabase/migrations/` in numeric
-   order (`0001` → `0010`). Each migration is idempotent and safe to run again
+   order (`0001` → `0012`). Each migration is idempotent and safe to run again
    after pulling a frontend update.
 3. Optional but recommended: run `supabase/rls-tests.sql` to verify the
    authorization model with your two existing test users.
@@ -138,6 +138,11 @@ normal connection requests.
   `NULL` until the client publishes its key via `updateMyIdentityPublicKey()`.
   No new RLS policies — the existing `profiles` SELECT (`authenticated`,
   `USING true`) and UPDATE (owner-only) from `0009` already govern the column.
+- `0012_profile_input_hardening.sql` — defense-in-depth for profile writes:
+  normalizes `profiles.display_name` by stripping control characters and
+  trimming surrounding whitespace in the existing profile triggers, and adds a
+  `NOT VALID` database check so new writes cannot exceed 60 characters even if
+  they bypass the UI's `maxLength`.
 - `0009_explicit_base_rls.sql` — v0.2: explicit, reproducible base RLS for
   the three core tables (previously only present in the untracked project
   template):

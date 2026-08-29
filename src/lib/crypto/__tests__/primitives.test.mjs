@@ -749,7 +749,7 @@ test('boundary: sendMessage() inserts prepared ciphertext and does no cryptograp
   // not take a raw `text` param or perform any encryption itself.
   assert.match(body, /sender_id: senderId, ciphertext\b/);
   assert.equal(/ciphertext:\s*text\b/.test(body), false, 'sendMessage must not insert a raw text param');
-  for (const forbidden of ['encrypt', 'nonce', 'aad', 'sealed', 'derive', 'ratchet']) {
+  for (const forbidden of ['encrypt', 'nonce', 'aad', 'sealed', 'derive', 'ratchet', 'sanitize', 'trim', 'normalize']) {
     assert.equal(body.toLowerCase().includes(forbidden), false, `sendMessage must not mention ${forbidden}`);
   }
 });

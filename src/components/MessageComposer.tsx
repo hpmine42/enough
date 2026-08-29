@@ -1,5 +1,6 @@
 import { FormEvent, KeyboardEvent, useRef } from 'react';
 import { usePreferences } from '../context/PreferencesContext';
+import { sanitizeMessagePlaintext } from '../lib/input';
 import { t } from '../i18n';
 import { SendIcon } from './icons';
 
@@ -32,7 +33,11 @@ export default function MessageComposer({ onSend, disabled }: MessageComposerPro
   function submit() {
     const el = textRef.current;
     if (!el) return;
-    const value = el.value.trim();
+    // Single outgoing-plaintext hardening boundary: sanitize the raw textarea
+    // value before it enters Chat / E2EE. Downstream code must treat the
+    // resulting string as already-normalized plaintext and must never sanitize
+    // ciphertext.
+    const value = sanitizeMessagePlaintext(el.value).trim();
     if (!value || disabled) return;
     onSend(value);
     el.value = '';

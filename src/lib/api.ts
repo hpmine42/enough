@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { errorMessage } from './errors';
+import { sanitizeDisplayName } from './input';
 import { t } from '../i18n';
 import {
   BlockRelation,
@@ -37,10 +38,11 @@ export async function upsertProfile(
   displayName?: string,
 ): Promise<string | null> {
   if (!supabase) return t('errors.network');
+  const cleanDisplayName = displayName ? sanitizeDisplayName(displayName) : '';
   const { error } = await supabase
     .from('profiles')
     .upsert(
-      { id, username, ...(displayName ? { display_name: displayName } : {}) },
+      { id, username, ...(cleanDisplayName ? { display_name: cleanDisplayName } : {}) },
       { onConflict: 'id' },
     );
   if (error) {
@@ -117,9 +119,10 @@ export async function updateMyDisplayName(
   displayName: string,
 ): Promise<string | null> {
   if (!supabase) return t('errors.network');
+  const cleanDisplayName = sanitizeDisplayName(displayName);
   const { data, error } = await supabase
     .from('profiles')
-    .update({ display_name: displayName })
+    .update({ display_name: cleanDisplayName })
     .eq('id', me)
     .select('id');
   if (error) return errorMessage(error, 'profile display_name update');
