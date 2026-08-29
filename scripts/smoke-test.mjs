@@ -1092,6 +1092,16 @@ assert(
   dom.window.document.querySelectorAll('.settings-section').length >= 6,
   'settings sections (profile/search/language/appearance/chat/account)',
 );
+// APP_VERSION is injected from package.json at build time (P3-1), so the
+// Settings footer must show exactly the released version.
+{
+  const pkgVersion = JSON.parse(readFileSync(`${root}package.json`, 'utf8')).version;
+  const footerText = dom.window.document.querySelector('.settings-footer')?.textContent ?? '';
+  assert(
+    footerText.includes(pkgVersion),
+    `Settings footer shows the package version (${pkgVersion})`,
+  );
+}
 assert(
   ![...dom.window.document.querySelectorAll('.settings-row')].some((r) =>
     /notifications|benachrichtigungen/i.test(r.textContent ?? ''),
