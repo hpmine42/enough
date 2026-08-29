@@ -416,13 +416,13 @@ E2EE identity material only; no frequent reads/writes. No performance concern.
 | Area | Status |
 |---|---|
 | UI smoke test (`scripts/smoke-test.mjs`) | ✅ ~150 assertions over the built bundle in jsdom: auth, theme, i18n, requests, blocks, deletions, My Notes, account deletion, recovery callback |
-| RLS test script (`supabase/rls-tests.sql`) | ✅ Exists, covers profiles/connections/messages/deletions/read state/blocks/RPCs — **must be run manually** in the Supabase SQL editor; not automated |
+| RLS test script (`supabase/rls-tests.sql`) | ✅ Automated via embedded PostgreSQL test runner (`npm run test:rls` / `scripts/run-rls-tests.mjs`) in CI/deploy pipeline, also runnable in Supabase SQL editor |
 
 ### 11.3 Missing critical tests
 
 | Test | Rationale |
 |---|---|
-| **Automated RLS execution** (CI or at least a documented command) | The only check of the deployed DB's authorization |
+| **Automated RLS execution** (CI gate `npm run test:rls`) | ✅ Automated in CI via `scripts/run-rls-tests.mjs` against embedded real PostgreSQL |
 | **Concurrency:** two tabs sending / toggling My Notes | Realtime dedup and the advisory locks are untested end-to-end |
 | **Block/unblock/block rapid sequence** | Race between `getBlockState` and the realtime refresh |
 | **Offline behaviour:** Supabase unreachable during send / Home load | Empty-state vs. error messaging (P2-4) |
@@ -600,7 +600,7 @@ C-1 is therefore **not** a v0.2 item. It is deferred to the dedicated E2EE phase
 - [ ] `ciphertext`/`display_name` write sanitization + server-side length check
 - [ ] `getUnreadCounts` batching and Home realtime incremental updates (smoke test kept green)
 - [ ] All existing tests pass: `npm run test:crypto`, `npm run smoke`
-- [ ] `supabase/rls-tests.sql` executes without errors against a live Supabase project
+- [x] `supabase/rls-tests.sql` executes without errors against live embedded Postgres (`npm run test:rls`) and live Supabase project
 - [ ] Manual QA: registration, login, request/accept/decline/block, chat, deletion, My Notes, account deletion
 - [ ] `npm run build` with `VITE_BASE=/enough/` succeeds and deploys to GitHub Pages
 

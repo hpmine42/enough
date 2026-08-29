@@ -19,12 +19,26 @@
 -- Helper: switch the request context to a given user.
 create or replace function public.__rls_test_set_user(uid uuid)
 returns void
-language sql
+language plpgsql
 as $$
-  select set_config('request.jwt.claims',
-                    jsonb_build_object('sub', uid::text, 'role', 'authenticated')::text,
-                    false);
-  set local role authenticated;
+begin
+  perform set_config('request.jwt.claim.sub', uid::text, false);
+  perform set_config('request.jwt.claims',
+                     jsonb_build_object('sub', uid::text, 'role', 'authenticated')::text,
+                     false);
+  execute 'set role authenticated';
+end;
+$$;
+
+create or replace function public.__rls_test_reset_role()
+returns void
+language plpgsql
+as $$
+begin
+  execute 'reset role';
+  perform set_config('request.jwt.claim.sub', '', false);
+  perform set_config('request.jwt.claims', '', false);
+end;
 $$;
 
 -- =====================================================================
@@ -202,11 +216,12 @@ begin
   select id, b from public.messages
    where connection_id in (select id from public.connections
                             where user_a = a and user_b = b)
-   limit 1;
+   limit 1
+  on conflict (message_id, user_id) do nothing;
   -- B cannot hide a message from a connection B does not belong to.
   begin
     insert into public.message_deletions (message_id, user_id)
-    select id, b from public.messages limit 1;
+    values (gen_random_uuid(), b);
     raise exception 'FAIL: B hid an unrelated message';
   exception when insufficient_privilege then
     null;
@@ -240,14 +255,12 @@ begin
 
   -- ---- chat deletion ------------------------------------------------
   insert into public.chat_deletions (connection_id, user_id)
-  select id, b from public.connections where user_a = a and user_b = b;
-  -- B cannot delete a chat B is not part of (use a self-made request row).
+  select id, b from public.connections where user_a = a and user_b = b
+  on conflict (connection_id, user_id) do nothing;
+  -- B cannot delete a chat B is not part of.
   begin
     insert into public.chat_deletions (connection_id, user_id)
-    select c.id, b
-      from public.connections c
-     where c.user_a = b and c.user_b = b
-     limit 1;
+    values (gen_random_uuid(), b);
     raise exception 'FAIL: B deleted an unrelated chat';
   exception when insufficient_privilege then
     null;
@@ -372,10 +385,10 @@ begin
   end if;
 
   -- Cleanup from previous runs.
-  perform public.__rls_test_set_user(a);
-  delete from public.user_blocks where blocker_id = a;
-  perform public.__rls_test_set_user(b);
-  delete from public.user_blocks where blocker_id = b;
+  perform public.__rls_test_reset_role();
+  delete from public.user_blocks where (blocker_id = a and blocked_id = b) or (blocker_id = b and blocked_id = a);
+  delete from public.messages where connection_id in (select id from public.connections where (user_a = a and user_b = b) or (user_a = b and user_b = a));
+  delete from public.connections where (user_a = a and user_b = b) or (user_a = b and user_b = a);
 
   -- ---- block lifecycle -------------------------------------------------
   -- A blocks B.
@@ -562,4 +575,6 @@ begin
 end $$;
 
 -- Cleanup helper.
+reset role;
 drop function if exists public.__rls_test_set_user(uuid);
+drop function if exists public.__rls_test_reset_role();
