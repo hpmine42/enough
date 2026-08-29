@@ -1,7 +1,11 @@
 import { useEffect, useReducer } from 'react';
-import { Lang, TranslationKey, translations } from './translations';
+// Explicit `.ts` extension and a type-only import (both as used throughout
+// `src/lib`) so this module can also be loaded by the Node test runner, which
+// neither resolves extensionless specifiers nor elides value-imported types.
+import { translations } from './translations.ts';
+import type { Lang, TranslationKey } from './translations.ts';
 
-export type { Lang, TranslationKey } from './translations';
+export type { Lang, TranslationKey } from './translations.ts';
 
 const STORAGE_KEY = 'enough-lang';
 
@@ -46,18 +50,37 @@ function resolve(dict: object, key: TranslationKey): string {
   return typeof node === 'string' ? node : key;
 }
 
+/**
+ * One `{name}` placeholder of a translation template.
+ *
+ * The name may hold any character except a brace, so `{a-b}`/`{a.b}` style
+ * keys keep working while a token can never span two placeholders.
+ */
+const PLACEHOLDER = /\{([^{}]+)\}/g;
+
 export function t(
   key: TranslationKey,
   params?: Record<string, string | number>,
 ): string {
   let str = resolve(translations[currentLang], key);
   if (str === key) str = resolve(translations.en, key);
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      str = str.split(`{${k}}`).join(String(v));
-    }
-  }
-  return str;
+  if (!params) return str;
+  // Single left-to-right pass over the ORIGINAL template.
+  //
+  // The scan continues *after* each replacement, so text that came from a
+  // parameter value is never scanned again: a value is data, never template
+  // source, and no substitution can be triggered by it. The result therefore
+  // depends only on the template and the parameter values — never on the
+  // key order of `params` (F9 / audit P1-2).
+  //
+  // A replacer FUNCTION is used (not a replacement string) so `$&`, `$1`, …
+  // inside a value are inserted literally. `String.prototype.replace` resets
+  // `lastIndex` for global regexes, so the shared pattern carries no state.
+  return str.replace(PLACEHOLDER, (match, name: string) =>
+    Object.prototype.hasOwnProperty.call(params, name)
+      ? String(params[name])
+      : match,
+  );
 }
 
 /** React hook: re-renders on language change. */
