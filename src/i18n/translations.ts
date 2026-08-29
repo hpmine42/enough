@@ -288,6 +288,9 @@ export const translations = {
       chatDeleteFailed: 'The chat could not be deleted.',
       notesFailed: 'My Notes could not be set up.',
       blockedRequest: 'This is not possible because of a block.',
+      crashTitle: 'Something went wrong.',
+      crashHint: 'Please reload the app to continue.',
+      reload: 'Reload',
     },
   },
 
@@ -553,6 +556,9 @@ export const translations = {
       chatDeleteFailed: 'Der Chat konnte nicht gelöscht werden.',
       notesFailed: 'Meine Notizen konnten nicht eingerichtet werden.',
       blockedRequest: 'Das ist wegen einer Blockierung nicht möglich.',
+      crashTitle: 'Etwas ist schiefgelaufen.',
+      crashHint: 'Bitte lade die App neu, um fortzufahren.',
+      reload: 'Neu laden',
     },
   },
 } as const;

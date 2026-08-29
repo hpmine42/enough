@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider } from './context/AuthContext';
 import { E2EEProvider } from './context/E2EEContext';
 import { PreferencesProvider } from './context/PreferencesContext';
@@ -16,13 +17,15 @@ watchSystemTheme();
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
-  <AuthProvider>
-    <PreferencesProvider>
-      <E2EEProvider>
-        <App />
-      </E2EEProvider>
-    </PreferencesProvider>
-  </AuthProvider>
+  <ErrorBoundary>
+    <AuthProvider>
+      <PreferencesProvider>
+        <E2EEProvider>
+          <App />
+        </E2EEProvider>
+      </PreferencesProvider>
+    </AuthProvider>
+  </ErrorBoundary>
   </StrictMode>,
 );
 

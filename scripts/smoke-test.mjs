@@ -2365,6 +2365,35 @@ function bootWithTheme(storedMode, osDark) {
   booted.window.close();
 }
 
+/* ------------------------------------------------------------------ */
+/* global error boundary: a render crash shows a reload screen         */
+/* ------------------------------------------------------------------ */
+
+// Sign back in so the authenticated chat route is reachable, then force a
+// render error (a malformed percent-escape makes decodeURIComponent throw
+// while App renders) and assert the boundary catches it instead of leaving
+// a blank white page.
+setHash('#/login');
+await waitFor(() => text('.button') === 'Log in', 'login screen before crash test');
+setInputValue(dom.window.document.querySelector('.form input[type="email"]'), 'anna@example.com');
+setInputValue(dom.window.document.querySelector('.form input[type="password"]'), 'secret123');
+dom.window.document.querySelector('.form').dispatchEvent(
+  new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+);
+await waitFor(
+  () => dom.window.document.querySelector('.home-screen') !== null,
+  'signed in before crash test',
+);
+setHash('#/chat/%E0%A4%A');
+await waitFor(
+  () => text('.config-screen p') === 'Something went wrong.',
+  'render crash shows the error boundary instead of a blank page',
+);
+assert(
+  dom.window.document.querySelector('.config-screen .btn-primary')?.textContent === 'Reload',
+  'error boundary offers a reload action',
+);
+
 if (failures === 0) {
   // A fresh client instance is required because callback flow selection occurs
   // when Supabase is initialized.
