@@ -1,4 +1,4 @@
-import { Connection, Profile } from './types';
+import type { Connection, Message, Profile } from './types';
 
 /** Maximum lifetime of a pending/declined connection request attempt. */
 export const REQUEST_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
@@ -9,6 +9,21 @@ export function otherUserId(conn: Connection, me: string): string {
 
 export function isSelfConnection(conn: Connection): boolean {
   return conn.user_a === conn.user_b;
+}
+
+/**
+ * Sort comparator for messages: ascending by `created_at`, ties broken by id
+ * (ascending). This matches the `(created_at, id)` ordering used by the
+ * database pagination, so appended/realtime messages stay in the same order
+ * as freshly loaded pages (audit P3-3 — previously duplicated in Chat.tsx).
+ */
+export function compareMessagesAsc(
+  a: Pick<Message, 'created_at' | 'id'>,
+  b: Pick<Message, 'created_at' | 'id'>,
+): number {
+  return a.created_at === b.created_at
+    ? a.id.localeCompare(b.id)
+    : a.created_at.localeCompare(b.created_at);
 }
 
 /** Human-readable name: display name when set, otherwise the username. */
@@ -89,7 +104,10 @@ export function formatRelative(
   const dateObj = new Date(iso);
   if (Number.isNaN(dateObj.getTime())) return '';
   const diff = now.getTime() - dateObj.getTime();
-  if (diff < MINUTE) return lang === 'de' ? '1 min' : '1 min';
+  // Anything younger than a minute reads as "just now" instead of "1 min",
+  // so freshly sent messages do not look a minute old (audit P2-1). The
+  // fallback covers clock skew where the timestamp is slightly in the future.
+  if (diff < MINUTE) return lang === 'de' ? 'gerade eben' : 'just now';
   if (diff < HOUR) return `${Math.floor(diff / MINUTE)} min`;
   if (diff < DAY) return `${Math.floor(diff / HOUR)} h`;
   if (diff < 7 * DAY) return weekday(iso, lang);

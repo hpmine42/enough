@@ -152,6 +152,23 @@ securityAssert(
   'Referrer-Policy is strict-origin-when-cross-origin',
 );
 
+// 5. robots.txt + .well-known/security.txt ship with the build (Phase A #6).
+const robotsTxt = readFileSync(`${dist}/robots.txt`, 'utf8');
+securityAssert(
+  robotsTxt.includes('User-agent: *') && robotsTxt.includes('Allow: /'),
+  'robots.txt allows crawling and is present in the build',
+);
+const securityTxt = readFileSync(`${dist}/.well-known/security.txt`, 'utf8');
+securityAssert(
+  securityTxt.includes('Contact: mailto:hpmine@web.de'),
+  'security.txt is present with a disclosure contact',
+);
+securityAssert(securityTxt.includes('Expires:'), 'security.txt declares an Expires date');
+securityAssert(
+  securityTxt.includes('https://hpmine42.github.io/enough/.well-known/security.txt'),
+  'security.txt canonical URL points at its deployed location',
+);
+
 if (securityFailures > 0) {
   console.error(
     `\n${securityFailures} security meta tag assertion(s) FAILED.`,
@@ -1075,6 +1092,16 @@ assert(
   dom.window.document.querySelectorAll('.settings-section').length >= 6,
   'settings sections (profile/search/language/appearance/chat/account)',
 );
+// APP_VERSION is injected from package.json at build time (P3-1), so the
+// Settings footer must show exactly the released version.
+{
+  const pkgVersion = JSON.parse(readFileSync(`${root}package.json`, 'utf8')).version;
+  const footerText = dom.window.document.querySelector('.settings-footer')?.textContent ?? '';
+  assert(
+    footerText.includes(pkgVersion),
+    `Settings footer shows the package version (${pkgVersion})`,
+  );
+}
 assert(
   ![...dom.window.document.querySelectorAll('.settings-row')].some((r) =>
     /notifications|benachrichtigungen/i.test(r.textContent ?? ''),
@@ -1104,6 +1131,28 @@ assert(
   dom.window.document.querySelector('.dialog') !== null,
   'password confirmation is custom (no browser alert)',
 );
+// Focus trap (P2-3): focus enters the dialog and Tab stays inside it.
+{
+  const dialogEl = dom.window.document.querySelector('.dialog');
+  assert(
+    document.activeElement === dialogEl.querySelector('.btn-primary'),
+    'dialog focuses its confirm button on open',
+  );
+  document.dispatchEvent(
+    new dom.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+  );
+  assert(
+    document.activeElement === dialogEl.querySelector('.btn-plain'),
+    'Tab wraps from the last to the first focusable element inside the dialog',
+  );
+  document.dispatchEvent(
+    new dom.window.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
+  );
+  assert(
+    document.activeElement === dialogEl.querySelector('.btn-primary'),
+    'Shift+Tab wraps back to the last focusable element inside the dialog',
+  );
+}
 click('.dialog .btn-primary');
 await waitFor(
   () => dom.window.document.querySelectorAll('.settings-inline-form input[type="password"]').length === 3,
@@ -2364,6 +2413,35 @@ function bootWithTheme(storedMode, osDark) {
   );
   booted.window.close();
 }
+
+/* ------------------------------------------------------------------ */
+/* global error boundary: a render crash shows a reload screen         */
+/* ------------------------------------------------------------------ */
+
+// Sign back in so the authenticated chat route is reachable, then force a
+// render error (a malformed percent-escape makes decodeURIComponent throw
+// while App renders) and assert the boundary catches it instead of leaving
+// a blank white page.
+setHash('#/login');
+await waitFor(() => text('.button') === 'Log in', 'login screen before crash test');
+setInputValue(dom.window.document.querySelector('.form input[type="email"]'), 'anna@example.com');
+setInputValue(dom.window.document.querySelector('.form input[type="password"]'), 'secret123');
+dom.window.document.querySelector('.form').dispatchEvent(
+  new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+);
+await waitFor(
+  () => dom.window.document.querySelector('.home-screen') !== null,
+  'signed in before crash test',
+);
+setHash('#/chat/%E0%A4%A');
+await waitFor(
+  () => text('.config-screen p') === 'Something went wrong.',
+  'render crash shows the error boundary instead of a blank page',
+);
+assert(
+  dom.window.document.querySelector('.config-screen .btn-primary')?.textContent === 'Reload',
+  'error boundary offers a reload action',
+);
 
 if (failures === 0) {
   // A fresh client instance is required because callback flow selection occurs

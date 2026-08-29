@@ -28,7 +28,7 @@ import {
   sendMessage,
   unblockUser,
 } from '../lib/api';
-import { displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
+import { compareMessagesAsc, displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
 import { supabase } from '../lib/supabase';
 import { getLang, t, useLang } from '../i18n';
 import { BlockState, Connection, Message, Profile } from '../lib/types';
@@ -192,11 +192,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
             if (!atBottomRef.current) {
               setNewSinceUp((c) => c + 1);
             }
-            return [...prev, msg].sort((a, b) =>
-              a.created_at === b.created_at
-                ? a.id.localeCompare(b.id)
-                : a.created_at.localeCompare(b.created_at),
-            );
+            return [...prev, msg].sort(compareMessagesAsc);
           });
           // Refresh the "new messages below" count without waiting for a scroll.
           requestAnimationFrame(() => {
@@ -269,6 +265,10 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     const refresh = () => {
       getBlockState(me, peerId).then(setBlockState);
     };
+    // Scope the block-state channel to the exact me↔peer pair (audit P2-5).
+    // Realtime filters combine comma-separated conditions with AND and do not
+    // support OR, so two pair filters replace the old over-broad per-peer
+    // filters that also delivered blocks between the peer and third users.
     const channel = client
       .channel(`chat-blocks-${connectionId}`)
       .on(
@@ -277,7 +277,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           event: '*',
           schema: 'public',
           table: 'user_blocks',
-          filter: `blocker_id=eq.${peerId}`,
+          filter: `blocker_id=eq.${me},blocked_id=eq.${peerId}`,
         },
         refresh,
       )
@@ -287,7 +287,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           event: '*',
           schema: 'public',
           table: 'user_blocks',
-          filter: `blocked_id=eq.${peerId}`,
+          filter: `blocker_id=eq.${peerId},blocked_id=eq.${me}`,
         },
         refresh,
       )
@@ -536,11 +536,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       setMessages((prev) =>
         prev.some((m) => m.id === message.id)
           ? prev
-          : [...prev, message].sort((a, b) =>
-              a.created_at === b.created_at
-                ? a.id.localeCompare(b.id)
-                : a.created_at.localeCompare(b.created_at),
-            ),
+          : [...prev, message].sort(compareMessagesAsc),
       );
     }
   }

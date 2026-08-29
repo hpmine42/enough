@@ -1,0 +1,6 @@
+# Security disclosure policy (RFC 9116).
+# Report vulnerabilities privately; do not include live user data.
+Contact: mailto:hpmine@web.de
+Expires: 2027-08-29T00:00:00.000Z
+Preferred-Languages: en, de
+Canonical: https://hpmine42.github.io/enough/.well-known/security.txt

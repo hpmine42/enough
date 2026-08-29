@@ -25,6 +25,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { getLang, t } from '../i18n';
 import { Connection, Message, Profile } from '../lib/types';
+import { mergeLastMessage, unreadAfterInsert } from '../lib/homeRealtime';
 import { getCachedPlaintextSync, warmMessageCache } from '../lib/e2ee/message-cache';
 import { isEnvelope } from '../lib/e2ee/message-flow';
 import ThemeButton from './ThemeButton';
@@ -81,6 +82,14 @@ export default function Home() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const me = user?.id ?? '';
+
+  // Mirrors the visible connection ids so the realtime handlers can decide
+  // between an incremental update and a full reconciliation without
+  // re-subscribing on every list change.
+  const visibleIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    visibleIdsRef.current = new Set(connections.map((c) => c.id));
+  }, [connections]);
 
   const load = useCallback(async () => {
     if (!me) return;
@@ -166,15 +175,35 @@ export default function Home() {
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
           const msg = payload.new as Message | undefined;
-          if (msg) load();
+          if (!msg) return;
+          // A conversation that is not currently in the list (new, or hidden
+          // behind a chat deletion) needs a full reconciliation so its
+          // profile, visibility and unread state are re-derived.
+          if (!visibleIdsRef.current.has(msg.connection_id)) {
+            load();
+            return;
+          }
+          // Incremental hot path: update only the affected row. The list
+          // order and preview are derived from `lastMessages`, so replacing
+          // the newest message is enough to re-render and re-sort the row.
+          setLastMessages((prev) => mergeLastMessage(prev, msg));
+          // A peer message is unread while Home is on screen; own messages
+          // (sent from another device) are never counted.
+          setUnread((prev) =>
+            unreadAfterInsert(prev, msg.connection_id, msg.sender_id !== me),
+          );
         },
       )
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'messages' },
         (payload) => {
-          const row = payload.new as Message | undefined;
-          if (row) load();
+          const msg = payload.new as Message | undefined;
+          if (!msg || !visibleIdsRef.current.has(msg.connection_id)) return;
+          // E.g. delete-for-everyone: the newest message's content/preview
+          // changes in place. Updates to non-last messages are ignored
+          // because they cannot affect the rendered row.
+          setLastMessages((prev) => mergeLastMessage(prev, msg));
         },
       )
       .on(
@@ -182,7 +211,8 @@ export default function Home() {
         { event: 'UPDATE', schema: 'public', table: 'profiles' },
         (payload) => {
           const row = payload.new as Profile | undefined;
-          if (row && (row.id === me || others[row.id])) load();
+          if (!row) return;
+          setOthers((prev) => (row.id in prev ? { ...prev, [row.id]: row } : prev));
         },
       )
       .on(

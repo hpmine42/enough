@@ -37,7 +37,6 @@ import {
   SystemIcon,
 } from './icons';
 
-const APP_VERSION = '0.1.0';
 const GITHUB_URL = 'https://github.com/hpmine42/enough';
 
 /* ------------------------------------------------------------------ */
@@ -992,7 +991,7 @@ export default function Settings() {
         {/* FOOTER */}
         <footer className="settings-footer">
           <span>
-            {t('settingsScreen.footer')} {APP_VERSION}
+            {t('settingsScreen.footer')} {__APP_VERSION__}
           </span>
           <a
             className="link settings-legal-link"
