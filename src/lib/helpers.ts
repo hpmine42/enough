@@ -1,4 +1,4 @@
-import type { Connection, Profile } from './types';
+import type { Connection, Message, Profile } from './types';
 
 /** Maximum lifetime of a pending/declined connection request attempt. */
 export const REQUEST_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
@@ -9,6 +9,21 @@ export function otherUserId(conn: Connection, me: string): string {
 
 export function isSelfConnection(conn: Connection): boolean {
   return conn.user_a === conn.user_b;
+}
+
+/**
+ * Sort comparator for messages: ascending by `created_at`, ties broken by id
+ * (ascending). This matches the `(created_at, id)` ordering used by the
+ * database pagination, so appended/realtime messages stay in the same order
+ * as freshly loaded pages (audit P3-3 — previously duplicated in Chat.tsx).
+ */
+export function compareMessagesAsc(
+  a: Pick<Message, 'created_at' | 'id'>,
+  b: Pick<Message, 'created_at' | 'id'>,
+): number {
+  return a.created_at === b.created_at
+    ? a.id.localeCompare(b.id)
+    : a.created_at.localeCompare(b.created_at);
 }
 
 /** Human-readable name: display name when set, otherwise the username. */

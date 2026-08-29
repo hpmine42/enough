@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   REQUEST_LIFETIME_MS,
+  compareMessagesAsc,
   connectionExpiresAt,
   displayName,
   effectiveStatus,
@@ -104,6 +105,22 @@ test('displayName: prefers display name, falls back to username, then ellipsis',
   assert.equal(displayName({ id: '1', username: 'benno' }), 'benno');
   assert.equal(displayName(null), '…');
   assert.equal(displayName(undefined), '…');
+});
+
+test('compareMessagesAsc: orders by created_at then id, ascending', () => {
+  const t = '2026-01-01T10:00:00Z';
+  const messages = [
+    { id: 'c', created_at: t },
+    { id: 'a', created_at: '2026-01-01T11:00:00Z' },
+    { id: 'b', created_at: t },
+    { id: 'a', created_at: t },
+  ];
+  const sorted = [...messages].sort(compareMessagesAsc);
+  assert.deepEqual(
+    sorted.map((m) => m.id),
+    ['a', 'b', 'c', 'a'],
+    'equal timestamps sort by id, later timestamps sort last',
+  );
 });
 
 test('otherUserId / isSelfConnection', () => {

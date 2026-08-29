@@ -28,7 +28,7 @@ import {
   sendMessage,
   unblockUser,
 } from '../lib/api';
-import { displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
+import { compareMessagesAsc, displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
 import { supabase } from '../lib/supabase';
 import { getLang, t, useLang } from '../i18n';
 import { BlockState, Connection, Message, Profile } from '../lib/types';
@@ -192,11 +192,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
             if (!atBottomRef.current) {
               setNewSinceUp((c) => c + 1);
             }
-            return [...prev, msg].sort((a, b) =>
-              a.created_at === b.created_at
-                ? a.id.localeCompare(b.id)
-                : a.created_at.localeCompare(b.created_at),
-            );
+            return [...prev, msg].sort(compareMessagesAsc);
           });
           // Refresh the "new messages below" count without waiting for a scroll.
           requestAnimationFrame(() => {
@@ -536,11 +532,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       setMessages((prev) =>
         prev.some((m) => m.id === message.id)
           ? prev
-          : [...prev, message].sort((a, b) =>
-              a.created_at === b.created_at
-                ? a.id.localeCompare(b.id)
-                : a.created_at.localeCompare(b.created_at),
-            ),
+          : [...prev, message].sort(compareMessagesAsc),
       );
     }
   }
