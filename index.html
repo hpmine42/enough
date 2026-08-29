@@ -15,6 +15,22 @@
     <meta name="apple-mobile-web-app-title" content="enough." />
     <meta name="application-name" content="enough." />
     <meta name="description" content="A deliberately minimal, one-to-one text messenger. Less, but enough." />
+    <!--
+      Defense-in-depth: a minimal Content-Security-Policy covering script,
+      connect, style, image and font sources. 'unsafe-inline' in script-src
+      is required by the inline theme bootstrap script below; style-src
+      allows 'unsafe-inline' for runtime-injected styles. No unsafe-eval,
+      no wildcard, no external domains beyond the Supabase API/Realtime
+      endpoints. frame-ancestors and report-* require HTTP headers (not
+      available on GitHub Pages) and are intentionally omitted.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'"
+    />
+    <!-- Belt-and-braces: hash tokens are already not sent in Referer by
+         HTTP spec, and Supabase strips them from the URL after processing. -->
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>enough.</title>
     <!-- Relative so GitHub Pages /enough/ and local / both resolve correctly. -->
     <link rel="manifest" href="./manifest.webmanifest" />
