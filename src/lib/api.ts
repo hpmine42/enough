@@ -912,20 +912,36 @@ export async function saveReadState(
     );
 }
 
-/** Unread counts per connection (view-first with an RLS-safe fallback). */
+/**
+ * Unread counts per connection.
+ *
+ * After migration 0013 the `connection_unread` view returns a row for every
+ * connection of the authenticated user (not only those with `connection_reads`
+ * rows), so a single view query covers all connections — O(1) DB round trips
+ * regardless of the number of connections.
+ *
+ * A bounded batch fallback is retained for environments where the migration
+ * has not yet been applied: instead of one query per missing connection (the
+ * old N+1 behaviour), at most two additional queries are issued (one for
+ * connections without local read state, one for connections with read state).
+ *
+ * The optional `_client` parameter exists solely for unit testing.
+ */
 export async function getUnreadCounts(
   me: string,
   connectionIds: string[],
   readState: Record<string, string>,
+  /** @internal Optional Supabase client override for testing. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  _client?: any,
 ): Promise<Record<string, number>> {
-  if (!supabase || connectionIds.length === 0) return {};
-  const client = supabase;
+  const client = _client ?? supabase;
+  if (!client || connectionIds.length === 0) return {};
   const map: Record<string, number> = {};
 
-  // Preferred: the connection_unread view (RLS via security invoker). The
-  // original view starts at connection_reads, so a brand-new conversation has
-  // no row until it has been opened once. Preserve returned rows and fill only
-  // missing connections below.
+  // Preferred: the connection_unread view (RLS via security invoker).
+  // Migration 0013 ensures the view covers ALL connections of the
+  // authenticated user, including brand-new conversations without read state.
   const { data, error } = await client
     .from('connection_unread')
     .select('connection_id, unread')
@@ -936,24 +952,84 @@ export async function getUnreadCounts(
     }
   }
 
-  // Count only connections the view could not represent (or all connections
-  // if the optional view is unavailable). Messages RLS remains the authority.
+  // Bounded fallback: only if some connections are still missing from the
+  // view (e.g. the migration has not been applied). At most 2 queries
+  // total — never one per connection.
   const missing = connectionIds.filter((cid) => !(cid in map));
-  await Promise.all(
-    missing.map(async (cid) => {
-      const since = readState[cid];
-      let query = client
-        .from('messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('connection_id', cid)
-        .neq('sender_id', me)
-        .is('deleted_at', null);
-      if (since) query = query.gt('created_at', since);
-      const { count, error: countError } = await query;
-      map[cid] = countError ? 0 : (count ?? 0);
-    }),
-  );
+  if (missing.length > 0) {
+    await batchUnreadFallback(client, me, missing, readState, map);
+  }
   return map;
+}
+
+/**
+ * Bounded fallback for unread counts when the view does not cover all
+ * connections. Replaces the old N+1 per-connection loop with at most two
+ * batched queries.
+ *
+ * @internal Exported for unit testing only.
+ */
+export async function batchUnreadFallback(
+  client: any,
+  me: string,
+  missing: string[],
+  readState: Record<string, string>,
+  map: Record<string, number>,
+): Promise<void> {
+  // Split into connections with and without local read state.
+  const withoutState: string[] = [];
+  const withState: string[] = [];
+  for (const cid of missing) {
+    if (readState[cid]) {
+      withState.push(cid);
+    } else {
+      withoutState.push(cid);
+    }
+  }
+
+  // Batch 1: connections without read state — count all non-deleted
+  // messages from others. One query for all of them.
+  if (withoutState.length > 0) {
+    const { data, error } = await client
+      .from('messages')
+      .select('connection_id')
+      .in('connection_id', withoutState)
+      .neq('sender_id', me)
+      .is('deleted_at', null);
+    const counts: Record<string, number> = {};
+    if (!error && data) {
+      for (const row of data as { connection_id: string }[]) {
+        counts[row.connection_id] = (counts[row.connection_id] || 0) + 1;
+      }
+    }
+    for (const cid of withoutState) {
+      map[cid] = counts[cid] || 0;
+    }
+  }
+
+  // Batch 2: connections with read state — fetch all relevant messages
+  // and filter client-side by each connection's `since` timestamp.
+  // One query for all of them.
+  if (withState.length > 0) {
+    const { data, error } = await client
+      .from('messages')
+      .select('connection_id, created_at')
+      .in('connection_id', withState)
+      .neq('sender_id', me)
+      .is('deleted_at', null);
+    const counts: Record<string, number> = {};
+    if (!error && data) {
+      for (const row of data as { connection_id: string; created_at: string }[]) {
+        const since = readState[row.connection_id];
+        if (!since || row.created_at > since) {
+          counts[row.connection_id] = (counts[row.connection_id] || 0) + 1;
+        }
+      }
+    }
+    for (const cid of withState) {
+      map[cid] = counts[cid] || 0;
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */

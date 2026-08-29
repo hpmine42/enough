@@ -462,13 +462,26 @@ globalThis.fetch = async (input, init = {}) => {
       case 'messages': {
         if (method === 'GET' || method === 'HEAD') {
           const cid = eq('connection_id');
-          let rows = db.messages.filter((r) => r.connection_id === cid);
+          // Support PostgREST `in` filter: connection_id=in.(val1,val2,...)
+          const inParam = params.get('connection_id');
+          let rows;
+          if (inParam && inParam.startsWith('in.')) {
+            const inValues = inParam.slice(3).replace(/^\(/, '').replace(/\)$/, '').split(',');
+            rows = db.messages.filter((r) => inValues.includes(r.connection_id));
+          } else {
+            rows = db.messages.filter((r) => r.connection_id === cid);
+          }
           const before = filterParam('created_at','lt');
           if (before) rows = rows.filter((r) => r.created_at < before);
           const after = filterParam('created_at', 'gt');
           if (after) rows = rows.filter((r) => r.created_at > after);
           const sender = filterParam('sender_id','neq');
           if (sender) rows = rows.filter((r) => r.sender_id !== sender);
+          // Support PostgREST `is` filter: deleted_at=is.null
+          const deletedAt = params.get('deleted_at');
+          if (deletedAt === 'is.null') {
+            rows = rows.filter((r) => r.deleted_at === null);
+          }
           if (countExact) {
             return jsonResponse(rows.slice(0, 1), 200, {
               'content-range': `0-${Math.min(rows.length, 1) - 1}/${rows.length}`,
