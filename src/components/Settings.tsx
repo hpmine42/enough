@@ -241,8 +241,9 @@ export default function Settings() {
     }
 
     setNotesLoading(true);
-    getMyConnections(me).then((loaded) => {
+    getMyConnections(me).then((result) => {
       if (!active) return;
+      const loaded = result.data;
       setConnections(loaded);
       setMyNotes(
         loaded.some(
@@ -274,9 +275,12 @@ export default function Settings() {
       setBlockedIds(rel.blockedIds);
       setBlockedByIds(rel.blockedByIds);
     });
-    getBlockedUsers(me).then(async (list) => {
-      const profiles = await getProfiles(list.map((b) => b.blockedId));
+    getBlockedUsers(me).then(async (result) => {
+      if (result.error) return;
+      const list = result.data;
+      const profilesResult = await getProfiles(list.map((b) => b.blockedId));
       if (!active) return;
+      const profiles = profilesResult.data;
       setBlockedUsers(
         list
           .map((b) => profiles[b.blockedId])
@@ -298,8 +302,11 @@ export default function Settings() {
         setBlockedIds(rel.blockedIds);
         setBlockedByIds(rel.blockedByIds);
       });
-      getBlockedUsers(me).then(async (list) => {
-        const profiles = await getProfiles(list.map((b) => b.blockedId));
+      getBlockedUsers(me).then(async (result) => {
+        if (result.error) return;
+        const list = result.data;
+        const profilesResult = await getProfiles(list.map((b) => b.blockedId));
+        const profiles = profilesResult.data;
         setBlockedUsers(
           list
             .map((b) => profiles[b.blockedId])
@@ -501,8 +508,14 @@ export default function Settings() {
     setSearchError(null);
     if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
     searchTimer.current = window.setTimeout(async () => {
-      const found = await searchUsers(q, me);
-      setResults(found);
+      const result = await searchUsers(q, me);
+      if (result.error) {
+        setSearchError(result.error);
+        setResults([]);
+      } else {
+        setResults(result.data);
+        setSearchError(null);
+      }
       setSearching(false);
     }, 300);
   }
@@ -511,9 +524,9 @@ export default function Settings() {
     // Connections may have been changed from Chat or Home while Settings was
     // mounted. Re-read before navigating: a stale, deleted connection ID
     // would otherwise send the user to a conversation that no longer exists.
-    const freshConnections = await getMyConnections(me);
-    setConnections(freshConnections);
-    const existing = freshConnections.find(
+    const freshConnectionsResult = await getMyConnections(me);
+    setConnections(freshConnectionsResult.data);
+    const existing = freshConnectionsResult.data.find(
       (c) =>
         (c.user_a === me && c.user_b === other.id) ||
         (c.user_a === other.id && c.user_b === me),
@@ -539,9 +552,9 @@ export default function Settings() {
       return;
     }
     // Re-fetch connections, then open the conversation.
-    const conns = await getMyConnections(me);
-    setConnections(conns);
-    const fresh = conns.find(
+    const connsResult = await getMyConnections(me);
+    setConnections(connsResult.data);
+    const fresh = connsResult.data.find(
       (c) =>
         (c.user_a === me && c.user_b === other.id) ||
         (c.user_a === other.id && c.user_b === me),
@@ -554,7 +567,8 @@ export default function Settings() {
     const err = await acceptConnection(conn.id);
     setActionBusyId(null);
     if (!err) {
-      setConnections(await getMyConnections(me));
+      const result = await getMyConnections(me);
+      setConnections(result.data);
       navigate(`#/chat/${conn.id}`);
     }
   }
@@ -563,7 +577,10 @@ export default function Settings() {
     setActionBusyId(conn.id);
     const err = await cancelConnectionRequest(conn.id);
     setActionBusyId(null);
-    if (!err) setConnections(await getMyConnections(me));
+    if (!err) {
+      const result = await getMyConnections(me);
+      setConnections(result.data);
+    }
   }
 
   async function handleUnblock(target: Profile) {

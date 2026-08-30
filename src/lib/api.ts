@@ -15,6 +15,17 @@ import {
 } from './types';
 
 /* ------------------------------------------------------------------ */
+/* result type                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Wrapper for data-layer read results. `error` is a localized human-readable
+ * message when the request failed; `null` on success. An empty array/object
+ * with `error === null` is a genuine empty state, not a failure.
+ */
+export type ApiResult<T> = { data: T; error: string | null };
+
+/* ------------------------------------------------------------------ */
 /* profiles                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -102,16 +113,18 @@ export async function usernameExists(username: string): Promise<boolean> {
 export async function searchUsers(
   query: string,
   me: string,
-): Promise<Profile[]> {
-  if (!supabase) return [];
+): Promise<ApiResult<Profile[]>> {
+  if (!supabase) return { data: [], error: t('errors.network') };
   const { data, error } = await supabase
     .from('profiles')
     .select('id, username, display_name')
     .ilike('username', `${query}%`)
     .neq('id', me)
     .limit(10);
-  if (error) return [];
-  return (data ?? []) as Profile[];
+  if (error) {
+    return { data: [], error: errorMessage(error, 'searchUsers') };
+  }
+  return { data: (data ?? []) as Profile[], error: null };
 }
 
 export async function updateMyDisplayName(
@@ -136,15 +149,17 @@ export async function updateMyDisplayName(
 /* connections                                                         */
 /* ------------------------------------------------------------------ */
 
-export async function getMyConnections(me: string): Promise<Connection[]> {
-  if (!supabase) return [];
+export async function getMyConnections(me: string): Promise<ApiResult<Connection[]>> {
+  if (!supabase) return { data: [], error: t('errors.network') };
   const { data, error } = await supabase
     .from('connections')
     .select('*')
     .or(`user_a.eq.${me},user_b.eq.${me}`)
     .order('created_at', { ascending: false });
-  if (error) return [];
-  return (data ?? []) as Connection[];
+  if (error) {
+    return { data: [], error: errorMessage(error, 'getMyConnections') };
+  }
+  return { data: (data ?? []) as Connection[], error: null };
 }
 
 export async function getConnection(id: string): Promise<Connection | null> {
@@ -160,18 +175,20 @@ export async function getConnection(id: string): Promise<Connection | null> {
 
 export async function getProfiles(
   ids: string[],
-): Promise<Record<string, Profile>> {
-  if (!supabase || ids.length === 0) return {};
+): Promise<ApiResult<Record<string, Profile>>> {
+  if (!supabase || ids.length === 0) return { data: {}, error: null };
   const { data, error } = await supabase
     .from('profiles')
     .select('id, username, display_name')
     .in('id', ids);
-  if (error) return {};
+  if (error) {
+    return { data: {}, error: errorMessage(error, 'getProfiles') };
+  }
   const map: Record<string, Profile> = {};
   for (const p of (data ?? []) as Profile[]) {
     map[p.id] = p;
   }
-  return map;
+  return { data: map, error: null };
 }
 
 /**
@@ -442,20 +459,25 @@ export async function getBlockRelations(me: string): Promise<BlockRelation> {
 /** Users the current user has blocked, newest block first. */
 export async function getBlockedUsers(
   me: string,
-): Promise<{ blockedId: string; createdAt: string }[]> {
-  if (!supabase) return [];
+): Promise<ApiResult<{ blockedId: string; createdAt: string }[]>> {
+  if (!supabase) return { data: [], error: t('errors.network') };
   const { data, error } = await supabase
     .from('user_blocks')
     .select('blocked_id, created_at')
     .eq('blocker_id', me)
     .order('created_at', { ascending: false });
-  if (error) return [];
-  return (data ?? []).map(
-    (row: { blocked_id: string; created_at: string }) => ({
-      blockedId: row.blocked_id,
-      createdAt: row.created_at,
-    }),
-  );
+  if (error) {
+    return { data: [], error: errorMessage(error, 'getBlockedUsers') };
+  }
+  return {
+    data: (data ?? []).map(
+      (row: { blocked_id: string; created_at: string }) => ({
+        blockedId: row.blocked_id,
+        createdAt: row.created_at,
+      }),
+    ),
+    error: null,
+  };
 }
 
 /** Block another user. The RLS insert policy enforces blocker = caller. */
@@ -503,8 +525,10 @@ export async function getMessagesPage(
   beforeId?: string,
   limit = 40,
   hiddenUntil?: string | null,
-): Promise<{ messages: Message[]; hasMore: boolean }> {
-  if (!supabase) return { messages: [], hasMore: false };
+): Promise<{ messages: Message[]; hasMore: boolean; error: string | null }> {
+  if (!supabase) {
+    return { messages: [], hasMore: false, error: t('errors.network') };
+  }
   let query = supabase
     .from('messages')
     .select('id, connection_id, sender_id, ciphertext, created_at, deleted_at, kind, meta')
@@ -521,28 +545,36 @@ export async function getMessagesPage(
     );
   }
   const { data, error } = await query;
-  if (error) return { messages: [], hasMore: false };
+  if (error) {
+    return {
+      messages: [],
+      hasMore: false,
+      error: errorMessage(error, 'getMessagesPage'),
+    };
+  }
   const rows = (data ?? []) as Message[];
   const hasMore = rows.length > limit;
   const messages = (hasMore ? rows.slice(0, limit) : rows).reverse();
-  return { messages, hasMore };
+  return { messages, hasMore, error: null };
 }
 
 export async function getLastMessages(
   connectionIds: string[],
-): Promise<Record<string, Message>> {
-  if (!supabase || connectionIds.length === 0) return {};
+): Promise<ApiResult<Record<string, Message>>> {
+  if (!supabase || connectionIds.length === 0) return { data: {}, error: null };
   const { data, error } = await supabase
     .from('messages')
     .select('id, connection_id, sender_id, ciphertext, created_at, deleted_at, kind')
     .in('connection_id', connectionIds)
     .order('created_at', { ascending: false });
-  if (error) return {};
+  if (error) {
+    return { data: {}, error: errorMessage(error, 'getLastMessages') };
+  }
   const map: Record<string, Message> = {};
   for (const m of (data ?? []) as Message[]) {
     if (!(m.connection_id in map)) map[m.connection_id] = m;
   }
-  return map;
+  return { data: map, error: null };
 }
 
 /**

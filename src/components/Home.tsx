@@ -76,6 +76,7 @@ export default function Home() {
   const [lastMessages, setLastMessages] = useState<Record<string, Message>>({});
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [declineTarget, setDeclineTarget] = useState<Connection | null>(null);
   const [declineBusy, setDeclineBusy] = useState(false);
@@ -93,10 +94,23 @@ export default function Home() {
 
   const load = useCallback(async () => {
     if (!me) return;
+    setLoadError(null);
     await warmMessageCache(me);
-    const conns = await getMyConnections(me);
+    const connsResult = await getMyConnections(me);
+    if (connsResult.error) {
+      setLoadError(connsResult.error);
+      setLoading(false);
+      return;
+    }
+    const conns = connsResult.data;
     const deletions = await loadDeletionsForUser(me);
-    const lastAll = await getLastMessages(conns.map((c) => c.id));
+    const lastAllResult = await getLastMessages(conns.map((c) => c.id));
+    if (lastAllResult.error) {
+      setLoadError(lastAllResult.error);
+      setLoading(false);
+      return;
+    }
+    const lastAll = lastAllResult.data;
     const visible = conns.filter((c) => {
       const until = deletions.chatUntil.get(c.id);
       if (!until) return true;
@@ -114,8 +128,13 @@ export default function Home() {
     setConnections(visible);
 
     const ids = visible.map((c) => otherUserId(c, me));
-    const profiles = await getProfiles(ids);
-    setOthers(profiles);
+    const profilesResult = await getProfiles(ids);
+    if (profilesResult.error) {
+      setLoadError(profilesResult.error);
+      setLoading(false);
+      return;
+    }
+    setOthers(profilesResult.data);
 
     const last: Record<string, Message> = {};
     for (const c of visible) {
@@ -324,7 +343,23 @@ export default function Home() {
         </p>
       )}
 
-      {!hasChats && !loading ? (
+      {loadError && !loading ? (
+        <section className="empty">
+          <div className="empty-title" role="alert">
+            {loadError}
+          </div>
+          <button
+            type="button"
+            className="btn-small"
+            onClick={() => {
+              setLoading(true);
+              load();
+            }}
+          >
+            {t('errors.retry')}
+          </button>
+        </section>
+      ) : !hasChats && !loading ? (
         <section className="empty">
           <div className="empty-title">{t('home.nothingHere')}</div>
           <div className="empty-text">{t('home.startChat')}</div>
