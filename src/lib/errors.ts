@@ -26,6 +26,7 @@ type ErrorKey =
   | 'errors.invalidCredentials'
   | 'errors.emailTaken'
   | 'errors.weakPassword'
+  | 'errors.samePassword'
   | 'errors.usernameTaken'
   | 'errors.usernameSave'
   | 'errors.profileCreate'
@@ -67,6 +68,20 @@ export function errorMessage(error: unknown, context?: string): string {
     msg.includes('already been registered')
   ) {
     return t(keyOf('errors.emailTaken'));
+  }
+  // Supabase rejects reusing the current password with its own canonical code:
+  // GoTrue answers `PUT /user` with 422 `same_password`, wording the message
+  // as "New password should be different from the old password.". That message
+  // also contains "password should be", which the legacy weak-password
+  // fallback below keys on, so reuse must be matched first — otherwise it is
+  // displayed as a strength problem. The message match is only a backstop for
+  // responses that carry no `error_code`. Password policy stays with Supabase:
+  // enough. compares no passwords and keeps no password history.
+  if (
+    code === 'same_password' ||
+    msg.includes('should be different from the old password')
+  ) {
+    return t(keyOf('errors.samePassword'));
   }
   if (code === 'weak_password' || msg.includes('password should be')) {
     return t(keyOf('errors.weakPassword'));
