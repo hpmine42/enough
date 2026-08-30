@@ -266,6 +266,8 @@ export const translations = {
       wrongPassword: 'The password is incorrect.',
       emailTaken: 'This email address is already registered.',
       weakPassword: 'The password is too weak.',
+      samePassword:
+        'The new password must be different from your current password.',
       profileCreate: 'The profile could not be created.',
       noProfile: 'No profile found.',
       usernameTaken: 'This username is already taken.',
@@ -538,6 +540,8 @@ export const translations = {
       wrongPassword: 'Das Passwort ist falsch.',
       emailTaken: 'Diese E-Mail-Adresse ist bereits registriert.',
       weakPassword: 'Das Passwort ist zu schwach.',
+      samePassword:
+        'Das neue Passwort muss sich vom bisherigen Passwort unterscheiden.',
       profileCreate: 'Das Profil konnte nicht erstellt werden.',
       noProfile: 'Kein Profil gefunden.',
       usernameTaken: 'Dieser Benutzername ist bereits vergeben.',

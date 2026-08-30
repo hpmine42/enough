@@ -283,3 +283,43 @@ test('F9-9b: EN/DE selection is unchanged', async () => {
   });
   assert.equal(getLang(), 'en');
 });
+
+/* ------------------------------------------------------------------ */
+/* F10 — Supabase's `same_password` reuse error vs. `weak_password`    */
+/*                                                                    */
+/* Both come back from `updateUser({ password })` and both are worded */
+/* by GoTrue as "Password should be …", so the user-facing texts must */
+/* stay distinguishable; errors.ts maps them to these two keys.       */
+/* ------------------------------------------------------------------ */
+
+const REUSE_EN = 'The new password must be different from your current password.';
+const REUSE_DE = 'Das neue Passwort muss sich vom bisherigen Passwort unterscheiden.';
+const WEAK_EN = 'The password is too weak.';
+const WEAK_DE = 'Das Passwort ist zu schwach.';
+
+test('F10-1: errors.samePassword is translated in both languages', async () => {
+  assert.equal(t('errors.samePassword'), REUSE_EN);
+  assert.equal(t('errors.weakPassword'), WEAK_EN);
+  // A missing DE key would silently fall back to the EN value, so the DE
+  // strings have to be asserted in German, not just compared with EN.
+  await inGerman(async () => {
+    assert.equal(t('errors.samePassword'), REUSE_DE);
+    assert.equal(t('errors.weakPassword'), WEAK_DE);
+  });
+});
+
+test('F10-1b: reuse and strength are reported as different problems', async () => {
+  assert.notEqual(t('errors.samePassword'), t('errors.weakPassword'));
+  await inGerman(async () => {
+    assert.notEqual(t('errors.samePassword'), t('errors.weakPassword'));
+  });
+});
+
+test('F10-1c: the reuse text tells the user to pick a different password', async () => {
+  assert.match(t('errors.samePassword'), /different/i);
+  await inGerman(async () => {
+    assert.match(t('errors.samePassword'), /unterscheiden/i);
+    // It must not read like a strength complaint.
+    assert.doesNotMatch(t('errors.samePassword'), /schwach/i);
+  });
+});
