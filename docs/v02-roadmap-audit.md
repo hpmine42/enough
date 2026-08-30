@@ -282,16 +282,16 @@ This is a technical accessibility target, not a product feature expansion.
 
 **Priority:** P2
 
-* [ ] Add focused tests for important `api.ts` business logic.
-* [ ] Cover success paths.
-* [ ] Cover Supabase error paths.
-* [ ] Cover authorization-sensitive client scoping.
-* [ ] Cover connection operations.
-* [ ] Cover message operations.
-* [ ] Cover deletion operations.
-* [ ] Cover unread-state behavior where appropriate.
-* [ ] Avoid duplicating large portions of production algorithms merely for testing.
-* [ ] Prefer a testable API boundary or dependency injection where this improves meaningful coverage without architectural overengineering.
+* [x] Add focused tests for important `api.ts` business logic.
+* [x] Cover success paths.
+* [x] Cover Supabase error paths.
+* [x] Cover authorization-sensitive client scoping.
+* [x] Cover connection operations.
+* [x] Cover message operations.
+* [x] Cover deletion operations.
+* [x] Cover unread-state behavior where appropriate.
+* [x] Avoid duplicating large portions of production algorithms merely for testing.
+* [x] Prefer a testable API boundary or dependency injection where this improves meaningful coverage without architectural overengineering.
 
 The objective is **behavioral regression coverage**, not line-count coverage.
 
@@ -301,9 +301,9 @@ The objective is **behavioral regression coverage**, not line-count coverage.
 
 **Priority:** P2/P3
 
-* [ ] Add direct tests for important `errors.ts` mappings.
-* [ ] Verify known Supabase/PostgREST error cases.
-* [ ] Preserve localized output.
+* [x] Add direct tests for important `errors.ts` mappings.
+* [x] Verify known Supabase/PostgREST error cases.
+* [x] Preserve localized output.
 
 ---
 
