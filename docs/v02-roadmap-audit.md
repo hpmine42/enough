@@ -103,11 +103,11 @@ Do not work on a lower-priority item while a higher-priority approved item remai
 **Priority:** P1
 **Type:** VERIFY ONLY
 
-* [ ] Verify deployed `messages` INSERT/UPDATE policies.
-* [ ] Verify deployed `profiles` SELECT/UPDATE policies.
-* [ ] Verify deployed `connections` SELECT/INSERT/UPDATE policies.
-* [ ] Confirm that no permissive legacy policy remains active alongside the explicit policies.
-* [ ] Confirm deployed behavior matches the repository migrations.
+* [x] Verify deployed `messages` INSERT/UPDATE policies.
+* [x] Verify deployed `profiles` SELECT/UPDATE policies.
+* [x] Verify deployed `connections` SELECT/INSERT/UPDATE policies.
+* [x] Confirm that no permissive legacy policy remains active alongside the explicit policies.
+* [x] Confirm deployed behavior matches the repository migrations.
 
 **Important:**
 

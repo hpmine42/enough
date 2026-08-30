@@ -59,11 +59,100 @@ Two documented consequences for the future:
   production state when the frontend that publishes `profiles.identity_public_key`
   is deployed.
 
+## Verified deployment state (2026-08-30 — A1 authorization re-verification)
+
+The deployed Supabase production instance was re-inspected on **2026-08-30**
+using **read-only SQL queries only**; no database changes were made during the
+verification. This round documents roadmap item **A1** (deployed authorization
+policies) and the deployed-migration evidence for `0010`–`0014`.
+
+### Deployed RLS policies (`pg_policies`)
+
+`pg_policies` was inspected for `messages`, `profiles` and `connections`. The
+deployed policy set matches the explicit policies defined by
+`0009_explicit_base_rls.sql` exactly, and a second independent listing returned
+the same complete set:
+
+- `messages` — `messages_select_own_connections` (SELECT),
+  `messages_insert_own` (INSERT), `messages_update_sender_only` (UPDATE).
+  No DELETE policy, matching the repository model (direct row deletion is not
+  part of the product).
+- `profiles` — `profiles_select_all` (SELECT), `profiles_insert_own` (INSERT),
+  `profiles_update_own` (UPDATE). No DELETE policy.
+- `connections` — `connections_select_involved` (SELECT),
+  `connections_insert_own_request` (INSERT), `connections_update_involved`
+  (UPDATE), `connections_delete_own_request` (DELETE).
+
+**No permissive legacy policy remains active:** there are no additional
+`FOR ALL` policies, no permissive `USING (true)` policies, and no other
+unexpected policies on these three tables.
+
+### Deployed triggers and functions
+
+The deployed trigger set contains: `guard_profile_update` (profiles),
+`guard_blocked_connection_write` (connections), `guard_connection_update`
+(connections), `on_connection_accepted` (connections), `guard_message_insert`
+(messages), `guard_message_update` (messages),
+`on_profile_display_name_change` (profiles), `sync_profile_display_name`
+(profiles).
+
+The deployed function set contains the expected security-definer RPCs:
+`claim_prekey_bundle`, `decline_connection`, `delete_own_account`,
+`ensure_my_notes`, `remove_my_notes`, `send_connection_request`. The guard
+functions themselves are not `SECURITY DEFINER`.
+
+### Deployed migration evidence (`0010`–`0014`)
+
+- `0010` — `profiles.identity_public_key` (text, nullable) is present.
+- `0011` — the crypto tables are present: `crypto_devices`,
+  `crypto_kyber_prekeys`, `crypto_one_time_prekeys`, `crypto_signed_prekeys`.
+- `0012` — `profiles_display_name_max_length`
+  (`CHECK (display_name IS NULL OR char_length(display_name) <= 60)`) and
+  `normalize_display_name(value text)` are present. The constraint is currently
+  `NOT VALID` — a deployment characteristic, **not** a failure: it means
+  existing rows were not retroactively validated when the constraint was added
+  (new writes are enforced). No change was made.
+- `0013` — the deployed `connection_unread` view starts from `connections`
+  with `LEFT JOIN connection_reads` and the expected unread semantics (only
+  involved users; accepted/ended connections; messages newer than
+  `last_read_at`; own, deleted and non-text messages excluded).
+- `0014` — **open item, see below.** The deployed `send_connection_request`
+  exists as `SECURITY DEFINER` with `SET search_path TO 'public'` and uses
+  `pg_catalog.hashtextextended` and `pg_catalog.pg_advisory_xact_lock`. The
+  inspection report additionally lists `pg_catalog.least` and
+  `pg_catalog.greatest` in the deployed body — **this contradicts migration
+  `0014`**, which replaces the `pg_catalog.`-qualified forms with unqualified
+  `least(...)` / `greatest(...)` because `pg_catalog.least(...)` raises
+  SQLSTATE 42883 ("function pg_catalog.least(text, text) does not exist").
+  The listed identifiers match the pre-fix (`0009`) body instead. The exact
+  deployed function definition must be re-checked with
+  `select pg_get_functiondef('public.send_connection_request'::regproc);`
+  before `0014` deployment can be confirmed; if the deployed body really
+  contains the `pg_catalog.`-qualified forms, new connection requests
+  currently fail in production with 42883.
+
+### A1 conclusion
+
+Roadmap item **A1** is complete: the deployed RLS policies, triggers,
+functions and the relevant migration artifacts (`0010`–`0013`) were inspected
+directly in production and match the expected repository security model. The
+`0014` function-body detail above is tracked as an open G3 (migration
+deployment) item, not an authorization-policy finding.
+
+### Open G3 items (not covered by this round)
+
+The following were **not** re-inspected in this round and remain open for the
+roadmap G3 gate (G3.3–G3.5): the exact `send_connection_request` body (see
+`0014` above), the Supabase Realtime publication membership, the `user_blocks`
+table, `chat_deletions.hidden_until`, the absence of the legacy `0003`
+self-connection CHECK, the `connections.status = 'ended'` path, and a re-check
+of the `authenticated` grants on `profiles` / `connections` / `messages`.
+
 ## How to run
 
 1. Open your Supabase project → **SQL Editor**.
 2. Run the full contents of every file in `supabase/migrations/` in numeric
-   order (`0001` → `0012`). Each migration is idempotent and safe to run again
+   order (`0001` → `0014`). Each migration is idempotent and safe to run again
    after pulling a frontend update.
 3. Optional but recommended: run `supabase/rls-tests.sql` to verify the
    authorization model with your two existing test users.
@@ -138,11 +227,24 @@ normal connection requests.
   `NULL` until the client publishes its key via `updateMyIdentityPublicKey()`.
   No new RLS policies — the existing `profiles` SELECT (`authenticated`,
   `USING true`) and UPDATE (owner-only) from `0009` already govern the column.
+- `0011_crypto_prekeys.sql` — E2EE prekey infrastructure: the four public-only
+  crypto tables (`crypto_devices`, `crypto_signed_prekeys`,
+  `crypto_one_time_prekeys`, `crypto_kyber_prekeys`) and the atomic
+  `claim_prekey_bundle()` RPC (`FOR UPDATE SKIP LOCKED`, one-time prekeys
+  consumed exactly once). No private key material is ever stored.
 - `0012_profile_input_hardening.sql` — defense-in-depth for profile writes:
   normalizes `profiles.display_name` by stripping control characters and
   trimming surrounding whitespace in the existing profile triggers, and adds a
   `NOT VALID` database check so new writes cannot exceed 60 characters even if
   they bypass the UI's `maxLength`.
+- `0013_fix_connection_unread_view.sql` — recreates the `connection_unread`
+  view to start from `connections` with a LEFT JOIN on `connection_reads`, so
+  every connection of the user is represented regardless of read state
+  (removes the per-connection N+1 fallback queries).
+- `0014_fix_send_connection_request_least_greatest.sql` — replaces
+  `send_connection_request` with the corrected advisory-lock key expression
+  using unqualified `least(...)` / `greatest(...)` (the `pg_catalog.`-qualified
+  forms do not exist in PostgreSQL; SQLSTATE 42883).
 - `0009_explicit_base_rls.sql` — v0.2: explicit, reproducible base RLS for
   the three core tables (previously only present in the untracked project
   template):
