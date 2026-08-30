@@ -1,4 +1,5 @@
-import { TranslationKey, t } from '../i18n';
+import type { TranslationKey } from '../i18n';
+import { t } from '../i18n';
 
 interface ErrorFields {
   code?: string;
