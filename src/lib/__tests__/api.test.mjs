@@ -437,6 +437,151 @@ test('cancelConnectionRequest deletes the request row', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Missing-RPC detection (roadmap F5)
+// ---------------------------------------------------------------------------
+
+const REQUEST_NAMES = ['send_connection_request', 'decline_connection'];
+const MY_NOTES_NAMES = ['ensure_my_notes', 'remove_my_notes'];
+
+test('isMissingRpcError trusts the canonical PostgREST/SQL error code', () => {
+  assert.equal(
+    api.isMissingRpcError({ code: 'PGRST202', message: 'anything at all' }, REQUEST_NAMES),
+    true,
+  );
+  assert.equal(
+    api.isMissingRpcError({ code: '42883', message: 'function public.foo() does not exist' }, REQUEST_NAMES),
+    true,
+  );
+});
+
+test('isMissingRpcError detects a missing function from structured details/hint', () => {
+  // Realistic PostgREST PGRST202 body without an error code (e.g. a proxy
+  // stripping the code): details carries the missing-function diagnostic.
+  assert.equal(
+    api.isMissingRpcError(
+      {
+        details: 'The function public.send_connection_request() does not exist',
+        message: 'Could not find the function public.send_connection_request() in the schema cache',
+      },
+      REQUEST_NAMES,
+    ),
+    true,
+  );
+  assert.equal(
+    api.isMissingRpcError(
+      { hint: 'function send_connection_request() does not exist in the schema cache' },
+      REQUEST_NAMES,
+    ),
+    true,
+  );
+});
+
+test('isMissingRpcError keeps the free-text message fallback', () => {
+  assert.equal(
+    api.isMissingRpcError(
+      { message: 'function decline_connection() does not exist' },
+      REQUEST_NAMES,
+    ),
+    true,
+  );
+  assert.equal(
+    api.isMissingRpcError(
+      { message: 'Could not find the function remove_my_notes() in the schema cache' },
+      MY_NOTES_NAMES,
+    ),
+    true,
+  );
+});
+
+test('isMissingRpcError never misclassifies unrelated failures', () => {
+  const unrelated = [
+    { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' },
+    { code: '42501', message: 'permission denied for table connections' },
+    { code: '23505', message: 'duplicate key value violates unique constraint' },
+    { code: 'P0001', message: 'connection is not active' },
+    { message: 'failed to fetch' },
+    { message: 'function send_connection_request() rejected for another reason' },
+    { message: 'missing function named other_rpc()' },
+  ];
+  for (const error of unrelated) {
+    assert.equal(api.isMissingRpcError(error, REQUEST_NAMES), false, JSON.stringify(error));
+  }
+});
+
+test('sendConnectionRequest falls back when the RPC is missing via details only', async () => {
+  const client = createSupabaseMock([
+    { data: [], error: null }, // block state: none
+    { data: null, error: null }, // existing: none
+    { data: null, error: { details: 'The function public.send_connection_request() does not exist' } }, // missing RPC, no code/message
+    { data: null, error: null }, // fallback insert
+  ]);
+  __setSupabase(client);
+
+  const res = await api.sendConnectionRequest(ME, 'other');
+
+  assert.equal(res, null);
+  assert.equal(ops(client, 'connections', 'insert').length, 1);
+});
+
+test('sendConnectionRequest does not fall back on a real RPC failure', async () => {
+  const client = createSupabaseMock([
+    { data: [], error: null }, // block state: none
+    { data: null, error: null }, // existing: none
+    { data: null, error: { code: '42501', message: 'permission denied for table connections' } }, // real failure
+  ]);
+  __setSupabase(client);
+
+  const res = await api.sendConnectionRequest(ME, 'other');
+
+  assert.notEqual(res, null);
+  assert.equal(ops(client, 'connections', 'insert').length, 0);
+});
+
+test('declineConnection falls back when the RPC is missing via message only', async () => {
+  const client = createSupabaseMock([
+    { data: null, error: { message: 'function decline_connection() does not exist' } }, // missing RPC, no code
+    { data: null, error: null }, // fallback update
+  ]);
+  __setSupabase(client);
+
+  const res = await api.declineConnection('c1');
+
+  assert.equal(res, null);
+  const update = ops(client, 'connections', 'update');
+  assert.equal(update.length, 1);
+  assert.deepEqual(update[0].args, [{ status: 'declined' }]);
+});
+
+test('ensureMyNotes falls back when the RPC is missing via message only', async () => {
+  const client = createSupabaseMock([
+    { data: null, error: { message: 'Could not find the function ensure_my_notes() in the schema cache' } }, // missing RPC
+    { data: null, error: null }, // existing: none
+    { data: { id: 'n1' }, error: null }, // legacy insert
+  ]);
+  __setSupabase(client);
+
+  const res = await api.ensureMyNotes(ME);
+
+  assert.equal(res.error, null);
+  assert.equal(res.connectionId, 'n1');
+  const insert = ops(client, 'connections', 'insert');
+  assert.equal(insert.length, 1);
+});
+
+test('ensureMyNotes does not fall back on a permission error', async () => {
+  const client = createSupabaseMock([
+    { data: null, error: { code: '42501', message: 'permission denied for table connections' } },
+  ]);
+  __setSupabase(client);
+
+  const res = await api.ensureMyNotes(ME);
+
+  assert.equal(res.connectionId, null, 'must not report a fake connection');
+  assert.notEqual(res.error, null);
+  assert.equal(ops(client, 'connections', 'insert').length, 0);
+});
+
+// ---------------------------------------------------------------------------
 // Deletion operations
 // ---------------------------------------------------------------------------
 

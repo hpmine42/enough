@@ -28,11 +28,57 @@ export type ApiResult<T> = { data: T; error: string | null };
 /** Read optional PostgREST error fields without asserting an arbitrary value. */
 function supabaseErrorField(
   error: unknown,
-  field: 'code' | 'message',
+  field: 'code' | 'message' | 'details' | 'hint',
 ): string | undefined {
   if (!error || typeof error !== 'object') return undefined;
   const value = (error as Record<string, unknown>)[field];
   return typeof value === 'string' ? value : undefined;
+}
+
+/* ------------------------------------------------------------------ */
+/* missing-RPC detection                                               */
+/* ------------------------------------------------------------------ */
+
+/** Request RPCs that may be absent on backends without migration 0008. */
+const REQUEST_RPC_NAMES = ['send_connection_request', 'decline_connection'] as const;
+
+/** My Notes RPCs that may be absent on backends without migration 0005. */
+const MY_NOTES_RPC_NAMES = ['ensure_my_notes', 'remove_my_notes'] as const;
+
+/**
+ * True when `error` means the requested PostgREST function does not exist,
+ * allowing callers to run their legacy table fallback.
+ *
+ * Detection is layered from the most to the least stable signal:
+ * 1. canonical error code: `PGRST202` (PostgREST function missing from the
+ *    schema cache) or SQLSTATE `42883` (undefined_function);
+ * 2. structured `details`/`hint` diagnostics mentioning a KNOWN function name;
+ * 3. free-text `message` heuristic as a last resort for unusual gateways.
+ *
+ * The free-text match still requires both the function name and a missing
+ * marker, so unrelated failures (permission, network, no-rows) are never
+ * misclassified as "RPC missing".
+ */
+export function isMissingRpcError(
+  error: unknown,
+  functionNames: readonly string[],
+): boolean {
+  const code = supabaseErrorField(error, 'code');
+  if (code === 'PGRST202' || code === '42883') return true;
+
+  const mentionsKnownFunction = (text: string): boolean =>
+    functionNames.some((name) => text.includes(name));
+  const indicatesMissing = (text: string): boolean =>
+    text.includes('not find') || text.includes('does not exist');
+
+  // `message` is checked last because its wording is the least stable across
+  // PostgREST versions; details/hint are machine-oriented diagnostics.
+  for (const field of ['details', 'hint', 'message'] as const) {
+    const text = supabaseErrorField(error, field)?.toLowerCase() ?? '';
+    if (!text || !text.includes('function')) continue;
+    if (mentionsKnownFunction(text) && indicatesMissing(text)) return true;
+  }
+  return false;
 }
 
 /* ------------------------------------------------------------------ */
@@ -258,7 +304,7 @@ export async function sendConnectionRequest(
   if (!rpcError && typeof rpcId === 'string' && rpcId) {
     return null;
   }
-  if (rpcError && !isMissingRequestRpc(rpcError)) {
+  if (rpcError && !isMissingRpcError(rpcError, REQUEST_RPC_NAMES)) {
     if (supabaseErrorField(rpcError, 'code') === 'BLCKD') {
       return t('errors.blockedRequest');
     }
@@ -353,7 +399,7 @@ export async function declineConnection(
     block_peer: blockPeer,
   });
   if (!rpcError) return null;
-  if (!isMissingRequestRpc(rpcError)) {
+  if (!isMissingRpcError(rpcError, REQUEST_RPC_NAMES)) {
     if (supabaseErrorField(rpcError, 'code') === 'BLCKD') {
       return t('errors.blockedRequest');
     }
@@ -404,19 +450,6 @@ export async function cancelConnectionRequest(
 /* ------------------------------------------------------------------ */
 /* blocking                                                            */
 /* ------------------------------------------------------------------ */
-
-function isMissingRequestRpc(error: unknown): boolean {
-  const code = supabaseErrorField(error, 'code');
-  const message = supabaseErrorField(error, 'message')?.toLowerCase() ?? '';
-  return (
-    code === 'PGRST202' ||
-    code === '42883' ||
-    (message.includes('function') &&
-      (message.includes('send_connection_request') ||
-        message.includes('decline_connection')) &&
-      (message.includes('not find') || message.includes('does not exist')))
-  );
-}
 
 /**
  * Block relation between the current user and one peer. The database
@@ -1121,18 +1154,6 @@ interface MyNotesSetupResult {
   error: string | null;
 }
 
-function isMissingMyNotesRpc(error: unknown): boolean {
-  const code = supabaseErrorField(error, 'code');
-  const message = supabaseErrorField(error, 'message')?.toLowerCase() ?? '';
-  return (
-    code === 'PGRST202' ||
-    code === '42883' ||
-    (message.includes('function') &&
-      (message.includes('ensure_my_notes') || message.includes('remove_my_notes')) &&
-      (message.includes('not find') || message.includes('does not exist')))
-  );
-}
-
 function isMyNotesSchemaError(error: unknown): boolean {
   const code = supabaseErrorField(error, 'code');
   // 23514: a legacy user_a <> user_b CHECK constraint.
@@ -1157,7 +1178,7 @@ export async function ensureMyNotes(me: string): Promise<MyNotesSetupResult> {
     return { connectionId: rpcId, error: null };
   }
 
-  if (rpcError && !isMissingMyNotesRpc(rpcError)) {
+  if (rpcError && !isMissingRpcError(rpcError, MY_NOTES_RPC_NAMES)) {
     if (isMyNotesSchemaError(rpcError)) {
       return {
         connectionId: null,
@@ -1242,7 +1263,7 @@ export async function removeMyNotes(
 
   const { error: rpcError } = await supabase.rpc('remove_my_notes');
   if (!rpcError) return null;
-  if (!isMissingMyNotesRpc(rpcError)) {
+  if (!isMissingRpcError(rpcError, MY_NOTES_RPC_NAMES)) {
     return errorMessage(rpcError, 'my notes remove RPC');
   }
 
