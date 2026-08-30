@@ -1074,7 +1074,9 @@ export async function batchUnreadFallback(
  * The app degrades gracefully; this makes the cause visible.
  */
 export async function checkSchemaCompatibility(): Promise<void> {
-  if (!supabase) return;
+  // This is a developer/deployment diagnostic, not user-facing behavior.
+  // Avoid noisy production console output while retaining local visibility.
+  if (!import.meta.env.DEV || !supabase) return;
   const probes: Array<{ table: string; column: string }> = [
     { table: 'profiles', column: 'display_name' },
     { table: 'messages', column: 'kind' },

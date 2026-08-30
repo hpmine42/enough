@@ -17,7 +17,8 @@ register(new URL('../../../scripts/load-enough-ts.mjs', import.meta.url), import
 const { errorMessage } = await import('../errors.ts');
 
 const originalError = console.error;
-console.error = () => {};
+const diagnostics = [];
+console.error = (...args) => diagnostics.push(args);
 after(() => {
   console.error = originalError;
 });
@@ -150,4 +151,23 @@ test('registration duplicate maps to usernameTaken', () => {
 
 test('unknown error shape maps to generic', () => {
   assert.equal(errorMessage({ code: '99999', message: 'totally unexpected' }), 'Something went wrong. Please try again.');
+});
+
+test('diagnostics do not expose error content', () => {
+  diagnostics.length = 0;
+  errorMessage({
+    code: '99999',
+    message: 'secret message contents',
+    details: 'sensitive row data',
+    hint: 'private implementation hint',
+    status: 500,
+    name: 'PostgrestError',
+  }, 'diagnostic test');
+  assert.equal(diagnostics.length, 1);
+  assert.deepEqual(diagnostics[0][1], {
+    code: '99999',
+    status: 500,
+    name: 'PostgrestError',
+  });
+  assert.doesNotMatch(JSON.stringify(diagnostics), /secret message contents|sensitive row data|private implementation hint/);
 });

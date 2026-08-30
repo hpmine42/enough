@@ -10,14 +10,11 @@ interface ErrorFields {
   name?: string;
 }
 
-// Log only the diagnostic fields returned by Supabase. Never log request bodies,
-// credentials, sessions, tokens, or the complete error object.
+// Keep production diagnostics limited to stable, non-content metadata. Error
+// messages, details, and hints can echo user input or database values.
 function logError(error: ErrorFields, context: string): void {
   console.error(`enough. ${context}:`, {
     code: error.code ?? null,
-    message: error.message ?? null,
-    details: error.details ?? null,
-    hint: error.hint ?? null,
     status: error.status ?? null,
     name: error.name ?? null,
   });
