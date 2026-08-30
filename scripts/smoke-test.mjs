@@ -117,6 +117,17 @@ securityAssert(
   !cspDirectives['script-src']?.has("'unsafe-eval'"),
   "script-src does NOT include 'unsafe-eval'",
 );
+// The Signal E2EE engine (@getmaapp/signal-wasm) is compiled at runtime, so
+// the CSP must explicitly permit WebAssembly. Without 'wasm-unsafe-eval'
+// browsers refuse WebAssembly.instantiate*() ("Refused to compile or
+// instantiate WebAssembly module"), ensureEngineReady() fails, and every
+// peer message aborts fail-closed with e2eeUnavailable. Exact set membership
+// on the parsed directive: 'wasm-unsafe-eval' is a distinct token and does
+// not satisfy the 'unsafe-eval' negative assertion above.
+securityAssert(
+  cspDirectives['script-src']?.has("'wasm-unsafe-eval'"),
+  "script-src includes 'wasm-unsafe-eval' (Signal WASM engine)",
+);
 securityAssert(
   cspDirectives['connect-src']?.has("'self'") &&
     [...cspDirectives['connect-src']].some((v) =>
