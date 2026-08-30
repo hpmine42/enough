@@ -30,6 +30,7 @@ import {
 } from '../lib/api';
 import { compareMessagesAsc, displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
 import { supabase } from '../lib/supabase';
+import { prefersReducedMotion } from '../lib/theme';
 import { getLang, t, useLang } from '../i18n';
 import { BlockState, Connection, Message, Profile } from '../lib/types';
 import { useE2EE } from '../context/E2EEContext';
@@ -374,7 +375,9 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const scrollToBottom = useCallback((smooth: boolean) => {
     const el = scrollRef.current;
     if (!el) return;
-    if (!smooth) {
+    // The rAF animation below is JS-driven, so the CSS reduced-motion block
+    // does not cover it: reduced-motion users get an instant jump instead.
+    if (!smooth || prefersReducedMotion()) {
       el.scrollTop = el.scrollHeight;
       return;
     }
@@ -889,11 +892,17 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           {isIncoming && (
             <>
               <div className="request-banner-line">
-                <InfoIcon
-                  size={15}
-                  className="request-info-icon"
+                {/* Real button (not a clickable SVG): the info toggle must be
+                    reachable by keyboard and screen readers. */}
+                <button
+                  type="button"
+                  className="request-info-button"
+                  aria-label={t('connection.requestInfoLabel')}
+                  aria-expanded={infoOpen}
                   onClick={() => setInfoOpen((v) => !v)}
-                />
+                >
+                  <InfoIcon size={15} />
+                </button>
                 <span>
                   <strong>{t('connection.requestTitle')}</strong>
                 </span>

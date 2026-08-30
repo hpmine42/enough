@@ -433,7 +433,11 @@ export default function Home() {
                             </span>
                           )}
                           {unreadCount > 0 && (
-                            <span className="unread-badge" aria-label={`${unreadCount} ${t('unread.unreadCount', { count: unreadCount })}`}>
+                            // role="status" so the aria-label is an effective
+                            // accessible name (a plain span's label is ignored
+                            // by assistive tech) and count changes are
+                            // announced politely.
+                            <span className="unread-badge" role="status" aria-label={`${unreadCount} ${t('unread.unreadCount', { count: unreadCount })}`}>
                               {unreadCount > 99 ? '99+' : unreadCount}
                             </span>
                           )}

@@ -151,6 +151,14 @@ schema so real E2EE can be introduced later without renaming columns.
   Supabase API and walks through the main flows (auth screens, localization,
   theme, settings, search, connection request lifecycle, chat, deletion,
   My Notes, sign out). It is not a substitute for live-backend testing.
+  It also asserts the rendered accessibility contract (roadmap D1): dialog
+  and sheet accessible names, the focus trap, the keyboard-reachable request
+  info toggle, the unread-badge role and message-bubble names.
+- `npm run test:a11y` — accessibility regression tests (roadmap D1): the
+  reduced-motion helper, EN/DE label coverage and source invariants
+  (decorative icons, labeled icon-only buttons, dialog/sheet name contract,
+  reduced-motion gating of JS-driven motion). The behavioral DOM
+  counterparts run inside `npm run smoke`.
 - `supabase/rls-tests.sql` — authorization checks against the real database
   using your two existing test users (see `docs/MIGRATIONS.md`).
 

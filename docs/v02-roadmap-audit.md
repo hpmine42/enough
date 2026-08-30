@@ -253,11 +253,11 @@ Do not change authentication architecture without an explicit reason.
 
 **Priority:** P2/P3
 
-* [ ] Review icon-only controls for missing `aria-label`.
-* [ ] Ensure dialogs and sheets expose correct accessible names.
-* [ ] Ensure keyboard navigation remains functional.
-* [ ] Ensure screen-reader behavior remains coherent.
-* [ ] Verify reduced-motion behavior remains intact.
+* [x] Review icon-only controls for missing `aria-label`.
+* [x] Ensure dialogs and sheets expose correct accessible names.
+* [x] Ensure keyboard navigation remains functional.
+* [x] Ensure screen-reader behavior remains coherent.
+* [x] Verify reduced-motion behavior remains intact.
 
 This is a technical accessibility target, not a product feature expansion.
 

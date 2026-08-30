@@ -63,6 +63,21 @@ export function bootstrapTheme(): void {
 }
 
 /**
+ * True when the user requested reduced motion from the operating system.
+ *
+ * JS-driven motion must check this explicitly: the global CSS
+ * `prefers-reduced-motion` block only disables CSS animations, transitions
+ * and CSS scroll-behavior — it cannot stop a requestAnimationFrame scroll
+ * or a programmatic `scrollIntoView({ behavior: 'smooth' })`.
+ */
+export function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/**
  * Follows operating-system changes for the lifetime of the app. The listener
  * remains installed even while an explicit mode is selected, so switching to
  * System later works without remounting a theme button.

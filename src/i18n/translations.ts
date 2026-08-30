@@ -163,6 +163,7 @@ export const translations = {
       requestTitle: 'Connection request',
       requestInfo:
         'The person who sent this request must be accepted before you can reply.',
+      requestInfoLabel: 'Connection request details',
       accept: 'Accept',
       decline: 'Decline',
       cancelRequest: 'Cancel request',
@@ -436,6 +437,7 @@ export const translations = {
       requestTitle: 'Verbindungsanfrage',
       requestInfo:
         'Du kannst erst antworten, wenn du die Anfrage angenommen hast.',
+      requestInfoLabel: 'Details zur Verbindungsanfrage',
       accept: 'Annehmen',
       decline: 'Ablehnen',
       cancelRequest: 'Anfrage zurückziehen',
