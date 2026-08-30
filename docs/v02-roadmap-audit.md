@@ -362,10 +362,10 @@ No E2EE change should be made merely to improve this roadmap.
 
 **Current policy:** intentional diagnostics are acceptable when they do not expose secrets or message contents.
 
-* [ ] Review production console diagnostics.
-* [ ] Confirm that no sensitive data is logged.
-* [ ] Gate non-essential schema diagnostics appropriately if there is a concrete benefit.
-* [ ] Preserve useful operational diagnostics.
+* [x] Review production console diagnostics.
+* [x] Confirm that no sensitive data is logged.
+* [x] Gate non-essential schema diagnostics appropriately if there is a concrete benefit.
+* [x] Preserve useful operational diagnostics.
 
 Do NOT remove diagnostics merely because they appear in the console.
 
