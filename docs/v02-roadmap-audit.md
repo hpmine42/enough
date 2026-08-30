@@ -124,11 +124,11 @@ Do not create another migration unless the deployed verification demonstrates a 
 **Priority:** P1
 **Type:** VERIFY ONLY
 
-* [ ] Verify production email-confirmation redirect behavior.
-* [ ] Verify password-recovery links use the intended production URL.
-* [ ] Verify redirect URLs are correctly allow-listed.
-* [ ] Verify the deployed authentication flow configuration is compatible with the application.
-* [ ] Verify the actual recovery flow end-to-end.
+* [x] Verify production email-confirmation redirect behavior.
+* [x] Verify password-recovery links use the intended production URL.
+* [x] Verify redirect URLs are correctly allow-listed.
+* [x] Verify the deployed authentication flow configuration is compatible with the application.
+* [x] Verify the actual recovery flow end-to-end.
 
 This is a deployment/configuration verification task.
 
