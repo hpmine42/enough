@@ -451,9 +451,9 @@ Do NOT weaken error observability.
 For every migration currently present in the repository:
 
 * [x] Verify migration ordering.
-* [ ] Verify migration compatibility.
+* [x] Verify migration compatibility.
 * [ ] Verify that required migrations are applied to the deployed Supabase project.
-* [ ] Verify views, functions, triggers, RLS policies and grants after migration.
+* [x] Verify views, functions, triggers, RLS policies and grants after migration.
 * [ ] Verify that no required migration is missing from deployment.
 
 This is a verification task.

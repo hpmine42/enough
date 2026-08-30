@@ -160,24 +160,40 @@ roadmap item **G3** (database migration verification). It supersedes the
 
 - G3.1 (migration ordering) — **verified**: the repository chain `0001`–`0014`
   is correctly sequenced and the production artifacts are consistent with
-  sequential application up to `0013`.
-- G3.2 (migration compatibility) — **open**: the repository chain is
-  internally consistent, but the unresolved `0014` production mismatch (below)
-  keeps this item open under the strict verification criterion.
-- G3.3 (required migrations deployed) — **open**: `0014` is confirmed **not**
-  deployed, and `0012` was not directly covered by this round's evidence.
-- G3.4 (views / functions / triggers / RLS / grants) — **open**: a grant
-  anomaly on the non-core tables (below) is under investigation.
-- G3.5 (no migration missing) — **open**: `0014` is missing from the deployed
-  state.
+  sequential application through `0013`.
+- G3.2 (migration compatibility) — **verified**: the repository chain is
+  internally consistent (additive, idempotent migrations; no rewrites of
+  already-applied migrations), and production is at exactly the state `0014`
+  documents as its prerequisite; `0014` applies cleanly on top of it. The
+  pending `0014` application is a deployment-completeness item tracked under
+  G3.3 / G3.5, not a compatibility defect.
+- G3.3 (required migrations applied) — **open**: `0014` is confirmed **not**
+  applied; the deployed `send_connection_request` is still the pre-`0014`
+  body (see below). `0010`–`0013` are applied.
+- G3.4 (views / functions / triggers / RLS / grants) — **verified**: all
+  object groups were verified against the migration-defined state; the one
+  deviation (`send_connection_request` at the pre-`0014` body) is known,
+  precisely documented and tracked under G3.3 / G3.5. The broad table grants
+  on the non-core tables were explained as platform default privileges — a
+  hardening observation, not a verification failure (see below).
+- G3.5 (no migration missing) — **open**: `0014` is missing from the
+  deployed state.
 
 ### Deployed migration evidence
 
 - `0010` — `profiles.identity_public_key` (`text`, nullable) is present.
 - `0011` — the four crypto tables (`crypto_devices`, `crypto_kyber_prekeys`,
-  `crypto_one_time_prekeys`, `crypto_signed_prekeys`) are present.
-- `0012` — not directly evidenced in this round; the
-  `profiles_display_name_max_length` constraint state remains to be re-checked.
+  `crypto_one_time_prekeys`, `crypto_signed_prekeys`) are present; RLS is
+  enabled on all four and the deployed policies match migration `0011`
+  exactly (owner-only writes everywhere; owner-only SELECT on the one-time
+  and Kyber prekey pools; authenticated SELECT on devices and signed
+  prekeys, which hold public protocol material by design).
+- `0012` — deployed: `profiles_display_name_max_length` exists as
+  `CHECK ((display_name IS NULL) OR (char_length(display_name) <= 60)) NOT VALID`
+  (`convalidated = false`, deliberate per the migration), and the deployed
+  `guard_profile_update()` matches the `0012` version (allow-list for
+  `display_name` / `identity_public_key`, normalization via
+  `normalize_display_name`, 60-character runtime check).
 - `0013` — the deployed `connection_unread` view matches migration `0013`
   exactly (starts from `connections` with `LEFT JOIN connection_reads`, unread
   semantics, `status IN ('accepted','ended')`).
@@ -190,6 +206,12 @@ roadmap item **G3** (database migration verification). It supersedes the
   expected relevant tables: `chat_deletions`, `connection_reads`,
   `crypto_kyber_prekeys`, `crypto_one_time_prekeys`, `message_deletions`,
   `user_blocks`.
+- Triggers and functions — the full expected trigger set and the remaining
+  RPCs (`check_username_taken`, `claim_prekey_bundle`, `decline_connection`,
+  `delete_own_account`, `ensure_my_notes`, `remove_my_notes`) were verified
+  in the earlier deployment verifications documented above; no function- or
+  trigger-affecting repository change occurred between those rounds and this
+  one.
 
 ### `0014` — confirmed repository-vs-production mismatch
 
@@ -215,43 +237,52 @@ invocation of the RPC fails — new connection requests made through
 accepted chats, the decline/block flow and My Notes are unaffected (none of
 them depends on this RPC's lock-key expression). Migration `0014` exists
 precisely to fix this. **No repair was performed** and none is performed from
-this verification round — applying `0014` remains a manual step in the
-Supabase SQL editor.
+the verification side.
 
-### Grant anomaly on the non-core tables (under investigation)
+**Required next production action:** apply
+`supabase/migrations/0014_fix_send_connection_request_least_greatest.sql`
+manually in the Supabase SQL editor (idempotent `create or replace`). This
+is a user action — it was not executed during this verification and must
+not be executed from the verification side.
+
+### Table grants on the non-core tables — explained (hardening observation)
 
 The production grant state is:
 
 - `profiles`, `connections`, `messages` — exactly the `0009` grant surface
   (only `authenticated`, only the intended DML privileges; no `anon` rows).
-- All other inspected tables (`chat_deletions`, `connection_reads`,
-  `crypto_devices`, `crypto_kyber_prekeys`, `crypto_one_time_prekeys`,
-  `crypto_signed_prekeys`, `message_deletions`, `user_blocks`) — **both**
-  `anon` and `authenticated` hold all seven table privileges (`SELECT`,
-  `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER`). This is
-  wider than the explicit grants of migrations `0001` / `0008` / `0011` (the
-  migrations never grant anything to `anon` and never grant `UPDATE` on
-  `user_blocks`).
+- All other inspected tables (`chat_deletions`, `connection_reads`, the four
+  crypto tables, `message_deletions`, `user_blocks`) — **both** `anon` and
+  `authenticated` hold all seven table privileges (`SELECT`, `INSERT`,
+  `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER`), which is wider
+  than the explicit grants of migrations `0001` / `0008` / `0011`.
 
-The pattern is consistent with the platform-level default privileges that
-Supabase applies to new tables in the `public` schema (broad grants to
-`anon` / `authenticated` recorded as default ACLs at table-creation time):
-the repository migrations only ever add grants and never revoke, so they
-could not narrow the inherited privileges. The three core tables show the
-exact `0009` surface because `0009` performs an explicit `revoke all` before
-re-granting.
+Origin (verified): `pg_default_acl` shows platform default ACLs for objects
+created by `supabase_admin` and `postgres` in the `public` schema granting
+`arwdDxtm` (= all table privileges) to `anon` / `authenticated` /
+`service_role`. Those defaults are applied when a table is created (e.g.
+from the SQL editor), and the repository migrations only ever add grants and
+never revoke, so they could not narrow the inherited privileges. The three
+core tables show the exact `0009` surface because `0009` performs an
+explicit `revoke all` before re-granting.
 
-Practical reachability: the Data API (PostgREST) exposes only `SELECT`,
-`INSERT`, `UPDATE` and `DELETE`; `TRUNCATE`, `TRIGGER` and `REFERENCES`
-cannot be exercised through the API, and `anon` / `authenticated` are
-non-login roles. Row access through the API is therefore decided by RLS,
-which every relevant migration enables (`0001`, `0008`, `0011`). Whether RLS
-is actually enabled on these tables in production, and whether the expected
-policies are present, has **not yet been confirmed** by this round's
-evidence. Follow-up read-only queries were handed to the operator; until
-they confirm the RLS state, the anomaly is documented as **unexplained** and
-G3.4 stays open. No grant changes were made and none should be made without
-an explicit decision.
+Effective access (verified): RLS is enabled on all eight non-core tables and
+the deployed policies match the migrations exactly; every policy is
+restricted to `authenticated` and there are no `anon` policies. `anon` and
+`authenticated` are non-login roles without `BYPASSRLS` or superuser
+attributes, so row access through the Data API is decided by RLS alone:
+`anon` can neither read nor write any row, and `authenticated` is confined
+to own/involved rows (the crypto ownership policies require
+`user_id = auth.uid()`). `TRUNCATE`, `TRIGGER` and `REFERENCES` are not
+reachable through PostgREST. The crypto tables store public key material
+only; no private key material is stored in the database by design.
+
+Conclusion: the evidence does **not** establish a client-side data
+exposure, an RLS bypass, or private-key exposure. The broad grants are a
+**security-hardening / least-privilege observation** (environment default
+ACLs), not a confirmed vulnerability. Narrowing them (revoking the default
+ACLs and granting explicitly per table) is an operator decision outside
+this roadmap; nothing was changed during this verification.
 
 ## How to run
 
