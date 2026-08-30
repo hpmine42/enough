@@ -377,10 +377,10 @@ Do NOT weaken error observability.
 
 **Priority:** P3
 
-* [ ] Review unnecessary casts in `api.ts`.
-* [ ] Improve typing only where there is a concrete correctness or maintainability benefit.
-* [ ] Do not perform a broad type-system refactor.
-* [ ] Preserve runtime behavior.
+* [x] Review unnecessary casts in `api.ts`.
+* [x] Improve typing only where there is a concrete correctness or maintainability benefit.
+* [x] Do not perform a broad type-system refactor.
+* [x] Preserve runtime behavior.
 
 ---
 
