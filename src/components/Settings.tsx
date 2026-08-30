@@ -22,7 +22,13 @@ import { displayName, normalizeUsername } from '../lib/helpers';
 import { MAX_DISPLAY_NAME_LENGTH, sanitizeDisplayName } from '../lib/input';
 import { setLang, t, useLang } from '../i18n';
 import { Lang } from '../i18n/translations';
-import { applyMode, getStoredMode, THEME_CHANGE_EVENT, ThemeMode } from '../lib/theme';
+import {
+  applyMode,
+  getStoredMode,
+  prefersReducedMotion,
+  THEME_CHANGE_EVENT,
+  ThemeMode,
+} from '../lib/theme';
 import { Connection, Profile } from '../lib/types';
 import Dialog from './Dialog';
 import Toggle from './Toggle';
@@ -1082,7 +1088,12 @@ export default function Settings() {
             setEmailConfirmOpen(false);
             setEmailEditing(true);
             setTimeout(() => {
-              accountRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              // JS smooth scrolling is not covered by the CSS reduced-motion
+              // block — use an instant jump for reduced-motion users.
+              accountRef.current?.scrollIntoView({
+                behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+                block: 'start',
+              });
             }, 50);
           }}
           onCancel={() => setEmailConfirmOpen(false)}

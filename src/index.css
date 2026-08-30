@@ -1514,10 +1514,21 @@ textarea {
   animation: fade-in 0.2s ease-out;
 }
 
-.request-info-icon {
+/* Information toggle in the connection-request banner. It is a real button
+   (keyboard + screen-reader reachable) styled as the previous plain icon. */
+.request-info-button {
   flex-shrink: 0;
-  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: none;
   color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
 }
 
 .request-actions {

@@ -17,6 +17,7 @@
     "test:helpers": "node --test --experimental-strip-types src/lib/__tests__/helpers.test.mjs",
     "test:chatblocks": "node --test --experimental-strip-types src/lib/__tests__/chat-block-channel.test.mjs",
     "test:api-errors": "node --test src/lib/__tests__/api-error-surface.test.mjs",
+    "test:a11y": "node --test --experimental-strip-types src/lib/__tests__/accessibility.test.mjs",
     "test:crypto:prekeys": "node scripts/run-crypto-prekeys-tests.mjs",
     "test:rls": "node scripts/run-rls-tests.mjs",
     "verify:signal-wasm": "node scripts/verify-signal-wasm.mjs"

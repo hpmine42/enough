@@ -114,7 +114,9 @@ export default function MessageBubble({
         }
       }}
       role={focusable ? 'button' : undefined}
-      aria-label={text}
+      // While a message is still being decrypted the text is transiently
+      // empty — never leave the button without an accessible name.
+      aria-label={text || t('loading')}
     >
       <MarkdownText text={text} />
       {showTime && (

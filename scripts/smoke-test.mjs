@@ -1378,6 +1378,17 @@ await waitFor(
   () => text('.unread-badge') === '1',
   'first incoming message is unread before a read-state row exists',
 );
+/* D1: the badge announces "1 new" — role="status" makes the aria-label an
+   effective accessible name (a plain span's label is ignored by ATs). */
+const unreadBadge = dom.window.document.querySelector('.unread-badge');
+assert(
+  unreadBadge?.getAttribute('role') === 'status',
+  'unread badge has role="status" so its aria-label is announced',
+);
+assert(
+  (unreadBadge?.getAttribute('aria-label') ?? '').startsWith('1 '),
+  'unread badge announces the unread count context',
+);
 // Open the conversation.
 click('.chat-row .chat');
 await waitFor(() => text('.chat-peer-name') === 'Benno Schmidt', 'chat opens after accept');
@@ -1390,6 +1401,19 @@ await waitFor(
 assert(
   dom.window.document.querySelector('.composer-input')?.disabled === false,
   'composer active after accept',
+);
+/* D1: the bubble is the keyboard long-press target — it must expose its
+   button role and a non-empty accessible name. */
+const a11yBubble = [...dom.window.document.querySelectorAll('.message')].find(
+  (m) => m.textContent.includes('Hallo Anna!'),
+);
+assert(
+  a11yBubble?.getAttribute('role') === 'button',
+  'message bubble exposes its button role (keyboard long-press)',
+);
+assert(
+  (a11yBubble?.getAttribute('aria-label') ?? '').length > 0,
+  'message bubble always has a non-empty accessible name',
 );
 
 /* send a message */
@@ -1409,6 +1433,17 @@ const myBubble = [...dom.window.document.querySelectorAll('.message')].find((m) 
 myBubble.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
 await sleep(700);
 await waitFor(() => dom.window.document.querySelector('.sheet') !== null, 'long-press opens bottom sheet');
+/* D1: the bottom sheet exposes its accessible-name contract. */
+const sheetDialog = dom.window.document.querySelector('.sheet');
+assert(
+  sheetDialog?.getAttribute('role') === 'dialog' &&
+    sheetDialog.getAttribute('aria-modal') === 'true',
+  'bottom sheet exposes role=dialog + aria-modal',
+);
+assert(
+  (sheetDialog?.getAttribute('aria-label') ?? '').length > 0,
+  'bottom sheet has a non-empty accessible name',
+);
 const sheetLabels = [...dom.window.document.querySelectorAll('.sheet-item')].map((i) => i.textContent);
 assert(sheetLabels.includes('Copy'), 'sheet has Copy');
 assert(sheetLabels.includes('Delete for everyone'), 'own message ≤ 24h → Delete for everyone');
@@ -1424,6 +1459,37 @@ await waitFor(
 assert(
   dom.window.document.querySelector('.sheet') === null,
   'message sheet closes behind confirmation',
+);
+/* D1: the dialog keeps its accessible-name contract and focus moves into it. */
+const deleteDialog = dom.window.document.querySelector('.dialog');
+assert(
+  deleteDialog?.getAttribute('role') === 'dialog' &&
+    deleteDialog.getAttribute('aria-modal') === 'true',
+  'dialog exposes role=dialog + aria-modal',
+);
+assert(
+  deleteDialog?.getAttribute('aria-label') === 'Delete for everyone?',
+  'dialog accessible name matches its title',
+);
+await waitFor(
+  () => deleteDialog?.contains(dom.window.document.activeElement),
+  'focus moves into the dialog on open',
+);
+/* D1: the focus trap cycles Tab from the last back to the first control. */
+const deleteDialogButtons = [...deleteDialog.querySelectorAll('button:not([disabled])')];
+const firstControl = deleteDialogButtons[0];
+const lastControl = deleteDialogButtons[deleteDialogButtons.length - 1];
+lastControl.focus();
+assert(
+  dom.window.document.activeElement === lastControl,
+  'focus moved to the last dialog control',
+);
+lastControl.dispatchEvent(
+  new dom.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+);
+assert(
+  dom.window.document.activeElement === firstControl,
+  'Tab wraps from the last to the first control inside the dialog (focus trap)',
 );
 click('.dialog .btn-plain');
 await waitFor(() => dom.window.document.querySelector('.dialog') === null, 'message delete can be canceled');
@@ -1600,6 +1666,43 @@ click('.chat-row.request .chat');
 await waitFor(
   () => text('.request-banner')?.includes('Connection request'),
   'incoming request opens in chat',
+);
+/* D1: the request-info toggle is a real button (keyboard + screen-reader
+   reachable), not a clickable SVG. */
+const infoToggle = dom.window.document.querySelector('.request-info-button');
+assert(
+  infoToggle instanceof dom.window.HTMLButtonElement,
+  'request info toggle is a real <button> element',
+);
+assert(
+  (infoToggle?.getAttribute('aria-label') ?? '').length > 0,
+  'request info toggle has a non-empty accessible name',
+);
+assert(
+  infoToggle?.getAttribute('aria-expanded') === 'false',
+  'request info starts collapsed',
+);
+assert(
+  dom.window.document.querySelector('.request-info-text') === null,
+  'request info text is hidden initially',
+);
+infoToggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => infoToggle.getAttribute('aria-expanded') === 'true',
+  'request info toggle expands',
+);
+assert(
+  dom.window.document.querySelector('.request-info-text') !== null,
+  'request info text is visible when expanded',
+);
+infoToggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => infoToggle.getAttribute('aria-expanded') === 'false',
+  'request info toggle collapses again',
+);
+assert(
+  dom.window.document.querySelector('.request-info-text') === null,
+  'request info text is hidden again',
 );
 const declineBtn = [...dom.window.document.querySelectorAll('.request-banner .btn-small')].find((b) =>
   b.textContent.includes('Decline'),
