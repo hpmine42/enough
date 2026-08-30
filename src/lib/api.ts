@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import { errorMessage } from './errors';
 import { sanitizeDisplayName } from './input';
 import { t } from '../i18n';
-import {
+import type {
   BlockRelation,
   BlockState,
   ChatDeletion,
