@@ -388,10 +388,10 @@ Do NOT weaken error observability.
 
 **Priority:** P3
 
-* [ ] Review message-string-based detection of missing RPCs.
-* [ ] Determine whether a more stable detection mechanism is justified.
-* [ ] Do not change behavior solely for stylistic reasons.
-* [ ] Preserve compatibility with deployed PostgREST behavior.
+* [x] Review message-string-based detection of missing RPCs.
+* [x] Determine whether a more stable detection mechanism is justified.
+* [x] Do not change behavior solely for stylistic reasons.
+* [x] Preserve compatibility with deployed PostgREST behavior.
 
 ---
 
