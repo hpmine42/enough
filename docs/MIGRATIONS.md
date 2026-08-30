@@ -148,6 +148,111 @@ table, `chat_deletions.hidden_until`, the absence of the legacy `0003`
 self-connection CHECK, the `connections.status = 'ended'` path, and a re-check
 of the `authenticated` grants on `profiles` / `connections` / `messages`.
 
+## Verified deployment state (2026-08-30 — G3 production migration verification)
+
+The deployed Supabase production instance was re-inspected on **2026-08-30**
+with **read-only SQL queries only**; no database changes were made during this
+verification and none are performed from this round. This round documents
+roadmap item **G3** (database migration verification). It supersedes the
+"Open G3 items" list of the A1 section above.
+
+### G3 status
+
+- G3.1 (migration ordering) — **verified**: the repository chain `0001`–`0014`
+  is correctly sequenced and the production artifacts are consistent with
+  sequential application up to `0013`.
+- G3.2 (migration compatibility) — **open**: the repository chain is
+  internally consistent, but the unresolved `0014` production mismatch (below)
+  keeps this item open under the strict verification criterion.
+- G3.3 (required migrations deployed) — **open**: `0014` is confirmed **not**
+  deployed, and `0012` was not directly covered by this round's evidence.
+- G3.4 (views / functions / triggers / RLS / grants) — **open**: a grant
+  anomaly on the non-core tables (below) is under investigation.
+- G3.5 (no migration missing) — **open**: `0014` is missing from the deployed
+  state.
+
+### Deployed migration evidence
+
+- `0010` — `profiles.identity_public_key` (`text`, nullable) is present.
+- `0011` — the four crypto tables (`crypto_devices`, `crypto_kyber_prekeys`,
+  `crypto_one_time_prekeys`, `crypto_signed_prekeys`) are present.
+- `0012` — not directly evidenced in this round; the
+  `profiles_display_name_max_length` constraint state remains to be re-checked.
+- `0013` — the deployed `connection_unread` view matches migration `0013`
+  exactly (starts from `connections` with `LEFT JOIN connection_reads`, unread
+  semantics, `status IN ('accepted','ended')`).
+- `0014` — **confirmed mismatch, see below.**
+- Earlier chain — the `connections` status CHECK `valid_status` contains all
+  five states including `ended` (`0004`); `chat_deletions.hidden_until`
+  (`timestamptz`, not null) is present (`0006`); `user_blocks` has the
+  expected `id` / `blocker_id` / `blocked_id` / `created_at` columns (`0008`).
+- Realtime — the `supabase_realtime` publication contains exactly the
+  expected relevant tables: `chat_deletions`, `connection_reads`,
+  `crypto_kyber_prekeys`, `crypto_one_time_prekeys`, `message_deletions`,
+  `user_blocks`.
+
+### `0014` — confirmed repository-vs-production mismatch
+
+The deployed `send_connection_request(uuid)` body contains
+
+```sql
+pg_catalog.least(my_id::text, target::text) || ':' ||
+pg_catalog.greatest(my_id::text, target::text)
+```
+
+while migration `0014` requires the unqualified `least(...)` /
+`greatest(...)` forms. The deployed body otherwise matches the `0009` version
+of the function (`SECURITY DEFINER`, `SET search_path TO 'public'`, the
+`enough.connection_guard_trusted` flag). Migration `0014` is therefore
+**not deployed**; the production migration state corresponds to `0013`.
+
+PostgreSQL resolves `least` / `greatest` as grammar constructs, not as
+schema-qualifiable functions, so the deployed expression raises SQLSTATE
+`42883` ("function pg_catalog.least(text, text) does not exist") when
+executed. The statement is unconditional in the function body, so every
+invocation of the RPC fails — new connection requests made through
+`send_connection_request` currently fail in production. Existing connections,
+accepted chats, the decline/block flow and My Notes are unaffected (none of
+them depends on this RPC's lock-key expression). Migration `0014` exists
+precisely to fix this. **No repair was performed** and none is performed from
+this verification round — applying `0014` remains a manual step in the
+Supabase SQL editor.
+
+### Grant anomaly on the non-core tables (under investigation)
+
+The production grant state is:
+
+- `profiles`, `connections`, `messages` — exactly the `0009` grant surface
+  (only `authenticated`, only the intended DML privileges; no `anon` rows).
+- All other inspected tables (`chat_deletions`, `connection_reads`,
+  `crypto_devices`, `crypto_kyber_prekeys`, `crypto_one_time_prekeys`,
+  `crypto_signed_prekeys`, `message_deletions`, `user_blocks`) — **both**
+  `anon` and `authenticated` hold all seven table privileges (`SELECT`,
+  `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER`). This is
+  wider than the explicit grants of migrations `0001` / `0008` / `0011` (the
+  migrations never grant anything to `anon` and never grant `UPDATE` on
+  `user_blocks`).
+
+The pattern is consistent with the platform-level default privileges that
+Supabase applies to new tables in the `public` schema (broad grants to
+`anon` / `authenticated` recorded as default ACLs at table-creation time):
+the repository migrations only ever add grants and never revoke, so they
+could not narrow the inherited privileges. The three core tables show the
+exact `0009` surface because `0009` performs an explicit `revoke all` before
+re-granting.
+
+Practical reachability: the Data API (PostgREST) exposes only `SELECT`,
+`INSERT`, `UPDATE` and `DELETE`; `TRUNCATE`, `TRIGGER` and `REFERENCES`
+cannot be exercised through the API, and `anon` / `authenticated` are
+non-login roles. Row access through the API is therefore decided by RLS,
+which every relevant migration enables (`0001`, `0008`, `0011`). Whether RLS
+is actually enabled on these tables in production, and whether the expected
+policies are present, has **not yet been confirmed** by this round's
+evidence. Follow-up read-only queries were handed to the operator; until
+they confirm the RLS state, the anomaly is documented as **unexplained** and
+G3.4 stays open. No grant changes were made and none should be made without
+an explicit decision.
+
 ## How to run
 
 1. Open your Supabase project → **SQL Editor**.
