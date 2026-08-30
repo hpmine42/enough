@@ -25,6 +25,16 @@ import type {
  */
 export type ApiResult<T> = { data: T; error: string | null };
 
+/** Read optional PostgREST error fields without asserting an arbitrary value. */
+function supabaseErrorField(
+  error: unknown,
+  field: 'code' | 'message',
+): string | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const value = (error as Record<string, unknown>)[field];
+  return typeof value === 'string' ? value : undefined;
+}
+
 /* ------------------------------------------------------------------ */
 /* profiles                                                            */
 /* ------------------------------------------------------------------ */
@@ -94,9 +104,8 @@ export async function usernameExists(username: string): Promise<boolean> {
   // boolean API we conservatively return true on hard errors only if the
   // RPC error code is not a missing-function error. Missing RPC should
   // have been caught by the direct query fallback.
-  const isRpcMissing =
-    (rpcError as { code?: string })?.code === 'PGRST202' ||
-    (rpcError as { code?: string })?.code === '42883';
+  const rpcCode = supabaseErrorField(rpcError, 'code');
+  const isRpcMissing = rpcCode === 'PGRST202' || rpcCode === '42883';
   if (isRpcMissing && error) {
     // Both failed, but RPC is simply not deployed — direct query already
     // said \"no row\" when error is null. If we reach here direct query
@@ -250,10 +259,10 @@ export async function sendConnectionRequest(
     return null;
   }
   if (rpcError && !isMissingRequestRpc(rpcError)) {
-    if ((rpcError as { code?: string }).code === 'BLCKD') {
+    if (supabaseErrorField(rpcError, 'code') === 'BLCKD') {
       return t('errors.blockedRequest');
     }
-    if ((rpcError as { code?: string }).code === 'P0001') {
+    if (supabaseErrorField(rpcError, 'code') === 'P0001') {
       return t('errors.connectionExists');
     }
     return errorMessage(rpcError, 'request RPC');
@@ -345,7 +354,7 @@ export async function declineConnection(
   });
   if (!rpcError) return null;
   if (!isMissingRequestRpc(rpcError)) {
-    if ((rpcError as { code?: string }).code === 'BLCKD') {
+    if (supabaseErrorField(rpcError, 'code') === 'BLCKD') {
       return t('errors.blockedRequest');
     }
     return errorMessage(rpcError, 'request decline');
@@ -397,11 +406,11 @@ export async function cancelConnectionRequest(
 /* ------------------------------------------------------------------ */
 
 function isMissingRequestRpc(error: unknown): boolean {
-  const e = error as { code?: string; message?: string } | null;
-  const message = e?.message?.toLowerCase() ?? '';
+  const code = supabaseErrorField(error, 'code');
+  const message = supabaseErrorField(error, 'message')?.toLowerCase() ?? '';
   return (
-    e?.code === 'PGRST202' ||
-    e?.code === '42883' ||
+    code === 'PGRST202' ||
+    code === '42883' ||
     (message.includes('function') &&
       (message.includes('send_connection_request') ||
         message.includes('decline_connection')) &&
@@ -1112,17 +1121,12 @@ interface MyNotesSetupResult {
   error: string | null;
 }
 
-interface SupabaseErrorShape {
-  code?: string;
-  message?: string;
-}
-
 function isMissingMyNotesRpc(error: unknown): boolean {
-  const e = error as SupabaseErrorShape | null;
-  const message = e?.message?.toLowerCase() ?? '';
+  const code = supabaseErrorField(error, 'code');
+  const message = supabaseErrorField(error, 'message')?.toLowerCase() ?? '';
   return (
-    e?.code === 'PGRST202' ||
-    e?.code === '42883' ||
+    code === 'PGRST202' ||
+    code === '42883' ||
     (message.includes('function') &&
       (message.includes('ensure_my_notes') || message.includes('remove_my_notes')) &&
       (message.includes('not find') || message.includes('does not exist')))
@@ -1130,7 +1134,7 @@ function isMissingMyNotesRpc(error: unknown): boolean {
 }
 
 function isMyNotesSchemaError(error: unknown): boolean {
-  const code = (error as SupabaseErrorShape | null)?.code;
+  const code = supabaseErrorField(error, 'code');
   // 23514: a legacy user_a <> user_b CHECK constraint.
   // 42501: normal connection RLS correctly disallows accepted browser inserts.
   return code === '23514' || code === '42501';
