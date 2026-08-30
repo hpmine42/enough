@@ -3,7 +3,8 @@
  * UI smoke test — renders the production bundle in jsdom and exercises the
  * main flows with a stubbed Supabase API (no live backend required).
  *
- * Run:  npm run smoke   (builds with dummy public env vars, then tests dist/)
+ * Run:  npm run smoke   (builds with dummy public env vars into a dedicated
+ *       .smoke-dist/ directory, then tests that output — never dist/)
  *
  * This is NOT a substitute for testing against the real Supabase project;
  * it verifies rendering, routing, localization, theme and state handling.
@@ -38,7 +39,15 @@ const root = new URL('..', import.meta.url).pathname;
 const SUPABASE_URL = 'https://xyzcompany.supabase.co';
 const ANON_KEY = 'dummy-anon-key';
 
-execFileSync('npx', ['vite', 'build'], {
+// The smoke build MUST NOT write into dist/: deploy.yml uploads dist/ to
+// GitHub Pages verbatim after this gate, and a smoke rebuild with
+// VITE_BASE=/ plus dummy Supabase config would overwrite the production
+// build (this was the GitHub Pages white-screen bug). Build into a
+// dedicated, git-ignored directory instead so a test run can never touch
+// the production artifact.
+const SMOKE_OUT_DIR = '.smoke-dist';
+
+execFileSync('npx', ['vite', 'build', '--outDir', SMOKE_OUT_DIR], {
   cwd: root,
   env: {
     ...process.env,
@@ -49,10 +58,10 @@ execFileSync('npx', ['vite', 'build'], {
   stdio: 'inherit',
 });
 
-const dist = `${root}dist`;
-const html = readFileSync(`${dist}/index.html`, 'utf8');
-const asset = readdirSync(`${dist}/assets`).find((f) => f.endsWith('.js'));
-if (!asset) throw new Error('no JS asset found in dist');
+const smokeDist = `${root}${SMOKE_OUT_DIR}/`;
+const html = readFileSync(`${smokeDist}/index.html`, 'utf8');
+const asset = readdirSync(`${smokeDist}/assets`).find((f) => f.endsWith('.js'));
+if (!asset) throw new Error(`no JS asset found in ${SMOKE_OUT_DIR}`);
 
 /* ------------------------------------------------------------------ */
 /* 0a. CSP + Referrer-Policy meta (Phase A #3)                         */
@@ -153,12 +162,12 @@ securityAssert(
 );
 
 // 5. robots.txt + .well-known/security.txt ship with the build (Phase A #6).
-const robotsTxt = readFileSync(`${dist}/robots.txt`, 'utf8');
+const robotsTxt = readFileSync(`${smokeDist}/robots.txt`, 'utf8');
 securityAssert(
   robotsTxt.includes('User-agent: *') && robotsTxt.includes('Allow: /'),
   'robots.txt allows crawling and is present in the build',
 );
-const securityTxt = readFileSync(`${dist}/.well-known/security.txt`, 'utf8');
+const securityTxt = readFileSync(`${smokeDist}/.well-known/security.txt`, 'utf8');
 securityAssert(
   securityTxt.includes('Contact: mailto:hpmine@web.de'),
   'security.txt is present with a disclosure contact',
@@ -867,7 +876,7 @@ window.__enoughE2EEManagerFactory = (userId) =>
     kyberThreshold: 1,
   });
 
-await import(`${dist}/assets/${asset}`).catch((e) => {
+await import(`${smokeDist}/assets/${asset}`).catch((e) => {
   console.error('bundle import failed:', e);
   process.exit(1);
 });
