@@ -36,6 +36,7 @@ import { useE2EE } from '../context/E2EEContext';
 import { prepareSend, decryptForDisplay, isEnvelope } from '../lib/e2ee/message-flow';
 import { cachePlaintext, getCachedPlaintext } from '../lib/e2ee/message-cache';
 import { isCryptoError } from '../lib/crypto/errors';
+import Avatar from './Avatar';
 import MessageBubble from './MessageBubble';
 import MessageComposer from './MessageComposer';
 import BottomSheet from './BottomSheet';
@@ -854,6 +855,10 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         >
           <BackIcon size={22} />
         </button>
+        <Avatar
+          name={self ? t('settingsScreen.myNotes') : ended ? t('chat.deletedAccount') : displayName(peer)}
+          size={36}
+        />
         <div className="chat-peer">
           <div className="chat-peer-name">
             {self
