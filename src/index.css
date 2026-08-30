@@ -542,6 +542,17 @@ textarea {
   flex-direction: column;
 }
 
+/* ---------- avatar ---------- */
+
+.avatar {
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease,
+    color 0.25s ease;
+}
+
+/* ---------- chat rows ---------- */
+
 .chat-row {
   border-bottom: 1px solid var(--border);
   padding: 4px 0;

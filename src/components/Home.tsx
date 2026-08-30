@@ -28,6 +28,7 @@ import { Connection, Message, Profile } from '../lib/types';
 import { mergeLastMessage, unreadAfterInsert } from '../lib/homeRealtime';
 import { getCachedPlaintextSync, warmMessageCache } from '../lib/e2ee/message-cache';
 import { isEnvelope } from '../lib/e2ee/message-flow';
+import Avatar from './Avatar';
 import ThemeButton from './ThemeButton';
 import { GearIcon, NoteIcon } from './icons';
 import Dialog from './Dialog';
@@ -396,6 +397,7 @@ export default function Home() {
                   className="chat"
                   onClick={() => navigate(`#/chat/${conn.id}`)}
                 >
+                  <Avatar name={name} size={40} />
                   <div className="chat-text">
                     <div className="chat-topline">
                       <span className="chat-name">{name}</span>
