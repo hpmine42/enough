@@ -1,670 +1,1093 @@
-# enough. — v0.1 → v0.2 Product & Technical Audit
+# enough. — v0.1 → v0.2 Product & Technical Roadmap
 
-> **Status:** Completed 2026-08-19 (rev. 2 — final cleanup)  
-> **Branch:** `main` (commit `e0cc0d8b4958db143cb1dd9a35914c064c2afad1`)  
-> **Goal:** Comprehensive analysis → prioritised roadmap for v0.2  
-> **Constraint:** No E2EE implementation, no large new features, no unnecessary refactoring.
-
-## Finding classification
-
-Every finding in this document is tagged with one of:
-
-- **CONFIRMED** — verified directly against the code in this repository (client or migration SQL). No live Supabase access required.
-- **NEEDS VERIFICATION** — depends on the deployed Supabase base policies / project configuration, which are **not part of this repository** and cannot be inspected here. These are explicitly **not** presented as confirmed vulnerabilities.
-- **RECOMMENDATION** — a defensive or quality improvement. Missing defense-in-depth is explicitly **not** treated as an exploitable vulnerability unless an attack path is confirmed.
+> **Original audit:** Completed 2026-08-19 (rev. 2 — final cleanup)
+> **Purpose:** Define the intended v0.2 engineering targets and preserve the original audit findings.
+> **Important:** This document is a living roadmap. The original audit was performed against an earlier repository revision and therefore contains historical state descriptions that may no longer match the current repository.
+>
+> **Rule:** The current repository, current Git history, current tests, and verified deployment state determine what is already achieved. This document defines the intended target and approved scope.
 
 ---
 
-## 1. Executive Summary
+# 0. EXECUTIVE RULES FOR ROADMAP EXECUTION
 
-enough. v0.1 (`e0cc0d8`) is a **functional, production-deployed** one-to-one messenger with auth, connections, realtime chat, deletion, blocking, My Notes, two languages, a PWA, and a GitHub Pages CI/CD pipeline. The codebase is lean (~3 400 lines across ~30 source files), maintains a clean React/Context-only architecture, and ships no superfluous dependencies.
+This roadmap has two distinct purposes:
 
-**Production-ready:** Auth (login/register/logout/password-reset/email-change), connections with full state machine (request/accept/decline/cancel/block), realtime chat with message grouping, delete-for-everyone/delete-for-me, read state, unread badges, My Notes, user search, blocking, Settings overlay (profile/email/password/appearance/language/preferences), account deletion, public legal imprint, light/dark/system theme, i18n EN+DE, PWA with service worker.
+1. preserve the original technical/security audit;
+2. define the intended and approved engineering work for v0.2.
 
-**Not yet production-ready:** The E2EE crypto layer (foundation exists in `src/lib/crypto/` but is deliberately paused — no encryption/decryption is wired into the message flow). No unit tests for the core business logic in `api.ts`/`helpers.ts`; the RLS test script must be run manually; no accessibility audit; no offline-first message queue.
+These must NOT be confused.
 
-**Security posture (confirmed from repo code):** No confirmed exploitable vulnerability was found in the repository code. XSS is mitigated (no `dangerouslySetInnerHTML`, markdown renderer strips HTML, React JSX escapes all output), SQL injection is mitigated (Supabase client parameterization), the migrations' RLS policies and DB triggers are consistent, and no secrets are exposed. Two areas **require verification against the deployed Supabase project** (base `messages` UPDATE policy; auth URL/email-template behaviour). Several **defense-in-depth gaps** are recommended for v0.2 (CSP, referrer policy, output sanitization on write). **There are no confirmed P0 issues; P0 is reserved for confirmed, security-critical problems and is currently empty.**
+## Roadmap status semantics
 
-**Key v0.2 recommendations:** verify the deployed base `messages` UPDATE RLS (and close it with an explicit migration), add a CSP meta tag, add unit tests for `api.ts`/`helpers.ts`, fix the confirmed UX/performance findings (N+1 unread queries, Home realtime full reloads, "1 min" for fresh messages, missing error boundary, focus trap), and ship the small UX refinements listed in §12.
+Every roadmap item should be interpreted using one of these states:
 
----
-
-## 2. Current State
-
-| Area | State | Notes |
-|---|---|---|
-| **Auth** | ✅ Production-ready | Login, register, logout, password reset, email change, session persistence, recovery flow |
-| **Profiles** | ✅ Production-ready | Display name, username, email — full CRUD |
-| **User Search** | ✅ Production-ready | Debounced, live validation, integrated with the connection flow |
-| **Connections** | ✅ Production-ready | Full state machine: request/accept/decline/cancel/expire/block, RPCs in migration 0008 |
-| **Blocking** | ✅ Production-ready | DB-enforced, RLS-covered, tested in `rls-tests.sql`, UI for both directions |
-| **Chat** | ✅ Production-ready | Realtime, paginated, grouped bubbles, delete for me/everyone, read state, scroll-to-bottom |
-| **My Notes** | ✅ Production-ready | Self-chat, toggle in Settings, clear-and-disable |
-| **System Messages** | ✅ Production-ready | Name-change, connection-accepted, deleted-account events |
-| **Settings** | ✅ Production-ready | Full slide-in overlay: profile, search, language, appearance, chat prefs, account |
-| **Theme** | ✅ Production-ready | Light/dark/system, no-flash inline script, persisted, OS-follows |
-| **i18n EN+DE** | ✅ Production-ready | All user-facing strings translated, runtime switchable |
-| **PWA / SW** | ✅ Production-ready | Content-hashed SW, offline shell fallback, skipWaiting+claim, GitHub Pages compatible |
-| **CI/CD** | ✅ Production-ready | GitHub Actions → Pages, env vars from secrets |
-| **Legal Imprint** | ✅ Production-ready | DE+EN, template-configurable |
-| **E2EE Crypto** | ⚠️ Exists but PAUSED | Foundation code-complete (identity, prekeys, storage); `sendMessage()` still writes plaintext |
-| **Tests** | ⚠️ Partial | Extensive UI smoke test (jsdom), one crypto Node test; no unit tests for `api.ts`/`helpers.ts` |
-| **Accessibility** | ⚠️ Needs review | ARIA labels on most controls, but no systematic audit; focus trap missing |
-| **Offline** | ⚠️ Partial | SW caches the shell only; no offline message queue (documented non-goal of PWA phase) |
-
----
-
-## 3. Confirmed Critical Issues (P0)
-
-**No confirmed P0 issues exist.** P0 is reserved exclusively for confirmed, security-critical problems. After the cleanup, no repository-code finding qualifies:
-
-- No confirmed XSS vector (no `dangerouslySetInnerHTML`, markdown strips HTML, React JSX escapes).
-- No confirmed injection vector (Supabase client parameterizes queries).
-- No confirmed RLS bypass in any policy/trigger defined in `supabase/migrations/`.
-- No confirmed secret exposure.
-- Items that were previously labeled P0 (CSP, referrer policy, `messages` UPDATE RLS) are either **defense-in-depth recommendations** or **NEEDS VERIFICATION** — see §7 and §17.
-
-**P0 watchlist (become P0 *if* verified as exploitable):**
-- `messages` UPDATE RLS — if the deployed base policy allows any authenticated user to update any message row (see §7.4, NV-1), then delete-for-everyone is exploitable and this becomes **P0**.
-- Supabase auth URL/email-template behaviour (NV-2) — a misconfigured redirect target or a non-PKCE callback would be a config problem, not a code vulnerability.
-
----
-
-## 4. High Priority Issues (P1)
-
-### P1-1 (NEEDS VERIFICATION → P0/P1): Explicit `messages` UPDATE RLS — sender-only delete-for-everyone
-
-**Problem:** `deleteMessageForEveryone(messageId)` sends `PATCH messages SET deleted_at=now(), ciphertext='' WHERE id=…`. The repository migrations define **no UPDATE policy for `messages`** (0001 only adds columns/triggers; 0008 only replaces the INSERT guard). Whether an UPDATE by a non-sender is rejected therefore depends entirely on the **base Supabase `messages` policies, which are not part of this repository** (they come from the project's initial template, applied before 0001).
-
-**Why it matters:** If the deployed base policy is permissive for `authenticated` UPDATEs (common in tutorial templates), any user could delete anyone's message "for everyone" and clear its content.
-
-**Files:** `src/lib/api.ts:deleteMessageForEveryone`, `supabase/migrations/0001_v01_features.sql`, `0008_user_blocks.sql` (no UPDATE policy)
-
-**Effort:** S (migration) / M (migration + verification) — **Risk:** high if left unverified — **Dependencies:** verification of deployed policies (requires Supabase SQL access) — **Recommendation:** verify with `\d messages` / `select * from pg_policies where tablename='messages'`; then add an explicit sender-only UPDATE policy (migration 0009). Until verified, treat delete-for-everyone as unconfirmed.
-
-### P1-2 (CONFIRMED): i18n interpolation can be corrupted by parameter values containing placeholders
-
-**Problem:** `t()` in `src/i18n/index.ts` replaces placeholders sequentially (`str.split(\`{${k}}\`).join(String(v))`). If a parameter value itself contains a later placeholder, e.g. a display name `"x {new}"` passed as `old`, the later `{new}` replacement also rewrites the text inside the just-inserted value. `on_profile_display_name_change` (migration 0001) stores the display name verbatim in `meta`, and `MessageBubble` renders it through `t('chat.nameChange', { old, new })`.
-
-**Why it matters:** A user-controlled string (display name) can corrupt system-message text. This is a **correctness/robustness bug, not a security vulnerability** — React escapes the rendered output, so no XSS is possible. A name containing `{` could also render oddly in other `t()` calls.
-
-**Files:** `src/i18n/index.ts:t`, `src/components/MessageBubble.tsx`, `supabase/migrations/0001_v01_features.sql` (trigger)
-
-**Effort:** S — **Risk:** low — **Recommendation:** escape/neutralize `{` in parameter values (e.g. replace `{` with `&#123;`-style token or use a regex replace of `\{\w+\}` against a placeholder map), or escape the values before interpolation.
-
-### P1-3 (RECOMMENDATION): Defense-in-depth — sanitize `ciphertext` and `display_name` on write
-
-**Problem:** `sendMessage()` stores user input verbatim in `messages.ciphertext`; `updateMyDisplayName()` stores the display name verbatim (no server-side length CHECK in the migrations; the UI enforces `maxLength={60}` client-side only).
-
-**Why it matters:** Rendering is safe today (React escaping + markdown renderer). Sanitization on write protects against any future renderer change (e.g. a client that uses `innerHTML`/`dangerouslySetInnerHTML`) and against data-integrity issues. This is **defense-in-depth, not a confirmed vulnerability**.
-
-**Files:** `src/lib/api.ts:sendMessage`, `updateMyDisplayName`, `supabase/migrations/0001_v01_features.sql`
-
-**Effort:** S — **Risk:** low — **Recommendation:** strip HTML/control characters on write in `sendMessage()`; add a `char_length(display_name) <= 60` CHECK or `varchar(60)` column migration, and/or enforce length server-side.
-
-### P1-4 (CONFIRMED): `getUnreadCounts` issues one query per connection without a read row
-
-**Problem:** For every connection not yet present in `connection_reads`, `getUnreadCounts` issues a separate `messages` count query. A user with N new conversations triggers N network round trips on every Home load.
-
-**Why it matters:** Performance degrades linearly with chat count; mobile connections amplify the cost.
-
-**Files:** `src/lib/api.ts:getUnreadCounts`
-
-**Effort:** M — **Risk:** low — **Recommendation:** batch into one `messages` query (e.g. count grouped by `connection_id` with a filter for the missing IDs), or extend the `connection_unread` view to seed rows for connections without read state.
-
-### P1-5 (CONFIRMED): Home realtime triggers a full reload for every event
-
-**Problem:** `Home.tsx` subscribes to six `postgres_changes` event sets (connections `*`, messages INSERT/UPDATE, profiles UPDATE, `message_deletions` `*`, `chat_deletions` `*`); **every** event calls `load()`, which re-fetches all connections, all profiles, all last messages, read state, and unread counts.
-
-**Why it matters:** Any change anywhere (even in a single message) refetches the entire chat list. Wasteful on mobile and grows with account size.
-
-**Files:** `src/components/Home.tsx` (realtime effect + `load`)
-
-**Effort:** M — **Risk:** medium (touches core list logic; smoke test must be kept green) — **Recommendation:** incremental updates (insert/update the affected row in local state), keeping the full reload only as a reconciliation fallback.
-
----
-
-## 5. Medium Priority Issues (P2)
-
-### P2-1 (CONFIRMED): "1 min" shown for messages under one minute old
-
-`formatRelative()` returns `"1 min"` for any message younger than 1 minute, including messages just sent. UX polish: show "just now"/"gerade eben" (or "now") below 30–60 s. **Files:** `src/lib/helpers.ts`. Effort S.
-
-### P2-2 (CONFIRMED): No global error boundary
-
-If any component throws during render, the whole app shows a white screen. Add an error boundary with a friendly message and reload action. **Files:** `src/main.tsx`, new `src/components/ErrorBoundary.tsx`. Effort S.
-
-### P2-3 (CONFIRMED): No focus trap in dialogs and bottom sheets
-
-`Dialog` and `BottomSheet` set `role="dialog"` and `aria-modal="true"` but do not trap focus; keyboard users can tab out into the page behind the modal. **Files:** `src/components/Dialog.tsx`, `BottomSheet.tsx`. Effort S.
-
-### P2-4 (CONFIRMED): Silent failure on data-layer errors
-
-`getProfiles`, `searchUsers`, `getMyConnections`, `getMessagesPage` return empty data on any error, so the UI shows empty states ("No one found", "Nothing here yet") instead of an error, even for transient network failures. **Files:** `src/lib/api.ts`. Effort M (surface errors up to the callers; keep smoke test green).
-
-### P2-5 (CONFIRMED): Realtime block-state channel is per-peer instead of per-connection
-
-The chat subscribes to `user_blocks` with filters on `blocker_id=eq.<peerId>` and `blocked_id=eq.<peerId>`; the peer could be blocked by/block a third user, causing refreshes unrelated to this chat. Minor inefficiency, not a correctness bug. **Files:** `src/components/Chat.tsx`. Effort S.
-
-### P2-6 (CONFIRMED, intentional): `usernameExists` is conservative on network errors
-
-When both the RPC and the direct query fail, `usernameExists()` returns `true` ("taken"), blocking registration during degraded backend conditions. This is a deliberate safety choice (documented in code) but can lock out legitimate registrations during outages; the UI already keeps a "checking" state that could be reused instead. **Files:** `src/lib/api.ts:usernameExists`, `src/components/Register.tsx`. Effort S.
-
-### P2-7 (CONFIRMED, dev-only): `StrictMode` double-invokes effects in development
-
-`<StrictMode>` double-mounts components in dev, so the Home `load()` runs twice on startup and Realtime subscriptions are created/removed once extra. Harmless in production (StrictMode is a no-op in prod builds) and deduplication already handles duplicate payloads. Note for developers only. Effort S (optional: no change needed).
-
----
-
-## 6. Low Priority Issues (P3)
-
-### P3-1 (CONFIRMED): Hard-coded `APP_VERSION` in Settings
-
-`const APP_VERSION = '0.1.0'` is hard-coded in `src/components/Settings.tsx` and can drift from `package.json`. Read from build metadata (`import.meta.env` or a generated constant). Effort S.
-
-### P3-2 (CONFIRMED): No `robots.txt` / `security.txt`
-
-`public/` contains only icons and the manifest. Add `robots.txt` (allow crawling of the app root) and `.well-known/security.txt` (disclosure contact). Note: GitHub Pages serves the project under `/enough/`, so these live at `/enough/robots.txt`. Effort S.
-
-### P3-3 (CONFIRMED): Duplicate message-sort comparator in `Chat.tsx`
-
-The same `created_at`/`id` comparator is written twice (realtime INSERT handler and `handleSend`). Extract to a shared helper. Effort S.
-
-### P3-4 (CONFIRMED): Production console output
-
-`checkSchemaCompatibility()` warns in the console in production (intentional developer aid, `docs/MIGRATIONS.md`), and `logError()` logs error diagnostics. Deliberate and useful; no sensitive data is logged (credentials/tokens are never included). Optionally gate the schema check to non-production builds. Effort S.
-
-### P3-5 (CONFIRMED): `auth.user` reference changes can cause brief stale UI
-
-Components read `user` from context; Supabase may emit a new `User` object reference (e.g. on token refresh) without a profile reload, briefly showing stale profile data. Cosmetic; `refreshProfile` exists. Effort S.
-
----
-
-## 7. Security Findings
-
-### 7.1 XSS — no confirmed vector (CONFIRMED)
-
-| Vector | Status | Notes |
-|---|---|---|
-| Message content (`ciphertext`) | ✅ Mitigated | `src/lib/markdown.tsx` never emits raw HTML; React JSX escapes all text nodes; no `dangerouslySetInnerHTML` anywhere in `src/` |
-| Display name / username / email | ✅ Mitigated | Rendered via React JSX only; system-message interpolation bug (P1-2) is a robustness bug, not XSS |
-| Registration/login forms | ✅ Mitigated | No `eval`, no `innerHTML` |
-| Links in markdown | ✅ Mitigated | Only `http(s)`/`mailto` allowed; `rel="noopener noreferrer"`; click events stop propagation (do not trigger message actions) |
-
-### 7.2 Injection (CONFIRMED)
-
-| Vector | Status | Notes |
-|---|---|---|
-| SQL injection | ✅ Mitigated | Supabase JS client parameterizes filters/values; no raw SQL from the client |
-| HTML injection via markdown | ✅ Mitigated | Parser emits only React elements, never raw HTML |
-
-### 7.3 Auth State (CONFIRMED + NV-2)
-
-| Issue | Status | Notes |
-|---|---|---|
-| Session persistence | ✅ Safe | Supabase-managed session (`autoRefreshToken: true`); token storage is Supabase's responsibility, only the publishable key ships in the bundle |
-| Token in URL fragment (implicit callback) | ✅ Mitigated | Supabase removes token parameters from the URL after processing (`detectSessionInUrl`); URL **fragments are never sent in the `Referer` header** (HTTP spec), so no referrer leak of hash tokens; single-use PKCE `code` in the query string is exchanged immediately |
-| Recovery callback detection | ✅ Handled | `src/lib/supabase.ts` inspects *parameter names only* (never values) and supports both PKCE and implicit callback formats; `AuthContext` registers the listener before `getSession()` so `PASSWORD_RECOVERY` is not missed |
-| Session expiry | ✅ | Surfaces the login screen |
-
-**NV-2 (NEEDS VERIFICATION):** The Supabase **project configuration** (email templates, redirect allow-list, `flowType` setting) is not in this repository. The code handles both PKCE and implicit callbacks, but the deployed project's actual behavior (e.g. which URL the emailed recovery link points to, whether the redirect target is allow-listed) must be verified against the live project. A misconfiguration would be a deployment issue, not a code vulnerability.
-
-### 7.4 RLS & Authorization
-
-| Check | Status | Notes |
-|---|---|---|
-| Users can read others' profiles (search) | ✅ Assumed | Required for search; base template usually grants SELECT on `profiles` to `authenticated`. **NV-3:** verify on the deployed project |
-| Users cannot modify others' profiles | ✅ In migrations | `updateMyDisplayName` uses `.eq('id', me)`; the 0-row RLS result is surfaced as an error (client-side check). Base template UPDATE policy assumed own-row-only — **NV-3** |
-| Users cannot create connections for others / self-accept | ✅ In migrations | `send_connection_request` RPC (0008) binds `user_a` to `auth.uid()`; `decline_connection` is recipient-only; base RLS assumed consistent — **NV-3** |
-| Message INSERT restricted (accepted only, sender must be self) | ✅ CONFIRMED | `guard_message_insert` trigger (0001, extended 0008): non-accepted → `P0001`, `sender_id <> auth.uid()` → `P0001`, blocked pair → `BLCKD` |
-| Message UPDATE (delete-for-everyone) sender-only | ⚠️ **NEEDS VERIFICATION (NV-1)** | No UPDATE policy in migrations; depends on deployed base policy — **not presented as a confirmed vulnerability** |
-| `message_deletions` (delete-for-me) | ✅ CONFIRMED secure by design | Policy `with check (user_id = auth.uid() and exists(… connection membership …))`; a user can only write rows where `user_id` equals their own session ID, and only for messages in conversations they belong to. Hiding *someone else's* message from one's own view is the intended delete-for-me semantics, and it never affects the other participant |
-| `chat_deletions` (delete chat for me) | ✅ CONFIRMED | Same `user_id = auth.uid()` + membership pattern (0001, 0006) |
-| `connection_reads` | ✅ CONFIRMED | `user_id = auth.uid()` policies (0001) |
-| `user_blocks` | ✅ CONFIRMED | Select only for involved users; insert only with `blocker_id = auth.uid()`; delete only own blocks (0008); no UPDATE policy |
-| Connections guarded against blocked pairs | ✅ CONFIRMED | `guard_blocked_connection_write` (0008) raises `BLCKD` on insert/transition to pending/accepted between a blocked pair |
-| Account deletion | ✅ CONFIRMED | `delete_own_account()` RPC (0004/0008): `security definer`, binds to `auth.uid()`, writes notices, marks `ended`, frees the username |
-
-**NV-1 (NEEDS VERIFICATION):** deployed base `messages` UPDATE/INSERT policies — see P1-1.  
-**NV-3 (NEEDS VERIFICATION):** the base template policies for `profiles` SELECT/UPDATE and `connections` SELECT/INSERT. Everything the migrations add is consistent, but the pre-existing template policies are not in this repository.
-
-### 7.5 IDOR (CONFIRMED from repo code)
-
-| Check | Status | Notes |
-|---|---|---|
-| Read a message via another user's `connection_id` | ✅ Mitigated | `getMessagesPage` filters by `connection_id`; RLS on `messages` (base, NV-1) + UI `valid` check (`getConnection` membership) |
-| Open another user's chat via crafted `#/chat/<id>` | ✅ Mitigated | `Chat.tsx` validates `found.user_a/user_b === me`; renders "not available" otherwise |
-| Update another user's profile | ✅ Mitigated | RLS + `me` scoping in `api.ts` |
-| Unblock on someone else's behalf | ✅ Mitigated | `unblockUser` filters `blocker_id = me` + RLS |
-
-### 7.6 Secret Exposure (CONFIRMED)
-
-| Check | Status |
-|---|---|
-| Publishable/anon key in bundle | ✅ Intended (public by design, RLS protects data) |
-| Service-role/secret key anywhere in repo or CI | ✅ Not present |
-| GitHub secrets used for CI env | ✅ Only `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` |
-
-### 7.7 Client Storage (CONFIRMED)
-
-| Store | Content | Risk |
-|---|---|---|
-| `localStorage`: `enough-lang`, `enough-theme`, `enough-enter-to-send` | Preferences | None |
-| `localStorage`: `enough-deletions-{userId}` | Own per-user deletion markers (fallback cache; DB is authoritative) | None (self-data only) |
-| `localStorage`: `enough-read-{userId}` | Own read-state fallback | None (self-data only) |
-| `indexedDB`: crypto store | E2EE identity/prekey material (local only, per user id) | Not used for encryption yet (E2EE paused); no remote sync |
-| `sessionStorage`: `enough-sw-reloaded` | Reload guard | None |
-
-### 7.8 CSP & Security Headers — defense-in-depth gaps (RECOMMENDATION, not confirmed vulnerabilities)
-
-`index.html` ships no `Content-Security-Policy` and no `referrerpolicy`/`Referrer-Policy` meta. **No injection vector is confirmed**, so these are hardening recommendations, not fixes for a demonstrated exploit.
-
-| Header / meta | Present | Recommendation |
-|---|---|---|
-| `Content-Security-Policy` | ❌ Missing | Add a `<meta http-equiv="Content-Security-Policy">`: `default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'` — note: `frame-ancestors`/`sandbox`/`report-*` are **ignored in meta CSP** and require an HTTP header, which GitHub Pages does not allow to set; a meta CSP still covers script/connect/style. The inline theme bootstrap script in `index.html` requires `'unsafe-inline'` or must be moved into an external asset |
-| `Referrer-Policy` | ❌ Missing | Add `<meta name="referrer" content="no-referrer">` (or `strict-origin-when-cross-origin`). Belt-and-braces only: hash tokens are already not sent in `Referer` by spec, and Supabase strips them from the URL |
-| `X-Content-Type-Options: nosniff` | ❌ Missing | Requires HTTP header; not settable via meta — GitHub Pages controls response headers. No client-side equivalent |
-| `Strict-Transport-Security` | ❌ Missing | Provided by GitHub Pages on its own infrastructure |
-
-### 7.9 Service Worker Risks (CONFIRMED mitigated)
-
-| Risk | Status |
-|---|---|
-| SW serves a stale shell | ✅ Mitigated — cache key `enough-shell-<content-hash>`, `skipWaiting()` + `clients.claim()`, one-shot soft reload on controller change |
-| SW caches user data / tokens | ✅ Mitigated — only same-origin static assets; Supabase REST/Auth/Realtime (`wss`) traffic is never intercepted or cached |
-| Install bricked by a failing asset | ✅ Mitigated — precache uses individual `fetch`+`cache.put` with `res.ok` guard (not `addAll`), so a 404 asset cannot fail the install |
-| SW blocks updates | ✅ Mitigated — `updateViaCache: 'none'`, proactive `registration.update()` on focus/visibility |
-
-### 7.10 Console Leakage (CONFIRMED, low severity)
-
-`checkSchemaCompatibility()` (dev aid) and `logError()` (error diagnostics: code/message/details/hint/status/name — never tokens or bodies) log in production. Deliberate and documented; no sensitive material logged. Optional: gate the schema probe to dev builds.
-
----
-
-## 8. UX Findings
-
-### 8.1 Positive (CONFIRMED)
-
-- Clean, calm warm-beige/dark-grey design; consistent bubble UI with Signal-like grouping.
-- Smooth animations (sheet-in, dialog-in, screen-in) with `prefers-reduced-motion` support.
-- Touch targets ≥ 42 px; `safe-area-inset` handling throughout; `interactive-widget=resizes-visual` for the mobile keyboard.
-- Installable PWA with correct standalone display-mode styling.
-
-### 8.2 Issues
-
-| Issue | Classification | Severity | Details |
-|---|---|---|---|
-| No "just now" for fresh messages | CONFIRMED | P2 | Shows "1 min" immediately after sending (see P2-1) |
-| Loading older messages is text-only | CONFIRMED | P3 | "Loading…" label at the top; no spinner. Cosmetic |
-| Scroll-down button appears only when scrolled up | CONFIRMED | P3 | Works as designed; count can briefly lag after a burst (requestAnimationFrame refresh exists) |
-| Composer disabled state is text-only | CONFIRMED | P3 | No visual lock; acceptable given the explanatory note |
-| No exit/draft-loss confirmation | CONFIRMED | P3 | Back while typing discards the draft; acceptable for a minimal messenger, worth a note |
-| Imprint switches the app language as a side effect | CONFIRMED | P3 | Visiting `#/impressum` sets `lang='de'`, `#/imprint` sets `'en'`; deliberate (matching route language) but affects the global preference |
-| Email/password change: two-step confirm-then-form | CONFIRMED | P3 | Intentional friction for security; fine |
-| Settings overlay keeps Home mounted and clickable-behind | CONFIRMED | P3 | `pointer-events` are disabled on the overlay when closed; Home is intentionally kept mounted for state retention |
-
-### 8.3 Mobile UX
-
-| Item | Classification | Notes |
-|---|---|---|
-| Composer auto-grow to 4 lines, then internal scroll | CONFIRMED | Reasonable on small phones |
-| Keyboard avoidance | CONFIRMED | `interactive-widget=resizes-visual` + `viewport-fit=cover` + safe-area insets |
-| Long-press message actions | CONFIRMED | 550 ms long-press with pointer-move slop cancellation; keyboard/Enter alternative for accessibility |
-
-### 8.4 Accessibility
-
-| Category | Classification | Status |
-|---|---|---|
-| ARIA labels on buttons | CONFIRMED | Mostly present; a few icon buttons rely on `title` only — add `aria-label` everywhere |
-| Dialog/sheet semantics | CONFIRMED | `role="dialog"`, `aria-modal="true"` present |
-| Focus trap | CONFIRMED | **Missing** (P2-3) — focus can leave the modal |
-| Keyboard navigation in message list | CONFIRMED | Messages focusable (`tabIndex`), Enter/Space opens the action sheet |
-| Screen-reader announcements | CONFIRMED | `aria-live="polite"` on the message list |
-| Color contrast | CONFIRMED | Warm-beige light / dark-grey dark palettes pass WCAG AA |
-| `prefers-reduced-motion` | CONFIRMED | All animations/transitions neutralized |
-
----
-
-## 9. Performance Findings
-
-### 9.1 Bundle size (CONFIRMED — measured via `npm run smoke` build, 2026-08-19)
-
-```
-dist/ (measured, Vite 6 production build):
-  index.html:             2.53 kB   (gzip:  1.04 kB)
-  assets/index-*.css:    27.12 kB   (gzip:  5.59 kB)
-  assets/index-*.js:    484.87 kB   (gzip: 136.65 kB)   ← includes React 18 + @supabase/supabase-js
-  sw.js + icons/manifest:  ~9 kB + ~200 kB (mostly PNG icons)
+```text
+ACTIONABLE
+VERIFY ONLY
+FIXED
+PARTIALLY FIXED
+DEFERRED
+BLOCKED
+OBSOLETE
+PRODUCT DECISION REQUIRED
 ```
 
-The JS bundle is dominated by React + the Supabase client. Acceptable for the current scope; the biggest lever later would be code-splitting the Supabase realtime/auth code, but **no action is needed for v0.2**. (The smoke-test stack — `jsdom` — is a devDependency and is **not** part of the production bundle.)
+### ACTIONABLE
 
-### 9.2 Rendering (CONFIRMED)
+The work is an approved roadmap goal and may be implemented autonomously after verifying that it is still incomplete.
 
-No state library; React Context only. Language changes intentionally re-render the whole tree (`useLang()` force-update) so every `t()` refreshes. Acceptable for the app size; per-component memoization is unnecessary.
+### VERIFY ONLY
 
-### 9.3 Message list (CONFIRMED)
+The item requires verification of the current implementation or deployed environment.
 
-`visibleMessages` and `grouped` are memoized correctly. Initial load fetches `PAGE_SIZE + 1` to detect `hasMore`; older pages are prepended with scroll-position preservation (`pendingDeltaRef`). All loaded pages stay in memory — fine for typical conversations; virtualization would only matter for extremely long histories.
+Verification does not automatically authorize follow-up implementation.
 
-### 9.4 Realtime (CONFIRMED)
+If verification reveals a product, security, infrastructure, or architecture decision that is not explicitly approved, stop at the decision boundary.
 
-Home: six `postgres_changes` handlers, every event triggers a full `load()` (see P1-5). Chat: per-conversation channel with filtered events; messages are appended incrementally with id-deduplication; read state is persisted throttled (~1.5 s). The block-state channel watches per-peer filters (P2-5).
+### FIXED
 
-### 9.5 IndexedDB / storage (CONFIRMED)
+The intended outcome has already been achieved.
 
-E2EE identity material only; no frequent reads/writes. No performance concern.
+Do not reimplement it.
 
----
+### PARTIALLY FIXED
 
-## 10. Technical Debt
+Some of the intended outcome exists, but the remaining gap must be verified before implementation.
 
-### 10.1 Fragile error handling (CONFIRMED)
+### DEFERRED
 
-| Location | Issue | Classification |
-|---|---|---|
-| `getProfiles` returns `{}` on error | Silent fail | CONFIRMED (P2-4) |
-| `searchUsers` returns `[]` on error | Shows "No one found" | CONFIRMED (P2-4) |
-| `getMyConnections` returns `[]` on error | Home shows empty state | CONFIRMED (P2-4) |
-| `getMessagesPage` returns empty on error | Chat shows empty state | CONFIRMED (P2-4) |
+The work is intentionally postponed.
 
-### 10.2 Duplicated logic (CONFIRMED)
+Do not implement it unless this roadmap or project documentation explicitly reactivates it.
 
-| Location | Issue |
-|---|---|
-| Message sort comparator (created_at/id) | Written twice in `Chat.tsx` (P3-3) |
-| Message-append logic | `handleSend` and the realtime INSERT handler both append + sort |
+### BLOCKED
 
-### 10.3 Typing / casts (CONFIRMED)
+The work cannot safely proceed because a required dependency, external system, permission, or decision is unavailable.
 
-| Location | Issue |
-|---|---|
-| `api.ts` | Many `as Profile[]`/`as Message[]` casts — Supabase row typing could be tightened |
-| `errors.ts` | `keyOf` casts through `as unknown as TranslationKey` |
-| `isMissingRequestRpc` / `isMissingMyNotesRpc` | Fragile message-string matching for "function missing" detection (works, but brittle across PostgREST versions) |
+### OBSOLETE
 
-### 10.4 Dead / dormant code (CONFIRMED)
+The finding no longer applies because the architecture or product has changed.
 
-| Location | Status |
-|---|---|
-| `src/lib/crypto/` | E2EE foundation — **not dead**, intentionally paused (see §14) |
-| `spikes/e2ee-compat-spike/` | Reference spike; consider archiving in the E2EE phase |
-| `design/*.html` | Static mockups; keep as design references |
+### PRODUCT DECISION REQUIRED
 
-### 10.5 Documentation currency
-
-| Doc | Status |
-|---|---|
-| `docs/phase0-audit.md` | Historical record of the v0.1 audit; its claims about "no SQL files in repo" are outdated (migrations now exist) — mark as superseded or leave as historical |
-| `docs/MIGRATIONS.md`, `docs/pwa.md`, E2EE docs | Current and consistent |
+The item would add or materially change user-facing product behavior and therefore requires explicit approval.
 
 ---
 
-## 11. Missing Tests
+# 1. ROADMAP VS. CURRENT REPOSITORY
 
-### 11.1 Unit tests (CONFIRMED gaps)
+The roadmap is the **target**.
 
-| Area | Coverage today | Needed |
-|---|---|---|
-| `api.ts` (connections, messages, deletions, unread, my notes) | ❌ None | Unit tests with a mocked Supabase client (smoke test already models the wire format — reuse it) |
-| `helpers.ts` (`formatRelative`, `formatDate`, `isValidUsername`, `effectiveStatus`, expiry) | ❌ None | Pure functions — cheap, high value |
-| `errors.ts` (`errorMessage` mapping) | Indirect only | Direct table-driven tests |
-| `src/lib/crypto/` | ✅ `crypto.test.mjs` (node:test + fake-indexeddb) | Complete for identity/prekeys/serialization |
+The repository is the **current reality**.
 
-### 11.2 Integration/smoke (CONFIRMED)
+Use:
 
-| Area | Status |
-|---|---|
-| UI smoke test (`scripts/smoke-test.mjs`) | ✅ ~150 assertions over the built bundle in jsdom: auth, theme, i18n, requests, blocks, deletions, My Notes, account deletion, recovery callback |
-| RLS test script (`supabase/rls-tests.sql`) | ✅ Automated via embedded PostgreSQL test runner (`npm run test:rls` / `scripts/run-rls-tests.mjs`) in CI/deploy pipeline, also runnable in Supabase SQL editor |
+```text
+ROADMAP
+→ intended target and approved scope
 
-### 11.3 Missing critical tests
+REPOSITORY / GIT / TESTS / MIGRATIONS / DEPLOYED STATE
+→ actual current state
+```
 
-| Test | Rationale |
-|---|---|
-| **Automated RLS execution** (CI gate `npm run test:rls`) | ✅ Automated in CI via `scripts/run-rls-tests.mjs` against embedded real PostgreSQL |
-| **Concurrency:** two tabs sending / toggling My Notes | Realtime dedup and the advisory locks are untested end-to-end |
-| **Block/unblock/block rapid sequence** | Race between `getBlockState` and the realtime refresh |
-| **Offline behaviour:** Supabase unreachable during send / Home load | Empty-state vs. error messaging (P2-4) |
-| **Pagination:** very long conversation | Scroll-position preservation after prepend; memory growth |
-| **Unicode/special chars:** emoji display names, `{`-containing names | Directly exercises P1-2 |
+Never assume that an item is still open merely because an older section says so.
+
+Never assume that an item is completed merely because a previous session claimed it was.
+
+Before implementation, verify the current state.
+
+Do not recreate already merged work.
+
+Do not manufacture new work because an old audit contains a finding that no longer applies.
 
 ---
 
-## 12. Recommended v0.2 Features
+# 2. PRODUCT SCOPE RULE
 
-### P1 (do first)
+This roadmap does NOT grant permission to invent product features.
 
-| Feature | Classification | Why | Effort | Dependencies |
-|---|---|---|---|---|
-| Verify deployed `messages` UPDATE RLS; add explicit sender-only policy if permissive | NEEDS VERIFICATION → P1 (P0 if exploitable) | delete-for-everyone authorization | S–M | Supabase SQL access; migration 0009 |
-| i18n placeholder escaping | CONFIRMED (P1-2) | Prevents corrupted system messages | S | `src/i18n/index.ts` |
-| Sanitize `ciphertext`/`display_name` on write + server-side length check | RECOMMENDATION | Defense-in-depth, data integrity | S | migration 0009 (optional) |
-| Batch `getUnreadCounts` | CONFIRMED (P1-4) | Home-load performance | M | `src/lib/api.ts` |
-| Home realtime incremental updates | CONFIRMED (P1-5) | Reduce full reloads | M | `src/components/Home.tsx` |
-| CSP meta tag (+ referrer meta) | RECOMMENDATION | Defense-in-depth (see 7.8 for `'unsafe-inline'` note) | S | `index.html` |
+Only approved roadmap goals and established product requirements may be implemented autonomously.
 
-### P2
+The following are NOT automatically actionable merely because they appear as:
 
-| Feature | Classification | Why | Effort |
-|---|---|---|---|
-| Unit tests for `helpers.ts` and `api.ts` | CONFIRMED gap | Regression safety for v0.2 changes | M |
-| "Just now" timestamp | CONFIRMED | UX polish | S |
-| Error boundary | CONFIRMED | Avoid white screen on crash | S |
-| Focus trap for dialogs/sheets | CONFIRMED | Accessibility | S |
-| Surface data-layer errors instead of empty states | CONFIRMED | Correct error UX | M |
-| `robots.txt` + `security.txt` | CONFIRMED | Hygiene | S |
-| Extract `APP_VERSION` from build metadata | CONFIRMED | Drift prevention | S |
+* recommendations;
+* optional improvements;
+* nice-to-have items;
+* future ideas;
+* possible features;
+* UX suggestions;
+* technical possibilities.
 
-### P3
+Examples include:
 
-| Feature | Classification | Why | Effort |
-|---|---|---|---|
-| Typing indicator | RECOMMENDATION | Chat feel — requires schema+realtime consideration | M |
-| Local offline message queue | RECOMMENDATION | Offline-first messaging; PWA doc lists it as a non-goal so far | L |
-| Avatar/placeholder | RECOMMENDATION | Visual identity | S |
-| Deduplicate sort comparator / append logic | CONFIRMED | Code quality | S |
+* typing indicators;
+* presence / online state;
+* avatars or profile pictures;
+* offline message queues;
+* message reactions;
+* new communication modes;
+* notification systems;
+* other user-facing features not explicitly approved.
+
+A product feature requires explicit approval unless the repository clearly documents it as an approved requirement.
+
+This rule is intentional and supersedes generic recommendations contained in the historical audit.
 
 ---
 
-## 13. Features Explicitly NOT Recommended for v0.2
+# 3. ORIGINAL AUDIT FINDING CLASSIFICATION
 
-| Feature | Rationale |
-|---|---|
-| **E2EE message encryption** | Foundation (E2EE-1/2/2.5, solution review) complete, but implementation is deliberately **paused**; belongs in a dedicated v0.3+ phase (see §14) |
-| **Group chats** | Architectural change, outside the one-to-one premise |
-| **Media/file sharing** | Requires Supabase Storage, a new upload pipeline, and its own security review |
-| **Voice/video calls** | Entire new product category |
-| **Voice messages** | Audio recording + storage + streaming complexity |
-| **Message reactions** | New schema/RLS/UI; scope creep |
-| **Push notifications** | Requires VAPID/endpoint infra; explicitly excluded from the PWA phase |
-| **OAuth / federated login** | Adds attack surface; email+password is sufficient for the product scope |
-| **Read receipts in UI** | Backend read state exists; showing it is a minor UX enhancement, not a v0.2 feature |
-| **More languages (> 2)** | EN+DE is the designed scope; maintenance burden grows |
-| **Admin/user roles** | Not a multi-user platform |
+The original audit used:
 
----
+* **CONFIRMED** — verified directly against the repository at audit time.
+* **NEEDS VERIFICATION** — dependent on deployed Supabase/configuration state unavailable to the audit.
+* **RECOMMENDATION** — defense-in-depth or quality improvement, not automatically a vulnerability.
 
-## 14. E2EE Status
+These classifications describe the **original audit**, not automatic implementation permission.
 
-### Current state
+In particular:
 
-- **E2EE-1 Foundation** ✅ **COMPLETE**
-- **E2EE-2 Architecture** ✅ **COMPLETE**
-- **E2EE-2.5 Feasibility** ✅ **COMPLETE**
-- **E2EE Solution Review** ✅ **COMPLETE**
-- **E2EE Implementation** ❌ **PAUSED** (by design)
+> **RECOMMENDATION does not mean ACTIONABLE.**
 
-### What exists (CONFIRMED)
-
-| Module | Status | Location |
-|---|---|---|
-| Identity generation/loading/storage | ✅ Complete | `src/lib/crypto/identity.ts`, `storage.ts` |
-| Signed-prekey generation/rotation | ✅ Complete | `src/lib/crypto/prekeys.ts` |
-| One-time prekey pool management | ✅ Complete | `src/lib/crypto/prekeys.ts` |
-| Serialization/deserialization | ✅ Complete | `src/lib/crypto/serialization.ts` |
-| IndexedDB storage | ✅ Complete | `src/lib/crypto/storage.ts` |
-| `initCrypto` integration in `AuthContext` | ✅ Complete | `src/context/AuthContext.tsx` (`ensureCryptoReady`, fail-closed-silent) |
-| Public API surface | ✅ Complete | `src/lib/crypto/index.ts` (no key material exposed) |
-
-### What's missing (v0.3+)
-
-| Component | Needed for |
-|---|---|
-| Message encrypt/decrypt functions | E2EE message flow |
-| Key-exchange protocol on connection accept | Shared key between peers |
-| `ciphertext` data-format migration | Real ciphertext in the existing column |
-| Broken-key detection and rotation | Resilience |
-| Secure deletion semantics under E2EE | Delete-for-everyone interplay |
-| External freshness anchor for ratchet state (audit finding **C-1**) | Rollback detection; see below |
-
-### C-1 — rollback freshness (deliberately open in v0.2)
-
-The local ratchet-state layer (`src/lib/crypto/ratchet-state.ts`) provides integrity, atomic CAS and local monotonicity. It does **not** provide *freshness*: if the whole origin is restored from a backup, the record, the watermark and the sealing key move back together, and the older state is accepted as `VALID` and remains writable. This applies both within one epoch and across an epoch boundary. Regression tests `C8` and `C9` assert this current behaviour so the gap stays visible in CI.
-
-A server-side epoch incremented at session establishment was evaluated as the fix and **rejected**: it is constant between establishments and therefore cannot distinguish two states inside the same epoch. A sender-side sequence counter is also insufficient, because it cannot observe receiver-side rollback. An adequate anchor would have to be external, append-only, bidirectional, advance per ratchet step and bind state identity — which makes the server authoritative over ratchet progress and rules out offline sending.
-
-C-1 is therefore **not** a v0.2 item. It is deferred to the dedicated E2EE phase, where it must be decided together with the offline model. Details and the rejected approaches: `docs/e2ee-crash-rollback-hardening.md` §8.0/§8.1.
-
-### Decision
-
-**E2EE remains paused for v0.2.** Wiring the foundation into the message flow would touch `Chat.tsx`, `MessageBubble.tsx`, `MessageComposer.tsx`, and `api.ts` — substantive refactoring that belongs in a dedicated E2EE phase (v0.3+). C-1 stays open by design and is not a blocker for v0.2, because no encryption is wired into the message flow — `sendMessage()` still writes plaintext.
+A recommendation may be useful while still requiring explicit approval before becoming a product or engineering task.
 
 ---
 
-## 15. Prioritized Roadmap
+# 4. ORIGINAL AUDIT BASELINE
 
-> P0 is reserved for confirmed, security-critical problems. **Currently none are confirmed**, so the roadmap starts at P1. The NV-1 verification is the top item because it decides whether a P0 exists.
+The sections below preserve the original audit conclusions for historical reference.
 
-### Phase A — Verification & security hardening (first)
+They should not be treated as a current repository snapshot.
 
-| # | Task | Classification | Priority | Effort |
-|---|---|---|---|---|
-| 1 | Verify deployed base `messages` UPDATE/INSERT policies and `profiles`/`connections` base policies (NV-1/NV-3) | NEEDS VERIFICATION | **P1 (→P0 if permissive)** | S |
-| 2 | If NV-1 confirms permissive UPDATE: add explicit sender-only `messages` UPDATE policy (migration 0009) | → CONFIRMED fix | P1 | S |
-| 3 | Add CSP meta tag + referrer meta to `index.html` | RECOMMENDATION | P1 | S |
-| 4 | i18n placeholder escaping (P1-2) | CONFIRMED | P1 | S |
-| 5 | Sanitize `ciphertext`/`display_name` on write (P1-3) | RECOMMENDATION | P1 | S |
-| 6 | Add `robots.txt` + `security.txt` | RECOMMENDATION | P2 | S |
+The original audit was performed against:
 
-### Phase B — Confirmed UX/stability fixes
+```text
+e0cc0d8b4958db143cb1dd9a35914c064c2afad1
+```
 
-| # | Task | Classification | Priority | Effort |
-|---|---|---|---|---|
-| 7 | Batch `getUnreadCounts` (P1-4) | CONFIRMED | P1 | M |
-| 8 | Home realtime incremental updates (P1-5) | CONFIRMED | P1 | M |
-| 9 | Error boundary (P2-2) | CONFIRMED | P2 | S |
-| 10 | Focus trap for dialogs/sheets (P2-3) | CONFIRMED | P2 | S |
-| 11 | "Just now" timestamp (P2-1) | CONFIRMED | P2 | S |
-| 12 | Surface data-layer errors instead of empty states (P2-4) | CONFIRMED | P2 | M |
+on 2026-08-19.
 
-### Phase C — Tests & code quality
-
-| # | Task | Classification | Priority | Effort |
-|---|---|---|---|---|
-| 13 | Unit tests for `helpers.ts` and `api.ts` | CONFIRMED gap | P2 | M |
-| 14 | Document/automate running `supabase/rls-tests.sql` | CONFIRMED gap | P2 | S |
-| 15 | Deduplicate sort comparator / append logic (P3-3) | CONFIRMED | P3 | S |
-| 16 | `APP_VERSION` from build metadata (P3-1) | CONFIRMED | P3 | S |
-
-### Phase D — Optional v0.2 features
-
-| # | Task | Classification | Priority | Effort |
-|---|---|---|---|---|
-| 17 | Typing indicator | RECOMMENDATION | P3 | M |
-| 18 | Offline message queue | RECOMMENDATION | P3 | L |
-| 19 | Avatar/placeholder | RECOMMENDATION | P3 | S |
-
-### Explicitly deferred
-
-| Task | Move to |
-|---|---|
-| E2EE message encryption | v0.3+ |
-| Group chats | v1.0+ |
-| Media sharing | v1.0+ |
-| Voice/video | Not planned |
-| Push notifications | v0.4+ |
-| OAuth login | v0.4+ |
-| More languages | v0.5+ |
+Any statement about current code, current tests, current storage, current E2EE state, current migrations, or current deployment must be reverified against the present repository.
 
 ---
 
-## 16. Definition of Done for v0.2
+# 5. ORIGINAL EXECUTIVE AUDIT SUMMARY
 
-### Must have (release gate)
+At the time of the original audit, `enough.` was a functional production-deployed one-to-one messenger with:
 
-- [ ] NV-1/NV-3 verification performed against the deployed Supabase project (documented result)
-- [ ] If permissive `messages` UPDATE policy found: sender-only policy migration deployed
-- [ ] CSP meta tag and referrer meta in `index.html` (with the inline-script `'unsafe-inline'` consideration resolved)
-- [ ] i18n placeholder escaping implemented
-- [ ] `ciphertext`/`display_name` write sanitization + server-side length check
-- [ ] `getUnreadCounts` batching and Home realtime incremental updates (smoke test kept green)
-- [ ] All existing tests pass: `npm run test:crypto`, `npm run smoke`
-- [x] `supabase/rls-tests.sql` executes without errors against live embedded Postgres (`npm run test:rls`) and live Supabase project
-- [ ] Manual QA: registration, login, request/accept/decline/block, chat, deletion, My Notes, account deletion
-- [ ] `npm run build` with `VITE_BASE=/enough/` succeeds and deploys to GitHub Pages
+* authentication;
+* connections;
+* realtime chat;
+* deletion;
+* blocking;
+* My Notes;
+* two languages;
+* PWA support;
+* GitHub Pages deployment.
 
-### Should have
+The original audit found no confirmed P0 vulnerability in repository code.
 
-- [ ] Unit tests for `helpers.ts`/`api.ts`
-- [ ] Error boundary + focus trap
-- [ ] "Just now" timestamp
-- [ ] Error states instead of silent empty states
+It also identified:
 
-### Nice to have
+* security-hardening opportunities;
+* performance issues;
+* UX/stability issues;
+* accessibility gaps;
+* missing automated test coverage;
+* database verification requirements.
 
-- [ ] Typing indicator, avatar placeholder, `APP_VERSION` from build metadata, deduplicated sort logic
+The original audit intentionally kept:
 
-### Explicitly NOT in v0.2
+* major new product features;
+* E2EE message-flow work;
+* groups;
+* media;
+* calls;
+* push;
+* OAuth;
 
-- ❌ E2EE message encryption/decryption (§14)
-- ❌ Group chats, media/file sharing, voice/video, reactions, push, OAuth, read receipts UI
-- ❌ Database refactoring (only additive migrations)
-- ❌ Dependency updates (`package.json` unchanged)
-- ❌ New external services
+outside the v0.2 implementation scope.
 
----
-
-## 17. Final Classification Table
-
-### Confirmed Issues (verified in repository code)
-
-| ID | Issue | Severity | Files |
-|---|---|---|---|
-| P1-2 | i18n placeholder interpolation corrupted by parameter values containing `{…}` (robustness bug, no XSS) | P1 | `src/i18n/index.ts`, `MessageBubble.tsx` |
-| P1-4 | `getUnreadCounts` N+1 queries per connection without a read row | P1 | `src/lib/api.ts` |
-| P1-5 | Home realtime: every event triggers a full `load()` refetch | P1 | `src/components/Home.tsx` |
-| P2-1 | "1 min" for messages < 1 min old | P2 | `src/lib/helpers.ts` |
-| P2-2 | No error boundary (white screen on render error) | P2 | `src/main.tsx` |
-| P2-3 | No focus trap in dialogs/bottom sheets | P2 | `Dialog.tsx`, `BottomSheet.tsx` |
-| P2-4 | Data-layer errors silently become empty states | P2 | `src/lib/api.ts`, callers |
-| P2-5 | Block-state realtime channel watches per-peer (over-broad) filters | P2 | `src/components/Chat.tsx` |
-| P2-6 | `usernameExists` conservatively blocks registration on ambiguous errors (intentional) | P2 | `src/lib/api.ts` |
-| P3-1 | Hard-coded `APP_VERSION` | P3 | `Settings.tsx` |
-| P3-2 | No `robots.txt`/`security.txt` | P3 | `public/` |
-| P3-3 | Duplicate sort comparator / append logic | P3 | `Chat.tsx` |
-| P3-4 | Production console diagnostics (intentional, low severity) | P3 | `main.tsx`, `errors.ts` |
-| — | **No confirmed P0 (security-critical) issues in repository code** | — | — |
-
-### Needs Verification (deployed Supabase project — NOT in repository)
-
-| ID | Item | Becomes | Verification step |
-|---|---|---|---|
-| NV-1 | Base `messages` UPDATE policy (delete-for-everyone authorization) | **P0 if permissive** | `select * from pg_policies where tablename='messages'` on the deployed project |
-| NV-2 | Supabase auth project config: email templates, redirect allow-list, PKCE/implicit callback behavior | Deployment config issue if wrong | Test the real emailed reset/confirmation links |
-| NV-3 | Base `profiles` SELECT/UPDATE and `connections` SELECT/INSERT policies (search & request authorization) | P1 if broken | Same `pg_policies` query + the RLS script |
-
-### Recommendations (defense-in-depth / quality — not vulnerabilities)
-
-| Item | Rationale |
-|---|---|
-| CSP meta tag + referrer meta | Hardening; no confirmed exploit (see §7.8 for meta-CSP limitations) |
-| Sanitize `ciphertext`/`display_name` on write; server-side length CHECK | Defense-in-depth, data integrity |
-| Unit tests for `api.ts`/`helpers.ts`; automate `rls-tests.sql` | Regression safety |
-| Error boundary, focus trap, "just now", error states | UX/accessibility polish |
-| Batch unread queries, incremental Home realtime | Performance |
-| Typing indicator, offline queue, avatar (P3) | Optional product polish for v0.2 |
+This historical scope remains the baseline unless a later project decision explicitly changes it.
 
 ---
 
-*Audit completed 2026-08-19 (rev. 2) against commit `e0cc0d8b4958db143cb1dd9a35914c064c2afad1`. Revision 2 removes all findings that the analysis itself refuted during review (message_deletions RLS, pagination `before_id`/`undefined`, `sender_id` validation, Settings stale-deletions read, SW `addAll` install failure, StrictMode issue, referrer-fragment leak) and separates CONFIRMED / NEEDS VERIFICATION / RECOMMENDATION.*
+# 6. ORIGINAL FINDINGS
+
+## P0
+
+No confirmed P0 vulnerabilities were identified by the original repository audit.
+
+Potential P0 conditions were identified only as deployment-verification items and were not treated as confirmed vulnerabilities without evidence.
+
+---
+
+## P1
+
+### P1-1 — Explicit `messages` UPDATE RLS
+
+Original classification:
+
+```text
+NEEDS VERIFICATION → P0/P1
+```
+
+Original concern:
+
+The deployed Supabase project's pre-existing `messages` UPDATE policy was not represented completely in the repository at audit time.
+
+The concern was whether a non-sender could update another user's message.
+
+The original recommendation was:
+
+* verify deployed policies;
+* if permissive, add an explicit sender-only policy.
+
+Current status MUST be verified against the present database/migrations and deployed project.
+
+Do not blindly recreate the original migration plan if the repository already contains an explicit policy.
+
+---
+
+### P1-2 — i18n placeholder interpolation
+
+Original classification:
+
+```text
+CONFIRMED
+```
+
+The original issue was that sequential replacement could reinterpret placeholders inserted as part of parameter values.
+
+The intended fix was single-pass interpolation over the original template.
+
+Current status MUST be verified against the current implementation.
+
+---
+
+### P1-3 — Input hardening
+
+Original classification:
+
+```text
+RECOMMENDATION / DEFENSE-IN-DEPTH
+```
+
+Original goal:
+
+* harden display-name writes;
+* enforce server-side profile length;
+* preserve the plaintext/ciphertext boundary;
+* avoid mutating encrypted message envelopes.
+
+Current status MUST be verified against the current implementation.
+
+---
+
+### P1-4 — `getUnreadCounts` N+1
+
+Original classification:
+
+```text
+CONFIRMED
+```
+
+Original goal:
+
+Replace one query per connection with bounded/batched behavior.
+
+Current status MUST be verified against the current implementation and database view behavior.
+
+---
+
+### P1-5 — Home realtime full reload
+
+Original classification:
+
+```text
+CONFIRMED
+```
+
+Original goal:
+
+Use incremental realtime updates instead of refetching the entire Home state for every event.
+
+Current status MUST be verified against the current implementation.
+
+---
+
+# 7. P2 FINDINGS
+
+## P2-1 — Fresh message timestamp
+
+Original issue:
+
+Messages younger than one minute were displayed as `"1 min"`.
+
+Intended improvement:
+
+Use a "just now" style representation.
+
+Current status MUST be verified before implementation.
+
+---
+
+## P2-2 — Global error boundary
+
+Original issue:
+
+A render failure could produce a blank/white-screen application state.
+
+Intended improvement:
+
+Provide a localized recovery UI with a reload action.
+
+Current status MUST be verified before implementation.
+
+---
+
+## P2-3 — Dialog and Bottom Sheet focus trap
+
+Original issue:
+
+Modal components exposed dialog semantics but did not fully trap keyboard focus.
+
+Intended improvement:
+
+Add proper focus management.
+
+Current status MUST be verified before implementation.
+
+---
+
+## P2-4 — Silent data-layer failures
+
+Original issue:
+
+Some data-layer functions converted errors into empty result sets, making failures appear as legitimate empty states.
+
+Intended improvement:
+
+Surface errors to callers and provide appropriate error/retry states.
+
+Current status MUST be verified before implementation.
+
+---
+
+## P2-5 — Realtime block-state scope
+
+Original issue:
+
+The block-state realtime subscription was broader than required for a single conversation.
+
+Intended improvement:
+
+Scope the subscription to the exact relevant participant pair.
+
+Current status MUST be verified before implementation.
+
+---
+
+## P2-6 — Conservative `usernameExists()` behavior
+
+Original classification:
+
+```text
+CONFIRMED / INTENTIONAL
+```
+
+The original behavior deliberately treated ambiguous backend failures conservatively.
+
+This is NOT automatically an implementation task.
+
+Any change would alter registration behavior under degraded backend conditions.
+
+Therefore:
+
+```text
+PRODUCT / UX DECISION REQUIRED
+```
+
+unless the project explicitly approves a change.
+
+Do not alter this behavior autonomously merely because the audit listed it as a possible refinement.
+
+---
+
+## P2-7 — Development-only StrictMode behavior
+
+Original classification:
+
+```text
+CONFIRMED / DEV-ONLY
+```
+
+This was considered harmless in production.
+
+It is not an approved v0.2 implementation target.
+
+Do not change it merely to eliminate a development-only observation.
+
+---
+
+# 8. P3 FINDINGS
+
+## P3-1 — `APP_VERSION`
+
+Original issue:
+
+The version was hard-coded.
+
+Intended improvement:
+
+Derive it from build/package metadata.
+
+Current status MUST be verified.
+
+---
+
+## P3-2 — `robots.txt` / `security.txt`
+
+Original issue:
+
+These files were absent.
+
+Intended improvement:
+
+Add the standard project metadata files where appropriate.
+
+Current status MUST be verified.
+
+---
+
+## P3-3 — duplicate message-sort logic
+
+Original issue:
+
+The message ordering comparator appeared in multiple places.
+
+Intended improvement:
+
+Extract the shared comparator.
+
+Current status MUST be verified.
+
+---
+
+## P3-4 — production console diagnostics
+
+Original classification:
+
+```text
+CONFIRMED / INTENTIONAL / LOW SEVERITY
+```
+
+The repository intentionally used some production diagnostics.
+
+This is NOT automatically an implementation task.
+
+Do not remove, gate, or redesign diagnostics unless the project explicitly approves that change or the roadmap explicitly promotes it to an actionable goal.
+
+---
+
+## P3-5 — stale profile reference behavior
+
+Original classification:
+
+```text
+CONFIRMED / COSMETIC
+```
+
+This is not an automatic v0.2 implementation task.
+
+Only address it if the current roadmap explicitly marks it as actionable.
+
+---
+
+# 9. SECURITY AUDIT BASELINE
+
+The original audit found no confirmed repository-code vulnerabilities in:
+
+* XSS;
+* SQL injection;
+* basic IDOR paths;
+* secret exposure;
+* service-worker caching of user data;
+* message envelope integrity.
+
+These are historical audit findings and MUST be rechecked after meaningful architecture changes.
+
+Do not assume the old audit is a perpetual security guarantee.
+
+---
+
+# 10. DATABASE / RLS BASELINE
+
+The original audit identified three classes of database concerns:
+
+```text
+NV-1
+NV-2
+NV-3
+```
+
+These depended partly on deployed Supabase configuration or pre-existing project state.
+
+They are verification items rather than automatically executable coding tasks.
+
+Before changing database security behavior:
+
+* inspect current migrations;
+* inspect current policies;
+* inspect grants;
+* inspect triggers;
+* inspect SECURITY DEFINER functions;
+* inspect deployed state where available.
+
+Do not recreate a migration that has already solved the issue.
+
+---
+
+# 11. CURRENT E2EE SCOPE
+
+The original audit described E2EE implementation as paused.
+
+That statement is now historical and MUST NOT be interpreted as the current repository state.
+
+Subsequent project work may have changed the E2EE architecture substantially.
+
+Therefore:
+
+**Never use the original E2EE status in this document as proof that E2EE is currently paused.**
+
+Before touching any E2EE-related code:
+
+1. inspect the current `src/lib/e2ee/`;
+2. inspect the current `src/lib/crypto/`;
+3. inspect current message flow;
+4. inspect current tests;
+5. inspect recent E2EE commits;
+6. inspect current migrations;
+7. determine the actual current architecture.
+
+The established Signal-based architecture remains the required architecture unless explicitly changed by the project.
+
+No custom cryptography is permitted.
+
+---
+
+# 12. E2EE ARCHITECTURAL CONSTRAINTS
+
+These remain active constraints:
+
+* use the established Signal-based architecture;
+* no homemade cryptography;
+* keep private E2EE key material client-side;
+* do not expose private E2EE key material to Supabase;
+* preserve ciphertext opacity after encryption;
+* preserve message-envelope integrity;
+* preserve ratchet/session semantics;
+* preserve signed-prekey lifecycle correctness;
+* preserve encrypted message-cache confidentiality;
+* document browser-E2EE limitations honestly.
+
+Any E2EE architecture change requires a deeper security review.
+
+---
+
+# 13. PLAINTEXT / CIPHERTEXT BOUNDARY
+
+The conceptual message pipeline is:
+
+```text
+raw plaintext
+→ plaintext sanitization
+→ encryption
+→ envelope serialization
+→ transport/storage
+```
+
+After encryption, ciphertext is opaque.
+
+Do not:
+
+* sanitize ciphertext;
+* trim ciphertext;
+* normalize ciphertext;
+* truncate ciphertext;
+* HTML-escape ciphertext;
+* rewrite Base64 payloads;
+* modify authentication tags;
+* modify signatures;
+* treat ciphertext as ordinary user text.
+
+Incoming encrypted payloads must not pass through plaintext input sanitization.
+
+---
+
+# 14. APPROVED V0.2 ENGINEERING TARGETS
+
+The following categories form the intended engineering target for v0.2.
+
+Each item must still be verified against the current repository before implementation.
+
+### Security / deployment verification
+
+* Verify unresolved deployed Supabase policy/configuration findings where external verification is still required.
+* Resolve confirmed security gaps that are explicitly part of the roadmap.
+
+### Reliability / UX
+
+* Improve confirmed data-layer error handling.
+* Improve confirmed stability issues.
+* Improve confirmed accessibility issues.
+* Preserve existing product behavior while fixing these problems.
+
+### Performance
+
+* Eliminate confirmed N+1 behavior.
+* Avoid unnecessary realtime reloads.
+* Preserve correctness while reducing unnecessary network/database work.
+
+### Testing
+
+* Add useful regression coverage for important application behavior.
+* Maintain existing E2EE/security test coverage.
+* Automate or preserve reproducible security/RLS verification.
+
+### Code quality
+
+* Remove confirmed duplication when it provides a clear maintainability benefit.
+* Improve build/version consistency where explicitly part of the roadmap.
+* Avoid broad refactoring unrelated to a verified roadmap goal.
+
+---
+
+# 15. RELEASE-GATE PRINCIPLES
+
+The v0.2 release should prioritize:
+
+* security;
+* correctness;
+* data integrity;
+* reliability;
+* performance;
+* test coverage;
+* accessibility;
+* maintainability.
+
+Do not interpret "release gate" as permission to add unrelated product features.
+
+---
+
+# 16. PRODUCT FEATURES NOT AUTOMATICALLY INCLUDED
+
+The following are NOT v0.2 implementation requirements unless separately and explicitly approved:
+
+* typing indicator;
+* online/presence indicator;
+* avatar/profile-picture system;
+* offline message queue;
+* message reactions;
+* group chats;
+* media/file sharing;
+* voice/video calls;
+* voice messages;
+* push notifications;
+* OAuth/federated login;
+* additional languages;
+* admin/user roles;
+* other new communication or social features.
+
+These may be valid future product ideas.
+
+They are not autonomous work items.
+
+---
+
+# 17. PRODUCT IDEAS / FUTURE EXPLORATION
+
+Ideas may be recorded here for future discussion, but this section is intentionally non-actionable.
+
+Examples may include:
+
+* avatar or placeholder;
+* typing indicator;
+* offline queue;
+* other UI/product enhancements.
+
+Their presence here does NOT authorize implementation.
+
+For every such idea, the state is:
+
+```text
+PRODUCT DECISION REQUIRED
+```
+
+Arena must not implement these autonomously.
+
+---
+
+# 18. EXPLICITLY DEFERRED WORK
+
+The following remains outside the current v0.2 implementation scope unless the roadmap is explicitly changed:
+
+* major E2EE architecture expansion beyond the currently established implementation;
+* group chats;
+* media/file sharing;
+* voice/video;
+* other major product architecture changes.
+
+The exact E2EE roadmap must be determined from the current architecture, not from the historical 2026-08-19 snapshot.
+
+---
+
+# 19. DATABASE CHANGE RULE
+
+Only additive or otherwise explicitly approved database changes should be introduced for v0.2.
+
+Never modify an already-applied historical migration simply to rewrite its past behavior.
+
+When database behavior must change:
+
+1. inspect existing migrations;
+2. understand dependencies;
+3. create a new migration where appropriate;
+4. test it;
+5. explicitly report it.
+
+---
+
+# 20. DOCUMENTATION STATUS
+
+This document contains historical audit material.
+
+Do not treat every statement outside the approved target sections as a current implementation claim.
+
+When an implementation changes a living behavior:
+
+* update relevant current documentation where appropriate;
+* avoid rewriting historical audit conclusions merely to make them appear current;
+* distinguish historical findings from current verified state.
+
+---
+
+# 21. V0.2 TASK EXECUTION POLICY
+
+For each potential roadmap task:
+
+1. Identify the target outcome.
+2. Verify the current implementation.
+3. Determine whether the goal is already achieved.
+4. Determine whether the goal is approved and actionable.
+5. Check dependencies.
+6. Check whether the change would alter product behavior.
+7. Check whether the change requires a migration.
+8. Check whether it touches protected workflow files.
+9. Only then implement.
+
+If a proposed task is merely:
+
+```text
+RECOMMENDATION
+NICE TO HAVE
+OPTIONAL
+IDEA
+PRODUCT FEATURE
+```
+
+do not implement it autonomously unless it is separately identified as an approved actionable goal.
+
+---
+
+# 22. DEFINITION OF DONE
+
+A v0.2 engineering task is complete when:
+
+* the target was verified as relevant;
+* the implementation addresses the real current problem;
+* regression tests exist where appropriate;
+* relevant tests pass;
+* security implications were reviewed;
+* the final diff is scoped;
+* documentation is updated when necessary;
+* no protected workflow file was modified;
+* migrations are reported explicitly;
+* the change is committed and pushed;
+* the focused PR is created.
+
+The task ends at the PR boundary.
+
+---
+
+# 23. ROADMAP COMPLETION
+
+When all approved actionable roadmap work is complete:
+
+**Do not invent additional tasks.**
+
+Do not turn:
+
+* recommendations;
+* optional improvements;
+* product ideas;
+* speculative refactors
+
+into automatic work.
+
+Report:
+
+```text
+COMPLETE
+
+All currently approved and actionable v0.2 roadmap goals have been verified as achieved.
+```
+
+If only product ideas or deferred work remain:
+
+```text
+COMPLETE
+
+No approved actionable engineering work remains.
+Remaining items require explicit product or architecture decisions.
+```
+
+---
+
+# 24. ORIGINAL AUDIT DETAILS
+
+The following sections from the original audit remain useful as historical evidence:
+
+* original XSS review;
+* original injection review;
+* original auth review;
+* original RLS review;
+* original IDOR review;
+* original storage review;
+* original service-worker review;
+* original performance observations;
+* original UX observations;
+* original technical-debt observations.
+
+However, they must always be interpreted together with the current repository.
+
+A later implementation may already have resolved, invalidated, or superseded them.
+
+---
+
+# 25. HISTORICAL ORIGINAL AUDIT — XSS
+
+The original audit found no confirmed XSS vector through:
+
+* message rendering;
+* display names;
+* registration/login forms;
+* markdown links.
+
+The original reasoning relied on:
+
+* React escaping;
+* no dangerous HTML injection APIs;
+* markdown sanitization;
+* safe link handling.
+
+Reverify after any rendering architecture change.
+
+---
+
+# 26. HISTORICAL ORIGINAL AUDIT — INJECTION
+
+The original audit found no confirmed SQL injection vector because Supabase client operations parameterized values.
+
+Do not replace parameterized database operations with raw SQL solely for convenience.
+
+---
+
+# 27. HISTORICAL ORIGINAL AUDIT — CLIENT STORAGE
+
+The original audit identified:
+
+* preference storage;
+* per-user deletion/read-state fallback storage;
+* crypto IndexedDB storage;
+* service-worker reload state.
+
+The exact storage contents and security properties MUST be considered against the current E2EE implementation rather than the original audit snapshot.
+
+---
+
+# 28. HISTORICAL ORIGINAL AUDIT — SERVICE WORKER
+
+The original audit considered the service worker's asset caching behavior acceptably isolated from user data.
+
+When modifying the service worker:
+
+* preserve content-hash update behavior;
+* do not cache private user data;
+* preserve safe installation behavior;
+* preserve update/reload behavior.
+
+Workflow-file changes remain separately protected by `docs/arena-instructions.md`.
+
+---
+
+# 29. HISTORICAL ORIGINAL PERFORMANCE TARGETS
+
+The original audit identified two important performance problems:
+
+### Unread counts
+
+Avoid:
+
+```text
+N connections → N database requests
+```
+
+Prefer bounded/batched behavior.
+
+### Home realtime
+
+Avoid:
+
+```text
+every event → full Home reload
+```
+
+Prefer incremental updates with reconciliation where necessary.
+
+These are engineering principles and remain relevant where the underlying problem still exists.
+
+---
+
+# 30. HISTORICAL ORIGINAL ACCESSIBILITY TARGETS
+
+The original audit identified:
+
+* focus management;
+* modal focus trapping;
+* consistent accessible labels;
+* keyboard navigation.
+
+Only implement remaining items that are still open after verification.
+
+---
+
+# 31. HISTORICAL ORIGINAL TESTING GAPS
+
+The original audit identified missing coverage in several areas.
+
+Because subsequent work may have added tests, verify coverage before creating new test tasks.
+
+Do not create duplicate test suites merely because the historical audit says coverage was missing.
+
+---
+
+# 32. NO AUTOMATIC PRODUCT EXPANSION
+
+The following rule is absolute:
+
+> A technical recommendation does not grant permission to expand the product.
+
+Do not independently decide that a feature is desirable.
+
+Do not add user-facing functionality simply because:
+
+* the implementation is easy;
+* it fits the UI;
+* another messenger provides it;
+* it appears in a historical recommendation;
+* it would make the product "better";
+* it is listed as "P3";
+* it is listed under "Nice to have".
+
+Only approved product scope may be implemented autonomously.
+
+---
+
+# 33. CURRENT TARGET SELECTION
+
+When selecting the next task:
+
+```text
+1. Read repository instructions.
+2. Read this roadmap.
+3. Verify current remote main.
+4. Inspect current repository state.
+5. Determine which roadmap goals are already achieved.
+6. Determine which approved goals remain.
+7. Exclude recommendations and unapproved product ideas.
+8. Exclude deferred/obsolete items.
+9. Verify the remaining candidates against the actual implementation.
+10. Rank them by roadmap priority and actual impact.
+11. Select the highest-priority actionable goal.
+12. Implement only that goal and closely related approved work.
+13. Test.
+14. Review.
+15. Commit.
+16. Push.
+17. Create one focused PR.
+18. Stop.
+```
+
+Do not skip the verification step.
+
+---
+
+# 34. FINAL OPERATING PRINCIPLE
+
+This roadmap defines the **direction and approved target** for enough. v0.2.
+
+It does not authorize autonomous product invention.
+
+Use:
+
+```text
+ROADMAP
+→ what the project wants to achieve
+
+CURRENT REPOSITORY
+→ what the project currently contains
+
+GIT HISTORY
+→ what has already been implemented
+
+TESTS
+→ what is verified
+
+DEPLOYED STATE
+→ what is actually live where relevant
+```
+
+Work only where those sources support the conclusion that an approved roadmap goal remains incomplete.
+
+Do not recreate completed work.
+
+Do not manufacture problems.
+
+Do not convert recommendations into product requirements.
+
+Do not convert nice-to-have ideas into autonomous tasks.
+
+Do not silently expand product scope.
+
+Do not weaken security.
+
+Do not weaken tests.
+
+Do not destroy local work.
+
+Do not modify protected workflow files.
+
+Do not modify `docs/arena-instructions.md`.
+
+Always explicitly report new Supabase migrations.
+
+Always provide complete workflow-file contents when a workflow change is required, while keeping that change outside the PR.
+
+At the end of each autonomous task:
+
+**commit → push → focused PR → compact report → STOP.**
+
+The ultimate goal is:
+
+**Make enough. better according to the approved roadmap, without allowing the autonomous agent to redefine what enough. is.**
