@@ -433,14 +433,14 @@ Do NOT weaken error observability.
 
 **Priority:** Release gate
 
-* [ ] `npm run build` succeeds with the production base path.
-* [ ] GitHub Pages deployment succeeds.
-* [ ] Production application loads correctly.
-* [ ] Authentication works on the deployed origin.
-* [ ] Realtime works on the deployed origin.
-* [ ] PWA assets load correctly.
-* [ ] CSP does not block required application resources.
-* [ ] Referrer policy is active as intended.
+* [x] `npm run build` succeeds with the production base path.
+* [x] GitHub Pages deployment succeeds.
+* [x] Production application loads correctly.
+* [x] Authentication works on the deployed origin.
+* [x] Realtime works on the deployed origin.
+* [x] PWA assets load correctly.
+* [x] CSP does not block required application resources.
+* [x] Referrer policy is active as intended.
 
 ---
 
@@ -764,18 +764,18 @@ A future feature phase can then be created separately.
 
 The v0.2 technical roadmap should be considered complete only when:
 
-* [ ] all approved actionable security work is complete;
-* [ ] all required external security verification is complete;
-* [ ] all approved reliability work is complete;
-* [ ] all approved performance work is complete;
-* [ ] required accessibility work is complete;
-* [ ] required unit/integration/security tests exist;
-* [ ] automated RLS verification is working;
-* [ ] production database migrations are verified;
-* [ ] production authentication configuration is verified;
-* [ ] manual QA is complete;
-* [ ] production build succeeds;
-* [ ] production deployment is verified;
+* [x] all approved actionable security work is complete;
+* [x] all required external security verification is complete;
+* [x] all approved reliability work is complete;
+* [x] all approved performance work is complete;
+* [x] required accessibility work is complete;
+* [x] required unit/integration/security tests exist;
+* [x] automated RLS verification is working;
+* [x] production database migrations are verified;
+* [x] production authentication configuration is verified;
+* [x] manual QA is complete;
+* [x] production build succeeds;
+* [x] production deployment is verified;
 * [x] security release review is complete.
 
 Product feature work is not part of this release gate.
