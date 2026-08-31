@@ -154,30 +154,31 @@ The deployed Supabase production instance was re-inspected on **2026-08-30**
 with **read-only SQL queries only**; no database changes were made during this
 verification and none are performed from this round. This round documents
 roadmap item **G3** (database migration verification). It supersedes the
-"Open G3 items" list of the A1 section above.
+"Open G3 items" list of the A1 section above. Final evidence — the manual
+application of migration `0014` by the operator and its verification via a
+read-only `pg_get_functiondef` query — completes the gate: all of
+G3.1–G3.5 are now verified.
 
 ### G3 status
 
 - G3.1 (migration ordering) — **verified**: the repository chain `0001`–`0014`
   is correctly sequenced and the production artifacts are consistent with
-  sequential application through `0013`.
+  sequential application through `0014`.
 - G3.2 (migration compatibility) — **verified**: the repository chain is
   internally consistent (additive, idempotent migrations; no rewrites of
-  already-applied migrations), and production is at exactly the state `0014`
-  documents as its prerequisite; `0014` applies cleanly on top of it. The
-  pending `0014` application is a deployment-completeness item tracked under
-  G3.3 / G3.5, not a compatibility defect.
-- G3.3 (required migrations applied) — **open**: `0014` is confirmed **not**
-  applied; the deployed `send_connection_request` is still the pre-`0014`
-  body (see below). `0010`–`0013` are applied.
-- G3.4 (views / functions / triggers / RLS / grants) — **verified**: all
-  object groups were verified against the migration-defined state; the one
-  deviation (`send_connection_request` at the pre-`0014` body) is known,
-  precisely documented and tracked under G3.3 / G3.5. The broad table grants
-  on the non-core tables were explained as platform default privileges — a
-  hardening observation, not a verification failure (see below).
-- G3.5 (no migration missing) — **open**: `0014` is missing from the
+  already-applied migrations) and every migration applies cleanly to the
   deployed state.
+- G3.3 (required migrations applied) — **verified**: `0010`–`0014` are
+  applied; the deployed `send_connection_request` matches migration `0014`
+  exactly (unqualified `least(...)` / `greatest(...)`, see below).
+- G3.4 (views / functions / triggers / RLS / grants) — **verified**: all
+  object groups were verified against the migration-defined state. The broad
+  table grants on the non-core tables were explained as platform default
+  privileges — a hardening observation, not a verification failure (see
+  below).
+- G3.5 (no migration missing) — **verified**: every required migration
+  artifact covered by this verification is present in production; no
+  migration is missing from deployment.
 
 ### Deployed migration evidence
 
@@ -197,7 +198,7 @@ roadmap item **G3** (database migration verification). It supersedes the
 - `0013` — the deployed `connection_unread` view matches migration `0013`
   exactly (starts from `connections` with `LEFT JOIN connection_reads`, unread
   semantics, `status IN ('accepted','ended')`).
-- `0014` — **confirmed mismatch, see below.**
+- `0014` — **deployed and verified, see below.**
 - Earlier chain — the `connections` status CHECK `valid_status` contains all
   five states including `ended` (`0004`); `chat_deletions.hidden_until`
   (`timestamptz`, not null) is present (`0006`); `user_blocks` has the
@@ -213,37 +214,26 @@ roadmap item **G3** (database migration verification). It supersedes the
   trigger-affecting repository change occurred between those rounds and this
   one.
 
-### `0014` — confirmed repository-vs-production mismatch
+### `0014` — deployed and verified
 
-The deployed `send_connection_request(uuid)` body contains
+Migration `0014` was applied manually in the Supabase SQL editor (operator
+action) and the deployed body was verified afterwards with a read-only
+`pg_get_functiondef` query. The deployed `send_connection_request(uuid)`
+now matches migration `0014` exactly:
 
-```sql
-pg_catalog.least(my_id::text, target::text) || ':' ||
-pg_catalog.greatest(my_id::text, target::text)
-```
+- the lock-key expression uses the unqualified `least(my_id::text,
+  target::text)` / `greatest(my_id::text, target::text)` — the previous
+  `pg_catalog.least(...)` / `pg_catalog.greatest(...)` forms are gone;
+- `pg_catalog.hashtextextended(...)`, `pg_catalog.pg_advisory_xact_lock(...)`
+  and `pg_catalog.now(...)` remain schema-qualified (correct — these are
+  real functions in `pg_catalog`);
+- `SECURITY DEFINER`, `SET search_path TO 'public'` and the
+  `enough.connection_guard_trusted` flag are preserved.
 
-while migration `0014` requires the unqualified `least(...)` /
-`greatest(...)` forms. The deployed body otherwise matches the `0009` version
-of the function (`SECURITY DEFINER`, `SET search_path TO 'public'`, the
-`enough.connection_guard_trusted` flag). Migration `0014` is therefore
-**not deployed**; the production migration state corresponds to `0013`.
-
-PostgreSQL resolves `least` / `greatest` as grammar constructs, not as
-schema-qualifiable functions, so the deployed expression raises SQLSTATE
-`42883` ("function pg_catalog.least(text, text) does not exist") when
-executed. The statement is unconditional in the function body, so every
-invocation of the RPC fails — new connection requests made through
-`send_connection_request` currently fail in production. Existing connections,
-accepted chats, the decline/block flow and My Notes are unaffected (none of
-them depends on this RPC's lock-key expression). Migration `0014` exists
-precisely to fix this. **No repair was performed** and none is performed from
-the verification side.
-
-**Required next production action:** apply
-`supabase/migrations/0014_fix_send_connection_request_least_greatest.sql`
-manually in the Supabase SQL editor (idempotent `create or replace`). This
-is a user action — it was not executed during this verification and must
-not be executed from the verification side.
+The previously documented mismatch (SQLSTATE 42883 on every RPC invocation,
+breaking new connection requests) is resolved. No repair beyond the
+documented manual application of `0014` was performed from the verification
+side.
 
 ### Table grants on the non-core tables — explained (hardening observation)
 

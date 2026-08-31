@@ -452,9 +452,9 @@ For every migration currently present in the repository:
 
 * [x] Verify migration ordering.
 * [x] Verify migration compatibility.
-* [ ] Verify that required migrations are applied to the deployed Supabase project.
+* [x] Verify that required migrations are applied to the deployed Supabase project.
 * [x] Verify views, functions, triggers, RLS policies and grants after migration.
-* [ ] Verify that no required migration is missing from deployment.
+* [x] Verify that no required migration is missing from deployment.
 
 This is a verification task.
 
