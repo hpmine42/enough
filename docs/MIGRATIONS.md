@@ -274,6 +274,19 @@ ACLs), not a confirmed vulnerability. Narrowing them (revoking the default
 ACLs and granting explicitly per table) is an operator decision outside
 this roadmap; nothing was changed during this verification.
 
+## Verified production state (2026-08-31 — G1 full manual QA)
+
+A complete manual QA run against the deployed production application was
+performed successfully with two dedicated production test accounts. G1 is
+**verified**. The successful checks covered:
+
+- authentication, login, logout and session handling;
+- the two-account connection flow, including blocking and unblocking;
+- bidirectional E2EE messaging, realtime delivery and message deletion;
+- reload behavior, session persistence, unread/read state and account/session
+  isolation;
+- production storage of peer messages as ciphertext rather than plaintext.
+
 ## How to run
 
 1. Open your Supabase project → **SQL Editor**.

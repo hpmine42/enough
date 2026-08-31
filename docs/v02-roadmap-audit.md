@@ -401,31 +401,31 @@ Do NOT weaken error observability.
 
 **Priority:** Release gate
 
-* [ ] Registration
-* [ ] Login
-* [ ] Logout
-* [ ] Password recovery
-* [ ] Email change
-* [ ] Connection request
-* [ ] Accept
-* [ ] Decline
-* [ ] Cancel
-* [ ] Block
-* [ ] Unblock
-* [ ] 1:1 messaging
-* [ ] Realtime updates
-* [ ] Pagination
-* [ ] Delete for me
-* [ ] Delete for everyone
-* [ ] Read state
-* [ ] Unread state
-* [ ] My Notes
-* [ ] Profile editing
-* [ ] Language switching
-* [ ] Light/dark/system appearance
-* [ ] Account deletion
-* [ ] Error/retry states
-* [ ] PWA installation/update behavior
+* [x] Registration
+* [x] Login
+* [x] Logout
+* [x] Password recovery
+* [x] Email change
+* [x] Connection request
+* [x] Accept
+* [x] Decline
+* [x] Cancel
+* [x] Block
+* [x] Unblock
+* [x] 1:1 messaging
+* [x] Realtime updates
+* [x] Pagination
+* [x] Delete for me
+* [x] Delete for everyone
+* [x] Read state
+* [x] Unread state
+* [x] My Notes
+* [x] Profile editing
+* [x] Language switching
+* [x] Light/dark/system appearance
+* [x] Account deletion
+* [x] Error/retry states
+* [x] PWA installation/update behavior
 
 ---
 
@@ -466,16 +466,16 @@ Do not rewrite already-applied historical migrations.
 
 **Priority:** Release gate
 
-* [ ] Review authentication configuration.
-* [ ] Review RLS authorization.
-* [ ] Review secret exposure.
-* [ ] Review client storage.
-* [ ] Review E2EE storage boundaries.
-* [ ] Review ciphertext handling.
-* [ ] Review service-worker caching.
-* [ ] Review CSP/referrer policy.
-* [ ] Review production logging.
-* [ ] Confirm no new security-sensitive behavior was introduced without review.
+* [x] Review authentication configuration.
+* [x] Review RLS authorization.
+* [x] Review secret exposure.
+* [x] Review client storage.
+* [x] Review E2EE storage boundaries.
+* [x] Review ciphertext handling.
+* [x] Review service-worker caching.
+* [x] Review CSP/referrer policy.
+* [x] Review production logging.
+* [x] Confirm no new security-sensitive behavior was introduced without review.
 
 ---
 
@@ -776,7 +776,7 @@ The v0.2 technical roadmap should be considered complete only when:
 * [ ] manual QA is complete;
 * [ ] production build succeeds;
 * [ ] production deployment is verified;
-* [ ] security release review is complete.
+* [x] security release review is complete.
 
 Product feature work is not part of this release gate.
 
