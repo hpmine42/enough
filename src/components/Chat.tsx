@@ -28,6 +28,14 @@ import {
   sendMessage,
   unblockUser,
 } from '../lib/api';
+import {
+  INITIAL_ANCHOR_MAX_WAIT_MS,
+  INITIAL_ANCHOR_SETTLE_MS,
+  anchorTailIds,
+  isInitialAnchorSettled,
+  isTailResolved,
+  shouldAnchorInitial,
+} from '../lib/chatScroll';
 import { advanceReadPosition, compareMessagesAsc, displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
 import { supabase } from '../lib/supabase';
 import { prefersReducedMotion } from '../lib/theme';
@@ -113,6 +121,16 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const lastReadRef = useRef<string | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const pendingDeltaRef = useRef(0);
+  // Initial anchoring (R1): the chat must open at the newest message even
+  // though E2EE plaintext — and therefore the final bubble heights — resolves
+  // asynchronously after the first render.
+  const initialAnchorPendingRef = useRef(false);
+  const initialAnchorStartRef = useRef(0);
+  const tailResolvedAtRef = useRef<number | null>(null);
+  const userScrolledRef = useRef(false);
+  // Last scrollTop written by scrollToBottom, used to tell the scroll events
+  // caused by our own anchoring apart from genuine user scrolling.
+  const programmaticTopRef = useRef<number | null>(null);
   const visibleMessagesRef = useRef<Message[]>([]);
   // Newest message timestamp known to this chat session (loaded or realtime).
   const newestKnownRef = useRef<string | null>(null);
@@ -375,6 +393,10 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     decryptedRef.current = new Set();
     setPlain({});
     setUndecryptable(new Set());
+    initialAnchorPendingRef.current = false;
+    tailResolvedAtRef.current = null;
+    userScrolledRef.current = false;
+    programmaticTopRef.current = null;
   }, [connectionId]);
 
   /* --------------------------- scroll / read --------------------------- */
@@ -386,6 +408,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     // does not cover it: reduced-motion users get an instant jump instead.
     if (!smooth || prefersReducedMotion()) {
       el.scrollTop = el.scrollHeight;
+      programmaticTopRef.current = el.scrollTop;
       return;
     }
     const start = el.scrollTop;
@@ -398,6 +421,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     const step = (now: number) => {
       const p = Math.min(1, (now - t0) / duration);
       el.scrollTop = start + distance * ease(p);
+      programmaticTopRef.current = el.scrollTop;
       if (p < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
@@ -455,6 +479,18 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   function handleScroll() {
     const el = scrollRef.current;
     if (!el) return;
+    // A genuine user scroll ends the initial anchoring phase. Scroll events
+    // triggered by our own anchoring land on the position we just wrote and
+    // must not latch (R1 risk: anchoring fighting the user).
+    if (initialAnchorPendingRef.current) {
+      const programmatic =
+        programmaticTopRef.current !== null &&
+        Math.abs(el.scrollTop - programmaticTopRef.current) < 2;
+      if (!programmatic) {
+        userScrolledRef.current = true;
+        initialAnchorPendingRef.current = false;
+      }
+    }
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const bottom = distance < 120;
     const wasBottom = atBottomRef.current;
@@ -536,9 +572,16 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length]);
 
-  // Initial load: open at the bottom.
+  // Initial load: open at the bottom. The anchoring phase started here keeps
+  // re-applying the bottom position until the rendered tail has resolved its
+  // E2EE plaintext (see src/lib/chatScroll.ts).
   useEffect(() => {
     if (!loading && valid && messages.length > 0) {
+      initialAnchorPendingRef.current = true;
+      initialAnchorStartRef.current = Date.now();
+      tailResolvedAtRef.current = null;
+      userScrolledRef.current = false;
+      programmaticTopRef.current = null;
       scrollToBottom(false);
       const last = messages[messages.length - 1];
       if (last) {
@@ -803,6 +846,59 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       );
     }
   }, [visibleMessages]);
+
+  // R1: keep the list anchored at the newest message while the initial
+  // anchoring phase is active. Bubbles grow when their E2EE plaintext arrives,
+  // so a single scroll at load time lands too high; re-anchoring in a layout
+  // effect applies the correction before the browser paints.
+  useLayoutEffect(() => {
+    if (!initialAnchorPendingRef.current) return;
+    // Pagination compensation owns the scroll position for this pass.
+    if (pendingDeltaRef.current > 0) return;
+    const tailIds = anchorTailIds(visibleMessages);
+    const tailResolved = isTailResolved(
+      tailIds,
+      (id) => plain[id] !== undefined || undecryptable.has(id),
+    );
+    if (tailResolved && tailResolvedAtRef.current === null) {
+      tailResolvedAtRef.current = Date.now();
+    } else if (!tailResolved) {
+      tailResolvedAtRef.current = null;
+    }
+    const now = Date.now();
+    const state = {
+      pending: true,
+      userScrolled: userScrolledRef.current,
+      hasMessages: visibleMessages.length > 0,
+      tailResolved,
+      elapsedMs: now - initialAnchorStartRef.current,
+      sinceTailResolvedMs:
+        tailResolvedAtRef.current === null ? null : now - tailResolvedAtRef.current,
+    };
+    if (shouldAnchorInitial(state)) scrollToBottom(false);
+    if (isInitialAnchorSettled(state)) initialAnchorPendingRef.current = false;
+  });
+
+  // Safety net + settle pass: re-check anchoring on timers so the phase also
+  // ends (and applies a last correction) without further renders.
+  useEffect(() => {
+    if (loading || !valid) return;
+    const timers = [
+      window.setTimeout(() => {
+        if (initialAnchorPendingRef.current && !userScrolledRef.current) {
+          scrollToBottom(false);
+        }
+      }, INITIAL_ANCHOR_SETTLE_MS),
+      window.setTimeout(() => {
+        if (initialAnchorPendingRef.current && !userScrolledRef.current) {
+          scrollToBottom(false);
+        }
+        initialAnchorPendingRef.current = false;
+      }, INITIAL_ANCHOR_MAX_WAIT_MS),
+    ];
+    return () => timers.forEach((id) => window.clearTimeout(id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, valid, connectionId]);
 
   const grouped = useMemo(() => {
     return visibleMessages.map((m, i) => {
