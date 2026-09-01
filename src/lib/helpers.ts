@@ -26,6 +26,35 @@ export function compareMessagesAsc(
     : a.created_at.localeCompare(b.created_at);
 }
 
+/**
+ * Monotonic read position (v0.3 R2).
+ *
+ * The persisted read position of a chat may only ever advance. Scrolling
+ * upward used to move it backwards (the newest *visible* message is an older
+ * one when scrolled up), which made already-seen messages reappear as unread
+ * on Home. This helper is the single place that decides whether a candidate
+ * timestamp is accepted.
+ *
+ * Timestamps are ISO-8601 strings from the database; they are compared
+ * chronologically. An unparsable candidate is ignored; an unparsable stored
+ * value is replaced by a valid candidate so progress is never blocked.
+ *
+ * @returns the newer of `current` and `candidate`, or `current` when the
+ *          candidate would move the position backwards.
+ */
+export function advanceReadPosition(
+  current: string | null | undefined,
+  candidate: string | null | undefined,
+): string | null {
+  if (!candidate) return current ?? null;
+  if (!current) return candidate;
+  const a = new Date(current).getTime();
+  const b = new Date(candidate).getTime();
+  if (Number.isNaN(b)) return current;
+  if (Number.isNaN(a)) return candidate;
+  return b > a ? candidate : current;
+}
+
 /** Human-readable name: display name when set, otherwise the username. */
 export function displayName(profile?: Profile | null): string {
   const dn = profile?.display_name?.trim();

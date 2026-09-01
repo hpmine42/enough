@@ -28,7 +28,7 @@ import {
   sendMessage,
   unblockUser,
 } from '../lib/api';
-import { compareMessagesAsc, displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
+import { advanceReadPosition, compareMessagesAsc, displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
 import { supabase } from '../lib/supabase';
 import { prefersReducedMotion } from '../lib/theme';
 import { getLang, t, useLang } from '../i18n';
@@ -114,6 +114,8 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const saveTimerRef = useRef<number | null>(null);
   const pendingDeltaRef = useRef(0);
   const visibleMessagesRef = useRef<Message[]>([]);
+  // Newest message timestamp known to this chat session (loaded or realtime).
+  const newestKnownRef = useRef<string | null>(null);
 
   const me = user?.id ?? '';
 
@@ -122,6 +124,11 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   useEffect(() => {
     if (!me) return;
     let active = true;
+    // The monotonic read position is per chat session: reset it when the
+    // component is reused for another connection (the previous session was
+    // already flushed by this effect's cleanup).
+    lastReadRef.current = null;
+    newestKnownRef.current = null;
     setLoading(true);
     setValid(true);
 
@@ -410,9 +417,15 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     const below = list.length - 1 - lastVisible;
     setUnreadBelow(Math.max(0, below));
     // Progressive read state: the newest visible message counts as read.
+    // The read position is monotonic (R2) — scrolling up never moves it back.
     if (lastVisible >= 0) {
       const msg = visibleMessagesRef.current[lastVisible];
-      if (msg) lastReadRef.current = msg.created_at;
+      if (msg) {
+        lastReadRef.current = advanceReadPosition(
+          lastReadRef.current,
+          msg.created_at,
+        );
+      }
     }
   }, []);
 
@@ -423,10 +436,18 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     }
   }, [me, conn]);
 
+  // On leaving the chat, everything that was present in this chat session
+  // counts as read — including messages that arrived (and were rendered)
+  // while the user was scrolled up. Only messages inserted after this flush
+  // may create unread on Home (R2).
   const flushReadState = useCallback(() => {
     if (saveTimerRef.current !== null) {
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
+    }
+    const newest = newestKnownRef.current;
+    if (newest) {
+      lastReadRef.current = advanceReadPosition(lastReadRef.current, newest);
     }
     persistRead();
   }, [persistRead]);
@@ -442,7 +463,12 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     if (bottom) {
       setNewSinceUp(0);
       const last = messages[messages.length - 1];
-      if (last) lastReadRef.current = last.created_at;
+      if (last) {
+        lastReadRef.current = advanceReadPosition(
+          lastReadRef.current,
+          last.created_at,
+        );
+      }
       setUnreadBelow(0);
     } else {
       if (wasBottom) {
@@ -515,7 +541,12 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     if (!loading && valid && messages.length > 0) {
       scrollToBottom(false);
       const last = messages[messages.length - 1];
-      if (last) lastReadRef.current = last.created_at;
+      if (last) {
+        lastReadRef.current = advanceReadPosition(
+          lastReadRef.current,
+          last.created_at,
+        );
+      }
       persistRead();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -764,6 +795,13 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   // Keep the DOM-index mapping in sync with the rendered message list.
   useEffect(() => {
     visibleMessagesRef.current = visibleMessages;
+    const newest = visibleMessages[visibleMessages.length - 1];
+    if (newest) {
+      newestKnownRef.current = advanceReadPosition(
+        newestKnownRef.current,
+        newest.created_at,
+      );
+    }
   }, [visibleMessages]);
 
   const grouped = useMemo(() => {
