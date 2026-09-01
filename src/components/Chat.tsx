@@ -29,6 +29,7 @@ import {
   unblockUser,
 } from '../lib/api';
 import { advanceReadPosition, compareMessagesAsc, displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
+import { initialAnchorAction } from '../lib/chatScroll';
 import { supabase } from '../lib/supabase';
 import { prefersReducedMotion } from '../lib/theme';
 import { getLang, t, useLang } from '../i18n';
@@ -114,6 +115,11 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const saveTimerRef = useRef<number | null>(null);
   const pendingDeltaRef = useRef(0);
   const visibleMessagesRef = useRef<Message[]>([]);
+  const initialAnchorRef = useRef({
+    pending: true,
+    userHasScrolled: false,
+    readPersisted: false,
+  });
   // Newest message timestamp known to this chat session (loaded or realtime).
   const newestKnownRef = useRef<string | null>(null);
 
@@ -129,6 +135,13 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     // already flushed by this effect's cleanup).
     lastReadRef.current = null;
     newestKnownRef.current = null;
+    initialAnchorRef.current = {
+      pending: true,
+      userHasScrolled: false,
+      readPersisted: false,
+    };
+    atBottomRef.current = true;
+    setAtBottom(true);
     setLoading(true);
     setValid(true);
 
@@ -528,18 +541,32 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     }
   }, [messages]);
 
-  // Stick to the bottom when new messages arrive while already at the bottom.
-  useEffect(() => {
-    if (atBottomRef.current && messages.length > 0) {
-      scrollToBottom(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages.length]);
+  // Initial anchoring runs before paint and keeps ownership while asynchronous
+  // display plaintext expands the rendered bubbles. Explicit user input ends
+  // that ownership so a person scrolling upward is never pulled back down.
+  useLayoutEffect(() => {
+    if (loading || !valid || messages.length === 0) return;
+    const unresolvedMessages = messages.reduce((count, message) => {
+      const isRendered =
+        !deletedForMe.has(message.id) &&
+        !isHiddenByChatDeletion(message.created_at, hiddenUntil);
+      const needsDisplayResolution =
+        isRendered &&
+        !message.deleted_at &&
+        (!message.kind || message.kind === 'text');
+      return needsDisplayResolution && !resolvedRef.current.has(message.id)
+        ? count + 1
+        : count;
+    }, 0);
+    const action = initialAnchorAction({
+      pending: initialAnchorRef.current.pending,
+      userHasScrolled: initialAnchorRef.current.userHasScrolled,
+      unresolvedMessages,
+    });
+    if (action === 'none') return;
 
-  // Initial load: open at the bottom.
-  useEffect(() => {
-    if (!loading && valid && messages.length > 0) {
-      scrollToBottom(false);
+    scrollToBottom(false);
+    if (!initialAnchorRef.current.readPersisted) {
       const last = messages[messages.length - 1];
       if (last) {
         lastReadRef.current = advanceReadPosition(
@@ -548,9 +575,35 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         );
       }
       persistRead();
+      initialAnchorRef.current.readPersisted = true;
+    }
+    if (action === 'anchor-and-finish') {
+      initialAnchorRef.current.pending = false;
+    }
+  }, [
+    loading,
+    valid,
+    messages,
+    deletedForMe,
+    hiddenUntil,
+    plain,
+    undecryptable,
+    persistRead,
+    scrollToBottom,
+  ]);
+
+  // Preserve the established realtime behavior after initial display
+  // settlement: new messages stick only while the viewport is at the bottom.
+  useEffect(() => {
+    if (
+      !initialAnchorRef.current.pending &&
+      atBottomRef.current &&
+      messages.length > 0
+    ) {
+      scrollToBottom(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
+  }, [messages.length]);
 
   useEffect(() => {
     return () => {
@@ -1053,6 +1106,36 @@ export default function Chat({ connectionId }: { connectionId: string }) {
             className="messages"
             ref={scrollRef}
             onScroll={handleScroll}
+            onWheelCapture={() => {
+              initialAnchorRef.current.userHasScrolled = true;
+              initialAnchorRef.current.pending = false;
+            }}
+            onTouchMoveCapture={() => {
+              initialAnchorRef.current.userHasScrolled = true;
+              initialAnchorRef.current.pending = false;
+            }}
+            onPointerDownCapture={(event) => {
+              // A pointer press on the scrollbar itself does not emit wheel or
+              // touch events, so recognize that scroll intent separately.
+              const bounds = event.currentTarget.getBoundingClientRect();
+              if (
+                event.target === event.currentTarget &&
+                event.clientX >= bounds.right - 20
+              ) {
+                initialAnchorRef.current.userHasScrolled = true;
+                initialAnchorRef.current.pending = false;
+              }
+            }}
+            onKeyDownCapture={(event) => {
+              if (
+                ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(
+                  event.key,
+                )
+              ) {
+                initialAnchorRef.current.userHasScrolled = true;
+                initialAnchorRef.current.pending = false;
+              }
+            }}
             aria-live="polite"
           >
             {loadingOlder && (

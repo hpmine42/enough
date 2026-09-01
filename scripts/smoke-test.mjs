@@ -1419,6 +1419,10 @@ await waitFor(
   'message bubble renders',
 );
 assert(
+  !dom.window.document.querySelector('.scroll-down'),
+  'chat opens at the newest message without a scroll-down affordance',
+);
+assert(
   dom.window.document.querySelector('.composer-input')?.disabled === false,
   'composer active after accept',
 );
