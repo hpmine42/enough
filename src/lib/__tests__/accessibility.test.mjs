@@ -164,6 +164,45 @@ test('every icon-only button has an accessible name', () => {
   }
 });
 
+test('settings overview rows are real buttons with names and the subpage back button is accessible', () => {
+  const src = componentSource['Settings.tsx'];
+  // Every overview row is a real <button> with type="button", carries the
+  // category marker used by navigation, and has an accessible name via its
+  // text label (never an icon-only affordance).
+  const row = src.match(
+    /<button\b[\s\S]*?className="settings-row clickable settings-category-row"[\s\S]*?<\/button>/,
+  );
+  assert.ok(row, 'Settings overview row element exists');
+  assert.ok(row[0].includes('type="button"'), 'overview row is a real button');
+  assert.ok(
+    /data-category=/.test(row[0]),
+    'overview row carries its category marker',
+  );
+  assert.ok(
+    /aria-label=/.test(row[0]) || /settings-row-label/.test(row[0]),
+    'overview row has an accessible name (text label or aria-label)',
+  );
+  // The subpage header back button must be keyboard-operable with a
+  // localized accessible name so screen-reader users can leave a subpage.
+  // It navigates back to the overview (#/settings), unlike the overlay-level
+  // back button which goes home. Match it inside the subpanel block so the
+  // regex cannot accidentally land on an overview row (whose template-literal
+  // href also contains "#/settings/").
+  const subpanel = src.slice(src.indexOf('className={`settings-subpanel'));
+  const back = subpanel.match(
+    /<button\b[^>]*\bonClick=\{\(\) => navigate\('#\/settings'\)\}[^>]*\baria-label=\{t\('back'\)\}[^>]*>\s*<BackIcon/,
+  );
+  assert.ok(back, 'subpage back button element exists');
+  assert.ok(
+    back[0].includes('className="icon-button"'),
+    'subpage back button is an icon button',
+  );
+  assert.ok(
+    src.includes('aria-hidden={!subpageOpen}'),
+    'subpage container keeps aria-hidden in sync with visibility',
+  );
+});
+
 test('request info toggle is a real button with label + expansion state', () => {
   const src = componentSource['Chat.tsx'];
   const at = src.indexOf('className="request-info-button"');
