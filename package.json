@@ -13,6 +13,7 @@
     "test:i18n": "node --test --experimental-strip-types src/i18n/__tests__/i18n.test.mjs",
     "test:input": "node --test --experimental-strip-types src/lib/__tests__/input-hardening.test.mjs",
     "test:unread": "node --test --experimental-strip-types src/lib/__tests__/unread-counts.test.mjs",
+    "test:read": "node --test --experimental-strip-types src/lib/__tests__/read-position.test.mjs",
     "test:home": "node --test --experimental-strip-types src/lib/__tests__/home-realtime.test.mjs",
     "test:helpers": "node --test --experimental-strip-types src/lib/__tests__/helpers.test.mjs",
     "test:chatblocks": "node --test --experimental-strip-types src/lib/__tests__/chat-block-channel.test.mjs",

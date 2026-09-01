@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { errorMessage } from './errors';
 import { sanitizeDisplayName } from './input';
+import { advanceReadPosition } from './helpers';
 import { t } from '../i18n';
 import type {
   BlockRelation,
@@ -968,13 +969,22 @@ export async function getReadState(
   return map;
 }
 
-/** Persist the read position (DB first, localStorage as fallback). */
+/**
+ * Persist the read position (DB first, localStorage as fallback).
+ *
+ * Defensive monotonic guard (v0.3 R2): a read position may never move
+ * backwards. If the locally cached value for this connection is already newer
+ * than `lastReadAt`, nothing is written — neither locally nor to the database
+ * — so already-read messages can never reappear as unread.
+ */
 export async function saveReadState(
   me: string,
   connectionId: string,
   lastReadAt: string,
 ): Promise<void> {
   const local = readStorage.read(me);
+  const next = advanceReadPosition(local[connectionId], lastReadAt);
+  if (next !== lastReadAt) return;
   local[connectionId] = lastReadAt;
   readStorage.write(me, local);
   if (!supabase) return;
