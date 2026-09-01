@@ -394,13 +394,23 @@ export default function Home() {
               >
                 <button
                   type="button"
-                  className="chat"
+                  className="chat chat-overview-row"
                   onClick={() => navigate(`#/chat/${conn.id}`)}
                 >
-                  <Avatar name={name} size={40} />
+                  <Avatar name={name} size={44} />
                   <div className="chat-text">
                     <div className="chat-topline">
-                      <span className="chat-name">{name}</span>
+                      <div className="chat-identity">
+                        <span className="chat-name">{name}</span>
+                        {self ? (
+                          <span className="chat-notes-tag">
+                            <NoteIcon size={12} />
+                            {t('chat.myNotesTag')}
+                          </span>
+                        ) : (
+                          sub && <span className="chat-username">{sub}</span>
+                        )}
+                      </div>
                       <span className="chat-time">
                         {last
                           ? formatRelative(last.created_at, getLang())
@@ -444,14 +454,6 @@ export default function Home() {
                         </>
                       )}
                     </div>
-                    {self ? (
-                      <div className="chat-notes-tag">
-                        <NoteIcon size={12} />
-                        {t('chat.myNotesTag')}
-                      </div>
-                    ) : (
-                      <div className="chat-username">{sub}</div>
-                    )}
                   </div>
                 </button>
                 {isIncoming && (

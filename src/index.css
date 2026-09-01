@@ -572,6 +572,10 @@ textarea {
   transition: background 0.2s ease;
 }
 
+.chat-overview-row {
+  gap: 14px;
+}
+
 .chat:active {
   background: var(--received);
 }
@@ -584,13 +588,24 @@ textarea {
 .chat-topline {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
   gap: 10px;
+  min-width: 0;
+}
+
+.chat-identity {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .chat-name {
   font-size: 16px;
   font-weight: 500;
+  flex-shrink: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -619,24 +634,27 @@ textarea {
 }
 
 .chat-username {
-  margin-top: 2px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12.5px;
   color: var(--muted);
 }
 
-/* My Notes rows: subtle tag instead of the @username, so the own notes chat
-   is recognizable at a glance while staying within the existing row design. */
+/* My Notes rows: inline the subtle tag with the name so every overview row
+   keeps the same two-line structure while notes remain recognizable. */
 .chat-notes-tag {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-top: 3px;
   padding: 1px 8px;
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 11.5px;
   color: var(--muted);
-  width: fit-content;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .chat-row.notes .chat-name {

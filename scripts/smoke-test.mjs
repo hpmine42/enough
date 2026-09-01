@@ -1394,6 +1394,39 @@ assert(
 click('.chat-row-actions .btn-small');
 await waitFor(() => db.connections.find((c) => c.id === 'conn-incoming').status === 'accepted', 'accept → accepted in DB');
 await waitFor(() => !dom.window.document.querySelector('.chat-row.request'), 'request row becomes normal chat row');
+const overviewPeerRow = [...dom.window.document.querySelectorAll('.chat-row')].find(
+  (row) => row.querySelector('.chat-name')?.textContent === 'Benno Schmidt',
+);
+const overviewPeerText = overviewPeerRow?.querySelector('.chat-text');
+const overviewPeerTopline = overviewPeerText?.querySelector('.chat-topline');
+const overviewPeerIdentity = overviewPeerTopline?.querySelector('.chat-identity');
+assert(
+  overviewPeerText?.children.length === 2 &&
+    overviewPeerText.children[0]?.classList.contains('chat-topline') &&
+    overviewPeerText.children[1]?.classList.contains('chat-subline'),
+  'chat overview peer row has exactly two text lines',
+);
+assert(
+  overviewPeerIdentity?.children[0]?.textContent === 'Benno Schmidt' &&
+    overviewPeerIdentity.children[1]?.textContent === '@benno' &&
+    overviewPeerIdentity.closest('.chat-topline') === overviewPeerTopline,
+  'chat overview top line reads display name followed by username',
+);
+assert(
+  overviewPeerText?.querySelector('.chat-subline .chat-preview')?.textContent === 'Hallo Anna!',
+  'chat overview second line keeps the latest message preview',
+);
+const overviewLayout = overviewPeerRow?.querySelector('.chat.chat-overview-row');
+const overviewAvatar = overviewLayout?.querySelector(':scope > .avatar');
+assert(
+  overviewLayout?.firstElementChild === overviewAvatar &&
+    overviewLayout.children[1] === overviewPeerText,
+  'chat overview spacing layout keeps the avatar before the text block',
+);
+assert(
+  overviewAvatar?.style.width === '44px' && overviewAvatar.style.height === '44px',
+  'chat overview avatar uses the larger row-specific size',
+);
 await waitFor(
   () => text('.unread-badge') === '1',
   'first incoming message is unread before a read-state row exists',
@@ -2266,12 +2299,22 @@ assert(notesToggle.getAttribute('aria-checked') === 'true', 'My Notes switch ref
 // Leave settings directly — no reload, no detour through another chat.
 setHash('#/');
 await waitFor(() => text('.chat-row .chat-name') === 'My Notes', 'My Notes appears immediately after leaving settings');
+const notesOverviewRow = dom.window.document.querySelector('.chat-row.notes');
+const notesOverviewText = notesOverviewRow?.querySelector('.chat-text');
+const notesOverviewTag = notesOverviewRow?.querySelector('.chat-notes-tag');
 assert(
-  dom.window.document.querySelector('.chat-row.notes .chat-notes-tag')?.textContent?.trim() === 'Private',
-  'My Notes row is visually distinct (private tag)',
+  notesOverviewTag?.textContent?.trim() === 'Private' &&
+    notesOverviewTag.closest('.chat-topline') !== null,
+  'My Notes private tag is visually distinct and inline with the name',
 );
 assert(
-  dom.window.document.querySelector('.chat-row.notes') !== null,
+  notesOverviewText?.children.length === 2 &&
+    notesOverviewText.children[0]?.classList.contains('chat-topline') &&
+    notesOverviewText.children[1]?.classList.contains('chat-subline'),
+  'My Notes overview row has exactly two text lines',
+);
+assert(
+  notesOverviewRow !== null,
   'My Notes row carries the notes marker class',
 );
 
