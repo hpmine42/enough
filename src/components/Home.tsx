@@ -26,6 +26,7 @@ import { supabase } from '../lib/supabase';
 import { getLang, t } from '../i18n';
 import { Connection, Message, Profile } from '../lib/types';
 import { mergeLastMessage, unreadAfterInsert } from '../lib/homeRealtime';
+import { deletedMessagePreview } from '../lib/homePreview';
 import { getCachedPlaintextSync, warmMessageCache } from '../lib/e2ee/message-cache';
 import { isEnvelope } from '../lib/e2ee/message-flow';
 import Avatar from './Avatar';
@@ -49,7 +50,10 @@ function previewOf(
 ): string | null {
   if (!last) return null;
   if (last.deleted_at) {
-    return t('chat.deletedForEveryoneOther', { username: peerUsername });
+    // Attribute the tombstone to the deletion actor: only the sender may
+    // delete a message for everyone (RLS + trigger, migration 0009), so the
+    // actor is the sender — "You" for own messages, the peer otherwise.
+    return deletedMessagePreview(last, me, peerUsername);
   }
   if (last.kind === 'name_change') {
     return t('chat.nameChange', {

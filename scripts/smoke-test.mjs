@@ -1743,6 +1743,37 @@ assert(
   'delete for me preserves message content and stores per-user state',
 );
 
+/* Home overview attribution: the deletion tombstone must name the deletion
+   ACTOR. The current user deleted their own message for everyone above, so
+   the overview must say "You" — not the peer — across a full remount/reload,
+   and the delete-for-me row written above must not add or alter a tombstone
+   (delete for me hides the message without a "deleted" preview). */
+const bennoOverviewRow = () =>
+  [...dom.window.document.querySelectorAll('.chat-row')].find(
+    (row) => row.querySelector('.chat-name')?.textContent === 'Benno Schmidt',
+  );
+setHash('#/');
+await waitFor(
+  () => dom.window.document.querySelector('.home-screen') !== null,
+  'home opens after the message deletions',
+);
+await waitFor(
+  () =>
+    bennoOverviewRow()?.querySelector('.chat-preview')?.textContent ===
+    'You deleted this message.',
+  'own delete-for-everyone is attributed to "You" in the chat overview',
+);
+assert(
+  !(bennoOverviewRow()?.querySelector('.chat-preview')?.textContent ?? '').includes('benno'),
+  'own deletion is not attributed to the peer in the overview',
+);
+// Return to the conversation for the chat-deletion flow below.
+setHash('#/chat/conn-incoming');
+await waitFor(
+  () => dom.window.document.querySelector('.chat-screen') !== null,
+  'chat reopens after the overview attribution check',
+);
+
 /* deleting a chat hides it for this user only and keeps the cutoff after reconnect */
 click('.chat-header .icon-button:last-child');
 await waitFor(
@@ -1844,6 +1875,59 @@ await waitFor(
       (name) => name.textContent === 'Benno Schmidt',
     ),
   'revealed chat reappears on Home without a reload',
+);
+
+/* The other participant deletes their own message for everyone → the
+   overview must name the peer (only the sender can delete for everyone, so
+   the actor is the sender). Checked across full remounts/reloads so the
+   attribution cannot come from stale in-memory state. */
+db.messages.push({
+  id: 'msg-peer-everyone',
+  connection_id: 'conn-incoming',
+  sender_id: 'user-2',
+  ciphertext: 'Later!',
+  created_at: new Date(Date.now() + 60_000).toISOString(),
+  deleted_at: null,
+  kind: 'text',
+});
+setHash('#/chat/nowhere');
+await waitFor(
+  () => dom.window.document.querySelector('.chat-screen') !== null,
+  'chat route opened to force reload',
+);
+setHash('#/');
+await waitFor(
+  () => dom.window.document.querySelector('.home-screen') !== null,
+  'home reopens with the new peer message',
+);
+await waitFor(
+  () => bennoOverviewRow()?.querySelector('.chat-preview')?.textContent === 'Later!',
+  'normal peer message preview is unchanged by the attribution fix',
+);
+// The sender (Benno) deletes it for everyone — the guarded UPDATE the
+// delete-for-everyone API performs (deleted_at set, ciphertext cleared).
+const laterMessage = db.messages.find((message) => message.id === 'msg-peer-everyone');
+laterMessage.deleted_at = new Date().toISOString();
+laterMessage.ciphertext = '';
+setHash('#/chat/nowhere');
+await waitFor(
+  () => dom.window.document.querySelector('.chat-screen') !== null,
+  'chat route opened to force reload after the peer deletion',
+);
+setHash('#/');
+await waitFor(
+  () => dom.window.document.querySelector('.home-screen') !== null,
+  'home reopens after the peer deletion',
+);
+await waitFor(
+  () =>
+    bennoOverviewRow()?.querySelector('.chat-preview')?.textContent ===
+    '@benno deleted this message.',
+  'peer delete-for-everyone names the peer in the chat overview',
+);
+assert(
+  bennoOverviewRow()?.querySelector('.chat-preview')?.textContent !== 'You deleted this message.',
+  'peer deletion is not attributed to "You"',
 );
 
 /* decline flow with confirmation dialog (fresh incoming request) */
