@@ -96,6 +96,14 @@ const CATEGORY_TITLE_KEYS: Record<SettingsCategory, TranslationKey> = {
   account: 'settingsScreen.account',
 };
 
+/**
+ * Duration of the Settings subpanel slide, in milliseconds. It mirrors the
+ * `transform`/`opacity` transition declared for `.settings-subpanel` in
+ * index.css and is the window during which the overview must keep its
+ * geometry: see `searchCollapse` below.
+ */
+const SUBPANEL_TRANSITION_MS = 300;
+
 /* ------------------------------------------------------------------ */
 /* overview row                                                        */
 /* ------------------------------------------------------------------ */
@@ -163,7 +171,10 @@ export default function Settings() {
 
   // People Search belongs to the Settings overview only. When any category
   // subpage (including People → Blocked Users) is open, the search bar is
-  // hidden so the subpage shows only its own content.
+  // hidden so the subpage shows only its own content. The removal itself is
+  // deferred until the subpanel transition has finished (see
+  // `searchCollapse`), otherwise the overview loses the search bar's height
+  // in the very frame the submenu starts sliding in.
   const onOverview = open && category === null;
 
   const {
@@ -271,6 +282,18 @@ export default function Settings() {
   // Form collapse animation state (smooth open + close).
   const emailCollapse = useCollapse(emailEditing);
   const pwCollapse = useCollapse(pwEditing);
+
+  // The People Search belongs to the overview only, but it must not leave the
+  // layout in the same frame a subpage starts sliding in. Unmounting it
+  // immediately would remove its height at once, so the remaining overview
+  // content jumped upward before the subpanel was visibly moving. Keeping it
+  // mounted for exactly the subpanel transition keeps the overview geometry
+  // stable: the submenu then slides over an unchanged overview and the search
+  // bar is removed only once the submenu covers it completely.
+  // `render` is only used to defer that unmount — mounting is still driven by
+  // `onOverview` itself, so returning to the overview shows the search bar in
+  // the very same frame.
+  const searchCollapse = useCollapse(onOverview, SUBPANEL_TRANSITION_MS);
 
   function openEmailChange() {
     if (emailEditing) {
@@ -758,8 +781,13 @@ export default function Settings() {
         <ThemeButton />
       </header>
 
-      {/* People search is available from the Settings overview only. */}
-      {onOverview && (
+      {/* People search is available from the Settings overview only. The
+          wrapper stays mounted for the duration of the subpanel slide
+          (`searchCollapse`) so the overview keeps its geometry while the
+          submenu transitions on top of it. `onOverview ||` keeps the mount
+          itself synchronous: the search bar must appear in the same frame the
+          overview does, never one frame later. */}
+      {(onOverview || searchCollapse.render) && (
         <div className="settings-search-wrap">
           <PeopleSearch
             query={query}

@@ -8,6 +8,8 @@
 // navigation). This file adds focused source-level guards so the most
 // important invariants fail fast and deterministically:
 //   * Settings search renders only on the overview, never on a subpage;
+//   * the search bar leaves the layout only after the subpage slide, so
+//     opening a submenu cannot shift the overview content upward first;
 //   * PeopleSettings renders active-connection rows with long-press support;
 //   * the Settings → People → Blocked Users hierarchy is route-driven;
 //   * UI chrome is non-selectable while editable fields stay selectable;
@@ -77,8 +79,54 @@ test('People search is gated to the Settings overview route', () => {
     'overview detection compares the open route against the selected category',
   );
   assert.ok(
-    settings.includes('{onOverview && ('),
-    'the overview search is conditionally rendered on the overview route only',
+    settings.includes('useCollapse(onOverview, SUBPANEL_TRANSITION_MS)'),
+    'the overview search is mounted from the overview route only',
+  );
+  assert.ok(
+    settings.includes('{(onOverview || searchCollapse.render) && ('),
+    'the search wrapper mounts on the overview route and only unmounts after the subpage slide',
+  );
+  // A subpage deep link must never flash the search bar: the collapse helper
+  // only keeps an element mounted while it is closing, never mounts it for a
+  // route that is not the overview.
+  assert.ok(
+    !settings.includes('{onOverview && ('),
+    'the search wrapper is not unmounted in the same render that opens a subpage',
+  );
+});
+
+test('opening a Settings subpage does not remove the search bar before the transition', () => {
+  // Regression guard for the layout jump: the search wrapper used to unmount
+  // in the very render that added the `open` class to the subpanel, so its
+  // height vanished immediately and the remaining overview content jumped
+  // upward before the submenu was visibly moving. The wrapper must instead
+  // stay in the layout for the whole subpanel slide and be removed only
+  // afterwards, when the submenu already covers the overview.
+  const jsDelay = settings.match(
+    /const SUBPANEL_TRANSITION_MS = (\d+);/,
+  );
+  assert.ok(jsDelay, 'Settings declares the subpanel transition duration');
+  const cssSlide = css.match(
+    /\.settings-subpanel \{[\s\S]*?transition:[\s\S]*?transform ([\d.]+)s/,
+  );
+  assert.ok(cssSlide, 'index.css declares the subpanel slide transition');
+  assert.equal(
+    Number(jsDelay[1]),
+    Math.round(Number(cssSlide[1]) * 1000),
+    'the search bar stays mounted for exactly the subpanel slide duration',
+  );
+  assert.ok(
+    settings.includes('const searchCollapse = useCollapse(onOverview, SUBPANEL_TRANSITION_MS);'),
+    'the search bar keeps the overview geometry for the whole subpanel slide',
+  );
+  assert.ok(
+    settings.includes('{(onOverview || searchCollapse.render) && ('),
+    'the search wrapper renders from the deferred-unmount state, not straight from the route',
+  );
+  assert.ok(
+    css.includes('.settings-search-wrap') &&
+      /\.settings-search-wrap \{[\s\S]*?flex-shrink: 0;/.test(css),
+    'the search wrapper keeps a fixed height, so its box preserves the overview geometry',
   );
 });
 
