@@ -4,6 +4,7 @@ import { usePreferences } from '../context/PreferencesContext';
 import { useHashRoute, navigate } from '../lib/router';
 import {
   acceptConnection,
+  blockUser,
   cancelConnectionRequest,
   ensureMyNotes,
   getBlockRelations,
@@ -18,7 +19,12 @@ import {
   unblockUser,
 } from '../lib/api';
 import { supabase } from '../lib/supabase';
-import { displayName, normalizeUsername } from '../lib/helpers';
+import {
+  displayName,
+  isSelfConnection,
+  normalizeUsername,
+  otherUserId,
+} from '../lib/helpers';
 import { sanitizeDisplayName } from '../lib/input';
 import { t, useLang } from '../i18n';
 import type { TranslationKey } from '../i18n/translations';
@@ -29,6 +35,7 @@ import {
   ThemeMode,
 } from '../lib/theme';
 import { Connection, Profile } from '../lib/types';
+import BottomSheet from './BottomSheet';
 import Dialog from './Dialog';
 import ThemeButton from './ThemeButton';
 import {
@@ -39,6 +46,7 @@ import {
 import { Section } from './settings/settings-ui';
 import ProfileSettings from './settings/ProfileSettings';
 import PeopleSettings from './settings/PeopleSettings';
+import PeopleSearch from './settings/PeopleSearch';
 import BlockedUsersPage from './settings/BlockedUsersPage';
 import LanguageSettings from './settings/LanguageSettings';
 import AppearanceSettings from './settings/AppearanceSettings';
@@ -130,19 +138,28 @@ function CategoryRow({
 export default function Settings() {
   const route = useHashRoute();
   const open = route.startsWith('#/settings');
-  // The category is the first segment after "#/settings/"; any deeper path
-  // (e.g. "#/settings/blocked") is preserved by treating the first segment
-  // as the category — "#/settings/blocked" stays the blocked subpage.
+  // The category is the first segment after "#/settings/". A deeper path is
+  // preserved so "#/settings/people/blocked" is the nested Blocked Users
+  // subpage while the legacy "#/settings/blocked" still opens the same screen
+  // at the top level.
   const parts = route.split('/');
-  const categorySegment =
-    parts.length >= 3 && parts[0] === '#' && parts[1] === 'settings'
-      ? parts[2]
-      : null;
+  const isSettingsRoute =
+    parts[0] === '#' && parts[1] === 'settings';
+  const firstSegment = isSettingsRoute ? parts[2] : null;
+  const secondSegment = isSettingsRoute ? parts[3] : null;
+  const blockedFromPeople =
+    firstSegment === 'people' && secondSegment === 'blocked';
+  const categorySegment = blockedFromPeople ? 'blocked' : firstSegment;
   const category =
     categorySegment !== null && (SETTINGS_CATEGORIES as string[]).includes(categorySegment)
       ? (categorySegment as SettingsCategory)
       : null;
   const subpageOpen = open && category !== null;
+  const blockedSubpageOpen =
+    subpageOpen && category === 'blocked' && blockedFromPeople;
+  const subpanelBackTarget = blockedFromPeople
+    ? '#/settings/people'
+    : '#/settings';
 
   const {
     user,
@@ -193,6 +210,8 @@ export default function Settings() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [profiles, setProfiles] = useState<Record<string, Profile>>({});
+  const [connectionsLoading, setConnectionsLoading] = useState(true);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
 
   // blocking
@@ -200,6 +219,11 @@ export default function Settings() {
   const [blockedByIds, setBlockedByIds] = useState<Set<string>>(new Set());
   const [blockedUsers, setBlockedUsers] = useState<Profile[]>([]);
   const [blockBusyId, setBlockBusyId] = useState<string | null>(null);
+
+  // active-connection actions (long-press sheet + block confirmation)
+  const [blockSheetTarget, setBlockSheetTarget] = useState<Profile | null>(null);
+  const [blockConfirmTarget, setBlockConfirmTarget] = useState<Profile | null>(null);
+  const [peopleError, setPeopleError] = useState<string | null>(null);
 
   // account
   const [signOutOpen, setSignOutOpen] = useState(false);
@@ -263,15 +287,18 @@ export default function Settings() {
     let active = true;
     if (!me) {
       setConnections([]);
+      setProfiles({});
       setMyNotes(false);
       setNotesLoading(false);
+      setConnectionsLoading(false);
       return () => {
         active = false;
       };
     }
 
     setNotesLoading(true);
-    getMyConnections(me).then((result) => {
+    setConnectionsLoading(true);
+    getMyConnections(me).then(async (result) => {
       if (!active) return;
       const loaded = result.data;
       setConnections(loaded);
@@ -283,7 +310,21 @@ export default function Settings() {
             connection.status === 'accepted',
         ),
       );
+      const acceptedOtherIds = loaded
+        .filter(
+          (connection) =>
+            connection.status === 'accepted' && !isSelfConnection(connection),
+        )
+        .map((connection) => otherUserId(connection, me));
+      if (acceptedOtherIds.length > 0) {
+        const profilesResult = await getProfiles(acceptedOtherIds);
+        if (!active) return;
+        setProfiles(profilesResult.data);
+      } else {
+        setProfiles({});
+      }
       setNotesLoading(false);
+      setConnectionsLoading(false);
     });
 
     return () => {
@@ -525,6 +566,14 @@ export default function Settings() {
 
   const searchTimer = useRef<number | null>(null);
 
+  // Long-press/block action UI belongs to a routed Settings view. Close it when
+  // the user navigates away so it cannot dangle over a different subpage.
+  useEffect(() => {
+    setBlockSheetTarget(null);
+    setBlockConfirmTarget(null);
+    setPeopleError(null);
+  }, [open, category]);
+
   function handleSearchChange(value: string) {
     setQuery(value);
     const q = normalizeUsername(value);
@@ -639,6 +688,49 @@ export default function Settings() {
     );
   }
 
+  function openConnectionActions(target: Profile) {
+    setBlockSheetTarget(target);
+  }
+
+  async function handleBlockConnection() {
+    const target = blockConfirmTarget;
+    if (!target || !me || blockBusyId === target.id) return;
+    setBlockBusyId(target.id);
+    setPeopleError(null);
+    const err = await blockUser(me, target.id);
+    setBlockBusyId(null);
+    setBlockConfirmTarget(null);
+    if (err) {
+      setPeopleError(err);
+      return;
+    }
+    // Keep both block state and the blocked profile list in sync immediately.
+    setBlockedIds((prev) => {
+      const next = new Set(prev);
+      next.add(target.id);
+      return next;
+    });
+    setBlockedUsers((prev) => [target, ...prev.filter((u) => u.id !== target.id)]);
+  }
+
+  // Active connections: accepted conversations with another profile, excluding
+  // the self-chat and anyone blocked from either direction. The server/RLS
+  // remains the authorization authority; this is only the UI view.
+  const activeConnections = connections
+    .filter((conn) => conn.status === 'accepted' && !isSelfConnection(conn))
+    .map((conn) => ({
+      conn,
+      profile: profiles[otherUserId(conn, me)],
+    }))
+    .filter(
+      (
+        item,
+      ): item is { conn: Connection; profile: Profile } =>
+        Boolean(item.profile) &&
+        !blockedIds.has(item.profile!.id) &&
+        !blockedByIds.has(item.profile!.id),
+    );
+
   const searchActive = query.trim() !== '';
 
   return (
@@ -660,6 +752,27 @@ export default function Settings() {
         </button>
         <ThemeButton />
       </header>
+
+      {/* People search is available from the Settings overview and stays
+          available on every Settings subpage (see the shared subpanel below). */}
+      <div className="settings-search-wrap">
+        <PeopleSearch
+          query={query}
+          onSearchChange={handleSearchChange}
+          searchActive={searchActive}
+          searching={searching}
+          searchError={searchError}
+          results={results}
+          statusOf={statusOf}
+          blockedIds={blockedIds}
+          blockedByIds={blockedByIds}
+          blockBusyId={blockBusyId}
+          onUnblock={handleUnblock}
+          onOpenConversation={openConversation}
+          actionBusyId={actionBusyId}
+          me={me}
+        />
+      </div>
 
       {/* CATEGORY OVERVIEW */}
       <div className="settings-scroll settings-overview">
@@ -700,13 +813,13 @@ export default function Settings() {
       {/* CATEGORY SUBPAGE — slides in like the settings overlay */}
       <div
         className={`settings-subpanel${subpageOpen ? ' open' : ''}`}
-        aria-hidden={!subpageOpen}
+        aria-hidden={!subpageOpen || blockedSubpageOpen}
       >
         <header className="settings-header">
           <button
             type="button"
             className="icon-button"
-            onClick={() => navigate('#/settings')}
+            onClick={() => navigate(subpanelBackTarget)}
             aria-label={t('back')}
           >
             <BackIcon size={22} />
@@ -716,6 +829,24 @@ export default function Settings() {
           </div>
           <ThemeButton />
         </header>
+        <div className="settings-search-wrap settings-subpanel-search">
+          <PeopleSearch
+            query={query}
+            onSearchChange={handleSearchChange}
+            searchActive={searchActive}
+            searching={searching}
+            searchError={searchError}
+            results={results}
+            statusOf={statusOf}
+            blockedIds={blockedIds}
+            blockedByIds={blockedByIds}
+            blockBusyId={blockBusyId}
+            onUnblock={handleUnblock}
+            onOpenConversation={openConversation}
+            actionBusyId={actionBusyId}
+            me={me}
+          />
+        </div>
         <div className="settings-scroll">
           {category === 'profile' && (
             <ProfileSettings
@@ -732,26 +863,18 @@ export default function Settings() {
               onEmailClick={openEmailChange}
             />
           )}
-          {category === 'people' && (
+          {(category === 'people' || (category === 'blocked' && blockedFromPeople)) && (
             <PeopleSettings
-              query={query}
-              onSearchChange={handleSearchChange}
-              searchActive={searchActive}
-              searching={searching}
-              searchError={searchError}
-              results={results}
-              statusOf={statusOf}
-              blockedIds={blockedIds}
-              blockedByIds={blockedByIds}
-              blockBusyId={blockBusyId}
-              onUnblock={handleUnblock}
+              connections={activeConnections}
+              loading={connectionsLoading}
+              error={peopleError}
               onOpenConversation={openConversation}
-              actionBusyId={actionBusyId}
+              onLongPress={openConnectionActions}
+              busyId={actionBusyId}
               blockedCount={blockedIds.size}
-              me={me}
             />
           )}
-          {category === 'blocked' && (
+          {category === 'blocked' && !blockedFromPeople && (
             <BlockedUsersPage
               blockedUsers={blockedUsers}
               blockBusyId={blockBusyId}
@@ -818,6 +941,55 @@ export default function Settings() {
                 }}
               />
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* NESTED BLOCKED USERS SUBPAGE — same slide-in transition as the
+          Settings subpanels, but it sits on top of People. */}
+      <div
+        className={`settings-subpanel settings-subpanel-nested${blockedSubpageOpen ? ' open' : ''}`}
+        aria-hidden={!blockedSubpageOpen}
+      >
+        <header className="settings-header">
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => navigate('#/settings/people')}
+            aria-label={t('back')}
+          >
+            <BackIcon size={22} />
+          </button>
+          <div className="settings-subpanel-title">
+            {t(CATEGORY_TITLE_KEYS.blocked)}
+          </div>
+          <ThemeButton />
+        </header>
+        <div className="settings-search-wrap settings-subpanel-search">
+          <PeopleSearch
+            query={query}
+            onSearchChange={handleSearchChange}
+            searchActive={searchActive}
+            searching={searching}
+            searchError={searchError}
+            results={results}
+            statusOf={statusOf}
+            blockedIds={blockedIds}
+            blockedByIds={blockedByIds}
+            blockBusyId={blockBusyId}
+            onUnblock={handleUnblock}
+            onOpenConversation={openConversation}
+            actionBusyId={actionBusyId}
+            me={me}
+          />
+        </div>
+        <div className="settings-scroll">
+          {blockedSubpageOpen && (
+            <BlockedUsersPage
+              blockedUsers={blockedUsers}
+              blockBusyId={blockBusyId}
+              onUnblock={handleUnblock}
+            />
           )}
         </div>
       </div>
@@ -912,6 +1084,37 @@ export default function Settings() {
             </p>
           )}
         </Dialog>
+      )}
+
+      {blockSheetTarget && (
+        <BottomSheet
+          title={displayName(blockSheetTarget)}
+          cancelLabel={t('cancel')}
+          onClose={() => setBlockSheetTarget(null)}
+          items={[
+            {
+              key: 'block',
+              label: t('block.blockUser'),
+              danger: true,
+              onSelect: () => setBlockConfirmTarget(blockSheetTarget),
+            },
+          ]}
+        />
+      )}
+
+      {blockConfirmTarget && (
+        <Dialog
+          title={t('block.blockTitle', {
+            username: blockConfirmTarget.username ?? '',
+          })}
+          text={t('block.blockText')}
+          confirmLabel={t('block.blockUser')}
+          cancelLabel={t('cancel')}
+          danger
+          busy={blockBusyId === blockConfirmTarget.id}
+          onConfirm={handleBlockConnection}
+          onCancel={() => setBlockConfirmTarget(null)}
+        />
       )}
     </aside>
   );

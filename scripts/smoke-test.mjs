@@ -1101,8 +1101,14 @@ await waitFor(
   'settings overlay opens',
 );
 assert(
-  text('.settings-section-title') === 'Settings',
+  [...dom.window.document.querySelectorAll('.settings-overlay .settings-section-title')].some(
+    (el) => el.textContent?.trim() === 'Settings',
+  ),
   'settings overview shows the Settings category heading',
+);
+assert(
+  dom.window.document.querySelector('.settings-overlay .settings-search-wrap input') !== null,
+  'people search is available from the Settings overview',
 );
 // R4: the overview renders one selectable row per category (blocked is a
 // third-level subpage, so the overview shows the six top-level categories).
@@ -1151,7 +1157,9 @@ await waitFor(() => text('.settings-static-value') === '@anna', 'profile usernam
   assert(rows.some((r) => r.includes('anna@example.com')), 'email shown');
 }
 assert(
-  text('.settings-subpanel .settings-section-title') === 'Profile',
+  [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section-title')].some(
+    (el) => el.textContent?.trim() === 'Profile',
+  ),
   'profile subpage keeps its section heading',
 );
 // Back to the overview.
@@ -1210,10 +1218,12 @@ await waitFor(
     dom.window.document.querySelector('.settings-subpanel .settings-blocked-empty') !== null,
   'blocked list opens from the People subpage and renders its empty state',
 );
-click('.settings-subpanel .icon-button');
+click('.settings-subpanel-nested .icon-button');
 await waitFor(
-  () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') === false,
-  'blocked list back button returns to the overview',
+  () =>
+    dom.window.document.querySelector('.settings-subpanel-nested')?.classList.contains('open') === false &&
+    text('.settings-subpanel-title') === 'People',
+  'blocked list back button returns to People',
 );
 
 /* R4: deep links open the matching subpage directly */
@@ -2421,6 +2431,118 @@ db.connections.push({
   status: 'accepted',
   created_at: new Date().toISOString(),
 });
+
+/* Settings People: active connections, chat navigation and long-press block */
+setHash('#/settings/people');
+await waitFor(
+  () => document.querySelector('.settings-subpanel')?.classList.contains('open'),
+  'people subpage opens for the active-connection regression',
+);
+await waitFor(
+  () =>
+    [...dom.window.document.querySelectorAll('.settings-connection-row .chat-name')].some(
+      (n) => n.textContent === 'Benno Schmidt',
+    ),
+  'active connection is listed on the People page',
+);
+assert(
+  dom.window.document.querySelector('.settings-connection-row .chat-username')?.textContent === '@benno',
+  'active connection row shows the peer username',
+);
+{
+  const peopleSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find(
+    (s) => s.querySelector('.settings-section-title')?.textContent === 'Active connections',
+  );
+  assert(
+    peopleSection &&
+      [...peopleSection.querySelectorAll('input')].length === 0 &&
+      [...peopleSection.querySelectorAll('.settings-connection-row')].length > 0,
+    'People page renders active connections instead of a search interface',
+  );
+}
+// Normal tap opens the corresponding chat.
+document.querySelector('.settings-connection-row').dispatchEvent(
+  new dom.window.MouseEvent('click', { bubbles: true }),
+);
+await waitFor(
+  () => text('.chat-peer-name') === 'Benno Schmidt',
+  'active connection row opens its chat',
+);
+// Re-open People for the long-press path.
+setHash('#/settings/people');
+await waitFor(
+  () => document.querySelector('.settings-connection-row') !== null,
+  'people page reopens for the long-press path',
+);
+const longPressRow = document.querySelector('.settings-connection-row');
+longPressRow.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true }));
+await sleep(650);
+await waitFor(
+  () => document.querySelector('.sheet') !== null,
+  'long-press exposes the row action sheet',
+);
+assert(
+  [...dom.window.document.querySelectorAll('.sheet-item')].some(
+    (item) => item.textContent === 'Block user',
+  ),
+  'row action sheet offers Block user',
+);
+const sheetBlock = [...dom.window.document.querySelectorAll('.sheet-item')].find(
+  (item) => item.textContent === 'Block user',
+);
+sheetBlock.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => text('.dialog-title') === 'Block @benno?',
+  'long-press block opens the existing block confirmation dialog',
+);
+click('.dialog .btn-primary');
+await waitFor(
+  () =>
+    db.user_blocks.some(
+      (r) => r.blocker_id === 'user-1' && r.blocked_id === 'user-2',
+    ),
+  'long-press block stores the block row',
+);
+await waitFor(
+  () => document.querySelector('.settings-connection-row') === null,
+  'blocked user disappears from the active connections list',
+);
+// Blocked Users is reachable through the People hierarchy and back returns to People.
+const blockedEntryRow = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-row.clickable')].find(
+  (r) => r.textContent.includes('Blocked users'),
+);
+blockedEntryRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => document.querySelector('.settings-subpanel-nested')?.classList.contains('open'),
+  'Settings → People → Blocked Users opens with the nested subpanel',
+);
+await waitFor(
+  () =>
+    [...dom.window.document.querySelectorAll('.settings-subpanel-nested .settings-row-label')].some(
+      (l) => l.textContent === 'Benno Schmidt',
+    ),
+  'blocked user is listed in the nested Blocked Users page',
+);
+const nestedUnblock = [...dom.window.document.querySelectorAll('.settings-subpanel-nested button')].find(
+  (b) => b.textContent === 'Unblock',
+);
+nestedUnblock.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () =>
+    !db.user_blocks.some(
+      (r) => r.blocker_id === 'user-1' && r.blocked_id === 'user-2',
+    ),
+  'nested Blocked Users unblock removes the block row',
+);
+click('.settings-subpanel-nested .icon-button');
+await waitFor(
+  () =>
+    document.querySelector('.settings-subpanel-nested')?.classList.contains('open') === false &&
+    text('.settings-subpanel-title') === 'People' &&
+    document.querySelector('.settings-connection-row') !== null,
+  'back from Blocked Users returns to People and the connection is active again',
+);
+
 setHash('#/chat/nowhere');
 await waitFor(
   () => dom.window.document.querySelector('.chat-screen') !== null,

@@ -184,13 +184,13 @@ test('settings overview rows are real buttons with names and the subpage back bu
   );
   // The subpage header back button must be keyboard-operable with a
   // localized accessible name so screen-reader users can leave a subpage.
-  // It navigates back to the overview (#/settings), unlike the overlay-level
-  // back button which goes home. Match it inside the subpanel block so the
+  // It navigates back to the overview (#/settings) or, for the nested Blocked
+  // Users subpage, back to People. Match it inside the subpanel block so the
   // regex cannot accidentally land on an overview row (whose template-literal
   // href also contains "#/settings/").
   const subpanel = src.slice(src.indexOf('className={`settings-subpanel'));
   const back = subpanel.match(
-    /<button\b[^>]*\bonClick=\{\(\) => navigate\('#\/settings'\)\}[^>]*\baria-label=\{t\('back'\)\}[^>]*>\s*<BackIcon/,
+    /<button\b[^>]*\bonClick=\{\(\) => navigate\(subpanelBackTarget\)\}[^>]*\baria-label=\{t\('back'\)\}[^>]*>\s*<BackIcon/,
   );
   assert.ok(back, 'subpage back button element exists');
   assert.ok(
@@ -198,8 +198,16 @@ test('settings overview rows are real buttons with names and the subpage back bu
     'subpage back button is an icon button',
   );
   assert.ok(
-    src.includes('aria-hidden={!subpageOpen}'),
+    src.includes("onClick={() => navigate('#/settings/people')}"),
+    'nested Blocked Users back button returns to People',
+  );
+  assert.ok(
+    src.includes('aria-hidden={!subpageOpen || blockedSubpageOpen}'),
     'subpage container keeps aria-hidden in sync with visibility',
+  );
+  assert.ok(
+    src.includes('aria-hidden={!blockedSubpageOpen}'),
+    'nested subpage container keeps aria-hidden in sync with visibility',
   );
 });
 
