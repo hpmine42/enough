@@ -24,9 +24,9 @@ interface PeopleSearchProps {
 /**
  * Settings-wide people search.
  *
- * This is the single search implementation used by the Settings overview and
- * by the shared subpanel header, so the same UI stays available while the user
- * navigates through Settings without duplicating any search state or logic.
+ * This is the single search implementation used by the Settings overview.
+ * It is only rendered on the overview, so no search state or logic needs to
+ * be duplicated while the user navigates through Settings subpages.
  */
 export default function PeopleSearch({
   query,
