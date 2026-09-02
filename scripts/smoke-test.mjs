@@ -12,7 +12,9 @@
  * Covered in addition to the base flows: re-request after decline
  * (one-row-per-pair), decline-and-block, block-aware search, the
  * blocked-users Settings subpage (EN/DE), unblocking, the blocked chat
- * composer for both sides, and the auth-bound request/decline RPCs.
+ * composer for both sides (including the mutual-block self-unblock case),
+ * the Home overview long-press action menu, and the auth-bound
+ * request/decline RPCs.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -2658,8 +2660,202 @@ assert(
   ),
   'blocked user gets no unblock button',
 );
+
+/* scenario H (mutual block): while the peer still blocks the current user,
+   blocking back and then unblocking must NOT re-enable the composer — the
+   block state is re-derived from the database, not assumed to be 'none'. */
+click('.chat-header .icon-button:last-child');
+await waitFor(
+  () => dom.window.document.querySelector('.sheet') !== null,
+  'chat menu opens while blocked by the peer',
+);
+const mutualBlockItem = [...dom.window.document.querySelectorAll('.sheet-item')].find(
+  (item) => item.textContent === 'Block user',
+);
+mutualBlockItem.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(() => text('.dialog-title') === 'Block @benno?', 'mutual block confirmation dialog opens');
+click('.dialog .btn-primary');
+await waitFor(
+  () =>
+    db.user_blocks.some(
+      (r) => r.blocker_id === 'user-1' && r.blocked_id === 'user-2',
+    ),
+  'mutual block stores the own block row',
+);
+await waitFor(
+  () =>
+    text('.composer-disabled')?.includes(
+      'You have blocked this user. Unblock them to chat again.',
+    ),
+  'mutual block: the own-block note takes precedence',
+);
+const mutualUnblock = [...dom.window.document.querySelectorAll('.composer-disabled button')].find(
+  (b) => b.textContent === 'Unblock',
+);
+mutualUnblock.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () =>
+    !db.user_blocks.some(
+      (r) => r.blocker_id === 'user-1' && r.blocked_id === 'user-2',
+    ),
+  'mutual unblock removes only the own block row',
+);
+await waitFor(
+  () =>
+    text('.composer-disabled')?.includes(
+      'You were blocked. You can chat again once this user unblocks you.',
+    ),
+  'self-unblock while the peer still blocks keeps the blocked-by-them note',
+);
+assert(
+  dom.window.document.querySelector('.composer-input')?.disabled === true,
+  'composer stays disabled while the peer block remains',
+);
+assert(
+  db.user_blocks.some(
+    (r) => r.blocker_id === 'user-2' && r.blocked_id === 'user-1',
+  ),
+  'the peer block row is untouched by the self-unblock',
+);
+/* only the peer unblocking re-enables the composer (reload: the realtime
+   path is stubbed in this harness) */
+db.user_blocks = [];
+setHash('#/chat/nowhere');
+await waitFor(
+  () => dom.window.document.querySelector('.composer-input') === null,
+  'chat route reload after the peer unblocks',
+);
+setHash('#/chat/conn-chatblock');
+await waitFor(
+  () => dom.window.document.querySelector('.composer-input')?.disabled === false,
+  'peer unblock re-enables the composer',
+);
+
+/* Home overview long-press: a held press opens the same action menu the
+   Chat trash button opens (Block user / Delete chat), a normal tap keeps
+   opening the chat. */
+setHash('#/');
+const overviewRowFor = (name) =>
+  [...dom.window.document.querySelectorAll('.chat-overview-row')].find(
+    (row) => row.querySelector('.chat-name')?.textContent === name,
+  );
+await waitFor(
+  () => overviewRowFor('Benno Schmidt') !== undefined,
+  'home shows the accepted chat for the long-press checks',
+);
+/* a normal tap still opens the chat */
+{
+  const tapRow = overviewRowFor('Benno Schmidt');
+  tapRow.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true }));
+  tapRow.dispatchEvent(new dom.window.Event('pointerup', { bubbles: true }));
+  tapRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+}
+await waitFor(
+  () => text('.chat-peer-name') === 'Benno Schmidt',
+  'overview tap still opens the chat',
+);
+setHash('#/');
+await waitFor(
+  () => overviewRowFor('Benno Schmidt') !== undefined,
+  'home reopens for the long-press path',
+);
+overviewRowFor('Benno Schmidt').dispatchEvent(
+  new dom.window.Event('pointerdown', { bubbles: true }),
+);
+await sleep(650);
+await waitFor(
+  () => dom.window.document.querySelector('.sheet') !== null,
+  'overview long-press opens the chat action sheet',
+);
+assert(text('.sheet-title') === 'Benno Schmidt', 'overview sheet names the pressed peer');
+{
+  const overviewLabels = [...dom.window.document.querySelectorAll('.sheet-item')].map(
+    (item) => item.textContent,
+  );
+  assert(overviewLabels.includes('Block user'), 'overview sheet offers Block user');
+  assert(overviewLabels.includes('Delete chat for me'), 'overview sheet offers Delete chat');
+}
+/* blocking goes through the existing confirmation flow */
+[...dom.window.document.querySelectorAll('.sheet-item')]
+  .find((item) => item.textContent === 'Block user')
+  .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => text('.dialog-title') === 'Block @benno?',
+  'overview block opens the existing block confirmation dialog',
+);
+click('.dialog .btn-primary');
+await waitFor(
+  () =>
+    db.user_blocks.some(
+      (r) => r.blocker_id === 'user-1' && r.blocked_id === 'user-2',
+    ),
+  'overview block stores the block row for the correct peer',
+);
+await waitFor(
+  () => dom.window.document.querySelector('.dialog') === null,
+  'overview block dialog closes',
+);
+/* an already-blocked peer gets Unblock instead of Block (same as in Chat) */
+overviewRowFor('Benno Schmidt').dispatchEvent(
+  new dom.window.Event('pointerdown', { bubbles: true }),
+);
+await sleep(650);
+await waitFor(
+  () =>
+    [...dom.window.document.querySelectorAll('.sheet-item')].some(
+      (item) => item.textContent === 'Unblock',
+    ),
+  'overview sheet switches to Unblock for an already-blocked peer',
+);
+[...dom.window.document.querySelectorAll('.sheet-item')]
+  .find((item) => item.textContent === 'Unblock')
+  .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () =>
+    !db.user_blocks.some(
+      (r) => r.blocker_id === 'user-1' && r.blocked_id === 'user-2',
+    ),
+  'overview unblock removes the block row',
+);
+await waitFor(
+  () => dom.window.document.querySelector('.sheet') === null,
+  'overview sheet closes after unblock',
+);
+/* deleting the chat goes through the existing per-user deletion flow */
+overviewRowFor('Benno Schmidt').dispatchEvent(
+  new dom.window.Event('pointerdown', { bubbles: true }),
+);
+await sleep(650);
+await waitFor(
+  () => dom.window.document.querySelector('.sheet') !== null,
+  'overview sheet reopens for the delete-chat path',
+);
+[...dom.window.document.querySelectorAll('.sheet-item')]
+  .find((item) => item.textContent === 'Delete chat for me')
+  .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+await waitFor(
+  () => text('.dialog-title') === 'Delete chat?',
+  'overview delete opens the existing delete-chat confirmation',
+);
+click('.dialog .btn-primary');
+await waitFor(
+  () => overviewRowFor('Benno Schmidt') === undefined,
+  'deleted chat disappears from the overview',
+);
+assert(
+  db.chat_deletions.some(
+    (r) => r.connection_id === 'conn-chatblock' && r.user_id === 'user-1',
+  ),
+  'overview delete stores the per-user chat deletion',
+);
+assert(
+  db.connections.some((c) => c.id === 'conn-chatblock'),
+  'overview delete keeps the connection for the peer (per-user semantics)',
+);
+
 db.user_blocks = [];
 db.connections = db.connections.filter((c) => c.id !== 'conn-chatblock');
+db.chat_deletions = db.chat_deletions.filter((r) => r.connection_id !== 'conn-chatblock');
 setHash('#/');
 
 /* my notes: enabling shows the row immediately after leaving settings */
@@ -2693,6 +2889,30 @@ assert(
 assert(
   notesOverviewRow !== null,
   'My Notes row carries the notes marker class',
+);
+
+/* long-press on the My Notes row opens the clear-and-disable dialog —
+   never the block/delete sheet (there is no peer to block). */
+notesOverviewRow
+  .querySelector('.chat-overview-row')
+  .dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true }));
+await sleep(650);
+await waitFor(
+  () => text('.dialog-title') === 'Clear this chat and disable My Notes?',
+  'My Notes long-press opens the clear-and-disable dialog',
+);
+assert(
+  dom.window.document.querySelector('.sheet') === null,
+  'My Notes long-press never opens the block/delete sheet',
+);
+click('.dialog .btn-plain');
+await waitFor(
+  () => dom.window.document.querySelector('.dialog') === null,
+  'My Notes long-press dialog can be canceled',
+);
+assert(
+  db.connections.some((c) => c.user_a === 'user-1' && c.user_b === 'user-1'),
+  'cancel keeps the My Notes self-connection (long-press path)',
 );
 
 /* write a note */

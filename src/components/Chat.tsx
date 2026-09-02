@@ -687,12 +687,17 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     setBusyId(conn.id);
     setError(null);
     const err = await unblockUser(me, peer.id);
-    setBusyId(null);
     if (err) {
+      setBusyId(null);
       setError(err);
       return;
     }
-    setBlockState('none');
+    // Re-derive the relation from the database instead of assuming 'none':
+    // with a mutual block, removing the caller's own side must still leave
+    // the composer disabled while the peer's block ('blockedByThem') exists.
+    const state = await getBlockState(me, peer.id);
+    setBusyId(null);
+    setBlockState(state);
   }
 
   async function handleCancelRequest() {
