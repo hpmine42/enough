@@ -210,6 +210,8 @@ fallback for auto-confirm setups.
 - `npm run test:i18n` / `npm run test:input` / `npm run test:a11y` /
   `npm run test:api` / `npm run test:errors` / `npm run test:helpers` —
   localization, input hardening, accessibility, API, error mapping, helpers
+- `npm run test:home` / `npm run test:chatblocks` / `npm run test:api-errors` —
+  Home realtime updates, chat block-channel behavior, API error surfacing
 - `npm run test:crypto:prekeys` — **live PostgreSQL** RPC/RLS tests for
   `claim_prekey_bundle` and the `crypto_*` policies. Starts an embedded
   real Postgres, applies `supabase/tests/bootstrap_supabase_auth.sql` +
@@ -290,3 +292,11 @@ GitHub Pages via `.github/workflows/deploy.yml` (base path `/enough/`). Only
 browser-safe publishable Supabase credentials are injected at build time from
 repository secrets. The production service worker and manifest are emitted
 into `dist/` by the build and deployed with the rest of the static site.
+
+## Self-hosting
+
+enough. can be self-hosted with your own Supabase project. See
+[`docs/self-hosting.md`](docs/self-hosting.md) for a complete guide covering
+database setup, environment configuration, build options, and the security
+model. A self-hosted instance has its own Supabase backend, users, messages,
+and database — it is fully independent of the upstream deployment.
