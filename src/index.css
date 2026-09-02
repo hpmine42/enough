@@ -83,6 +83,52 @@ textarea {
   font-family: inherit;
 }
 
+/*
+ * Prevent accidental text selection on non-editable UI chrome: buttons, the
+ * logo, navigation chrome, settings rows/labels, option/tab controls, and
+ * modal/sheet titles. Editable controls stay selectable (they are not matched
+ * by these selectors), and the Settings overlay is made non-selectable as a
+ * whole before re-enabling its editable fields so the rule cannot miss a
+ * label, icon, row, or title inside Settings.
+ */
+button,
+.logo,
+.logo-button,
+.home-header,
+.home-header-actions,
+.chat-header,
+.option,
+.tab,
+.nav-label,
+.settings-section-title,
+.settings-row,
+.settings-row-label,
+.settings-row-sub,
+.settings-field-label,
+.settings-static-row,
+.settings-email-row,
+.dialog-title,
+.sheet-title {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.settings-overlay,
+.settings-overlay * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.settings-overlay input,
+.settings-overlay textarea,
+.settings-overlay [contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 :focus-visible {
   outline: 2px solid var(--muted);
   outline-offset: 2px;
@@ -775,6 +821,17 @@ textarea {
   overscroll-behavior: contain;
 }
 
+.settings-search-wrap {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  flex-shrink: 0;
+}
+
+.settings-subpanel-search {
+  flex-shrink: 0;
+}
+
 .settings-section {
   padding: 26px 22px 16px;
 }
@@ -945,6 +1002,8 @@ textarea {
 .settings-search-results {
   margin-top: 12px;
   padding-bottom: 10px;
+  max-height: 55vh;
+  overflow-y: auto;
 }
 
 .settings-search-row {
@@ -955,6 +1014,21 @@ textarea {
 .settings-search-row:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* Active-connection rows on Settings → People */
+.settings-connection-row {
+  gap: 14px;
+  padding: 14px 4px;
+}
+
+.settings-connection-row:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.settings-connection-error {
+  margin: 8px 0;
 }
 
 /* search result whose peer is blocked (either direction) */
@@ -1000,6 +1074,12 @@ textarea {
     transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
     opacity 0.3s ease,
     visibility 0s;
+}
+
+/* Settings → People → Blocked Users uses the same subpanel slide as the
+   other Settings submenus, just on a second layer above People. */
+.settings-subpanel-nested {
+  z-index: 3;
 }
 
 .settings-subpanel-title {
