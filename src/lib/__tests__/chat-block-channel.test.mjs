@@ -45,3 +45,25 @@ test('chat block-state channel filters are scoped to the exact me↔peer pair', 
     'peer → me block filter must be present',
   );
 });
+
+// Blocked-composer invariant: after the current user removes their own block,
+// the chat must re-derive the relation from the database instead of assuming
+// 'none'. With a mutual block the peer's block remains, and hard-coding
+// 'none' would re-enable the composer even though sending is still rejected.
+// (The derivation itself is covered behaviorally in api.test.mjs; the
+// runtime composer behavior is exercised by scripts/smoke-test.mjs.)
+test('chat unblock re-derives the block state instead of assuming none', () => {
+  const start = chatSource.indexOf('async function handleUnblock');
+  assert.ok(start !== -1, 'handleUnblock must exist');
+  const end = chatSource.indexOf('async function', start + 1);
+  const body = chatSource.slice(start, end === -1 ? undefined : end);
+
+  assert.ok(
+    body.includes('getBlockState('),
+    'handleUnblock must re-read the block relation through getBlockState',
+  );
+  assert.ok(
+    !body.includes("setBlockState('none')"),
+    "handleUnblock must not hard-code the state to 'none'",
+  );
+});
