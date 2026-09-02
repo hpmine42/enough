@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { errorMessage } from './errors';
 import { sanitizeDisplayName } from './input';
-import { advanceReadPosition } from './helpers';
+import { advanceReadPosition, isHiddenByChatDeletion } from './helpers';
 import { t } from '../i18n';
 import type {
   BlockRelation,
@@ -669,13 +669,11 @@ export async function deleteMessageForEveryone(
 
 export const CHAT_HIDDEN_EVENT = 'enough-chat-hidden';
 
-export function isHiddenByChatDeletion(
-  createdAt: string | undefined,
-  hiddenUntil: string | null | undefined,
-): boolean {
-  if (!createdAt || !hiddenUntil) return false;
-  return createdAt <= hiddenUntil;
-}
+// Moved to src/lib/helpers.ts for audit P1-5 so the pure Home realtime
+// helpers share the exact same hidden-cutoff semantics without importing
+// this (Supabase-bound) module. Re-exported here: existing callers keep
+// `import { isHiddenByChatDeletion } from './api'`.
+export { isHiddenByChatDeletion };
 
 interface StoredChatDeletion {
   id: string;

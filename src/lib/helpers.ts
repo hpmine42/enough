@@ -7,6 +7,24 @@ export function otherUserId(conn: Connection, me: string): string {
   return conn.user_a === me ? conn.user_b : conn.user_a;
 }
 
+/**
+ * True when a message (or connection row) is at or before a chat-deletion
+ * cutoff and therefore hidden behind "delete chat for me".
+ *
+ * Lives in this pure module (audit P1-5) because both the API layer
+ * (`api.ts` re-exports it) and the Home realtime helpers
+ * (`src/lib/homeRealtime.ts`) must apply EXACTLY the same visibility
+ * semantics, while `homeRealtime.ts` must stay importable by the Node
+ * test runner without pulling in the Supabase-bound `api.ts`.
+ */
+export function isHiddenByChatDeletion(
+  createdAt: string | undefined,
+  hiddenUntil: string | null | undefined,
+): boolean {
+  if (!createdAt || !hiddenUntil) return false;
+  return createdAt <= hiddenUntil;
+}
+
 export function isSelfConnection(conn: Connection): boolean {
   return conn.user_a === conn.user_b;
 }
