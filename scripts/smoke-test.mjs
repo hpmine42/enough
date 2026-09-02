@@ -1157,6 +1157,17 @@ assert(
 
 /* R4: opening a category opens its subpage; back returns to the overview */
 click('.settings-category-row[data-category="profile"]');
+// Layout-stability regression: the search bar must still occupy its box in
+// the very frame the subpage starts sliding in. Removing it in that frame
+// used to shrink the overview immediately, so the content jumped upward
+// before the submenu was visibly moving. Both conditions are asserted in one
+// poll so a same-frame removal cannot slip through.
+await waitFor(
+  () =>
+    dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') === true &&
+    dom.window.document.querySelector('.settings-overlay .settings-search-wrap') !== null,
+  'search bar keeps the overview geometry while the profile subpage slides in',
+);
 await waitFor(
   () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open'),
   'profile subpage slides in',
@@ -1177,6 +1188,12 @@ assert(
     (el) => el.textContent?.trim() === 'Profile',
   ),
   'profile subpage keeps its section heading',
+);
+// Once the slide has finished the submenu covers the overview, so the search
+// bar is gone from the DOM — the subpage still shows only its own content.
+await waitFor(
+  () => dom.window.document.querySelector('.settings-search-wrap') === null,
+  'search bar is removed after the profile subpage transition settled',
 );
 // Back to the overview.
 click('.settings-subpanel .icon-button');
@@ -1214,8 +1231,11 @@ for (const { category, selector, name } of categoryExpectations) {
     () => dom.window.document.querySelector(selector) !== null,
     `${category} subpage keeps its ${name}`,
   );
-  assert(
-    dom.window.document.querySelector('.settings-search-wrap') === null,
+  // The search bar is removed only after the subpanel slide, so this is the
+  // settled state rather than an immediate one (see the layout-stability
+  // check above).
+  await waitFor(
+    () => dom.window.document.querySelector('.settings-search-wrap') === null,
     `${category} subpage does not render the people search bar`,
   );
   click('.settings-subpanel .icon-button');
@@ -1242,8 +1262,8 @@ await waitFor(
     dom.window.document.querySelector('.settings-subpanel .settings-blocked-empty') !== null,
   'blocked list opens from the People subpage and renders its empty state',
 );
-assert(
-  dom.window.document.querySelector('.settings-search-wrap') === null,
+await waitFor(
+  () => dom.window.document.querySelector('.settings-search-wrap') === null,
   'blocked users subpage does not render the people search bar',
 );
 click('.settings-subpanel-nested .icon-button');
