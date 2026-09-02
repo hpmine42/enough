@@ -14,6 +14,7 @@
     "test:input": "node --test --experimental-strip-types src/lib/__tests__/input-hardening.test.mjs",
     "test:unread": "node --test --experimental-strip-types src/lib/__tests__/unread-counts.test.mjs",
     "test:scroll": "node --test --experimental-strip-types src/lib/__tests__/chat-scroll.test.mjs",
+    "test:contrast": "node --test --experimental-strip-types src/lib/__tests__/scroll-down-contrast.test.mjs",
     "test:read": "node --test --experimental-strip-types src/lib/__tests__/read-position.test.mjs",
     "test:home": "node --test --experimental-strip-types src/lib/__tests__/home-realtime.test.mjs",
     "test:helpers": "node --test --experimental-strip-types src/lib/__tests__/helpers.test.mjs",
