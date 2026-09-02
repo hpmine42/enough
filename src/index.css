@@ -1678,6 +1678,27 @@ textarea {
   animation: scroll-down-in 0.2s ease-out;
 }
 
+/*
+ * R6 — light mode only. `--button` and `--sent` resolve to the same color
+ * (#292925), so over the user's own bubbles the disc has no edge at all and
+ * the shared dark drop shadow disappears into them (~1.09:1 over the bubble).
+ * Dark mode does not have that problem: the identical shadow stays visible
+ * against the light disc (~1.51:1), so it keeps the base rule untouched.
+ *
+ * The separation is a knockout ring in the page background. It reads as
+ * "floating above the content", uses no new color, and — because it is a
+ * `box-shadow` rather than a `border`/`outline` — it changes neither the
+ * geometry nor the entrance animation nor the global `:focus-visible`
+ * outline. Scoped to `.scroll-down` so the other `var(--button)` consumers
+ * (`.btn-small`, `.btn-primary`, `.button`, `.unread-badge`, `.toggle.on`)
+ * are unaffected.
+ */
+:root:not(.dark) .scroll-down {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 2px 10px rgba(0, 0, 0, 0.18);
+}
+
 @keyframes scroll-down-in {
   from {
     opacity: 0;
