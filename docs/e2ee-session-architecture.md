@@ -813,9 +813,9 @@ $$\text{34821 90214 55102 91823 88120 44910 11928 39201 44819 02931 84729 10492}
 > No vetted, browser-capable implementation of the **PQXDH handshake and the
 > Double Ratchet state machine** exists as of 2026-08 (full candidate audit:
 > [`docs/e2ee-implementation-feasibility.md`](./e2ee-implementation-feasibility.md)).
-> Signals offizielles libsignal ist Node-only und AGPL; alle Browser-Kandidaten
-> sind ungeprüft, inaktiv oder protokollfremd. Eine Eigenimplementierung des
-> Protokollkerns ist untersagt. E2EE-3 beginnt erst, wenn die Frage
-> *"Welche geprüfte Implementierung führt die Protokolloperationen aus?"*
-> mit einer konkreten Bibliothek beantwortet werden kann.
-> Primitives (WebCrypto + `mlkem-wasm`) sind verifiziert und GO.
+> Signal's official libsignal is Node-only and AGPL; every browser candidate
+> is unaudited, inactive, or a different protocol. Implementing the protocol
+> core in-house is forbidden. E2EE-3 starts only when the question
+> *"Which reviewed implementation performs the protocol operations?"*
+> can be answered with a concrete library.
+> Primitives (WebCrypto + `mlkem-wasm`) are verified and GO.

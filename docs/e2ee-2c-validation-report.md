@@ -1,87 +1,113 @@
 # enough. E2EE Engine Selection — Validation Report
 
-**Auftragstyp:** Strict Validation / Red Team — keine Implementierung
-**Datum:** 2026-08-23
+**Assignment type:** Strict validation / red team — no implementation
+**Date:** 2026-08-23
 **Repository:** `hpmine42/enough` @ `9b13a73` (branch `arena/01a02bfb-enough`)
-**Zu testende Hypothese:** „`@getmaapp/signal-wasm@0.6.6` ist im August 2026 die technisch sicherste und realistischste Möglichkeit, echtes 1:1-E2EE mit Signal PQXDH + Double Ratchet in enough. als Browser/PWA umzusetzen."
+**Hypothesis under test:** “`@getmaapp/signal-wasm@0.6.6` is, in August 2026, the technically safest and most realistic way to implement real 1:1 E2EE with Signal PQXDH + Double Ratchet in enough. as a browser/PWA.”
 
-> **Hinweis zur Arbeitsweise:** Es wurde keine Produktionsdatei verändert, keine Dependency hinzugefügt, keine Migration erzeugt, kein Commit erstellt. `git status` ist leer (verifiziert nach Abschluss aller Tests). Alle Ausführungstests liefen in Kopien außerhalb des Repos (`/tmp/run2b`, `/tmp/run2c`, `/tmp/redteam`, `/tmp/swverify`, `/tmp/swgit`). Diese Datei ist das einzige erzeugte Artefakt.
+> **Working method:** No production file was changed, no dependency added, no migration created, no commit made. `git status` is empty (verified after all tests). All execution tests ran in copies outside the repo (`/tmp/run2b`, `/tmp/run2c`, `/tmp/redteam`, `/tmp/swverify`, `/tmp/swgit`). This file is the only produced artifact.
 
 ---
 
-## 1. Executive Verdict
+## 1. Executive verdict
 
-> ## KORREKTUR (E2EE-2D.2, 2026-08-23)
+> ## CORRECTION (E2EE-2D.2, 2026-08-23)
 >
-> **Dieses Dokument enthielt eine sachlich falsche Beschreibung der
-> Verschlüsselungskonstruktion.** Es sprach von AES-GCM, AES-CTR, „Keystream"
-> und XOR-Wiederverwendung. Das ist **nachweislich falsch** und wird hiermit
-> zurückgezogen.
+> **This document contained a factually wrong description of the
+> encryption construction.** It spoke of AES-GCM, AES-CTR, “keystream”
+> and XOR reuse. That is **demonstrably false** and is hereby withdrawn.
 >
-> **Verifizierte Konstruktion in `@getmaapp/signal-wasm@0.6.6`:**
+> **Verified construction in `@getmaapp/signal-wasm@0.6.6`:**
 >
 > ```
 > AES-256-CBC + HMAC-SHA-256 (Encrypt-then-MAC)
 > ```
 >
-> mit einem 42-Byte-Header und einer deterministisch per KDF abgeleiteten IV.
-> Es gibt **keinen** Keystream und **keine** XOR-Struktur, gegen die zwei
-> Chiffrate „gexort" werden könnten.
+> with a 42-byte header and an IV derived deterministically via KDF.
+> There is **no** keystream and **no** XOR structure against which two
+> ciphertexts could be “XORed”.
 >
-> **Was am ursprünglichen Befund korrekt bleibt:** Der Rollback-Befund selbst
-> ist real und weiterhin CRITICAL — nur seine Begründung war falsch. Weil
-> libsignal `(cipher_key, mac_key, iv)` deterministisch aus Chain Key und
-> Counter ableitet, führt ein zurückgerollter State dazu, dass **derselbe
-> Message Key mit derselben IV auf einen anderen Klartext** angewendet wird.
-> Bei AES-CBC ist die Folge nicht Keystream-Reuse, sondern:
+> **What remains correct in the original finding:** the rollback finding
+> itself is real and still CRITICAL — only its justification was wrong.
+> Because libsignal derives `(cipher_key, mac_key, iv)` deterministically
+> from chain key and counter, rolled-back state causes **the same message
+> key with the same IV to be applied to a different plaintext**. With
+> AES-CBC the consequence is not keystream reuse, but:
 >
-> * identischer Klartext ⇒ **bytegleiches** Chiffrat,
-> * Klartexte mit gemeinsamem Präfix ⇒ gemeinsames Chiffrat-Präfix in
->   **AES-Blockgranularität** (16 Byte), was Präfix-Gleichheit leakt.
+> * identical plaintext ⇒ **byte-identical** ciphertext,
+> * plaintexts with a shared prefix ⇒ shared ciphertext prefix at
+>   **AES block granularity** (16 bytes), leaking prefix equality.
 >
-> Beides verletzt die Anforderung, dass ein Message Key genau einmal benutzt
-> wird. Die Schlussfolgerung „commit-before-send + monotone Revision sind
-> zwingend" bleibt daher unverändert gültig.
+> Both violate the requirement that a message key is used exactly once.
+> The conclusion “commit-before-send + monotonic revision are mandatory”
+> therefore remains valid.
 >
-> Die einzelnen falschen Textstellen sind unten inline korrigiert und mit
-> **[KORRIGIERT]** markiert. Es werden **keine neuen unbelegten
-> kryptografischen Behauptungen** eingeführt.
+> Individual false passages are corrected inline below and marked
+> **[CORRECTED]**. **No new unsubstantiated cryptographic claims** are
+> introduced.
 
 ---
 
 ### **CONDITIONAL GO**
 
-Die Kernhypothese hält der Prüfung **weitgehend stand** — und zwar deutlich besser, als ich zu Beginn erwartet hatte. Ich habe aktiv versucht, die Entscheidung zu zerstören, und die entscheidenden kryptographischen Behauptungen sind unabhängig bestätigt: Die drei im Architekturdokument genannten SHA-256-Hashes reproduzieren **exakt**; das WASM-Artefakt enthält nachweisbar echten libsignal-Code aus `signalapp/libsignal` Revision `b056faa6dd02961cff24064c54c089c52e1a0753`, was per `git ls-remote` **exakt dem offiziellen Upstream-Tag `v0.101.0` entspricht**; es gibt keinen Fork, kein Vendoring, keine `[patch]`-Sektion und keine eigene Kryptographie im Wrapper. PQXDH mit Kyber1024, Double Ratchet, Forward Secrecy, Replay-Rejection und identitätsgebundene Prekey-Signaturen habe ich mit eigenen, selbst geschriebenen Angriffstests empirisch bestätigt — nicht nur über den vorhandenen Spike.
+The core hypothesis **largely survives** the audit — more clearly than I
+expected at the start. I actively tried to break the decision, and the
+decisive cryptographic claims are independently confirmed: the three SHA-256
+hashes named in the architecture document reproduce **exactly**; the WASM
+artifact demonstrably contains real libsignal code from `signalapp/libsignal`
+revision `b056faa6dd02961cff24064c54c089c52e1a0753`, which via `git ls-remote`
+**exactly matches the official upstream tag `v0.101.0`**; there is no fork,
+no vendoring, no `[patch]` section and no homemade cryptography in the
+wrapper. PQXDH with Kyber1024, Double Ratchet, forward secrecy, replay
+rejection and identity-bound prekey signatures I confirmed empirically with
+my own attack tests — not only via the existing spike.
 
-Aber: Ich habe **einen CRITICAL-Blocker** gefunden, der im Architekturdokument nicht adressiert ist und der nicht durch einen Adapter wegdefiniert werden kann — **Ratchet-State-Rollback führt zu deterministischer Message-Key-/IV-Wiederverwendung** (§7, §13.A). Ich konnte reproduzierbar zeigen, dass zwei Verschlüsselungen aus demselben wiederhergestellten Session-State bei identischem Klartext **bytegleiche Ciphertexts** erzeugen und bei unterschiedlichem Klartext 134 Byte gemeinsames Präfix teilen. **[KORRIGIERT]** Das ist **kein** AES-CTR-Keystream-Reuse — die Konstruktion ist AES-256-CBC + HMAC-SHA-256 —, sondern Wiederverwendung desselben `(cipher_key, iv)`-Paars, die Präfix-Gleichheit in 16-Byte-Blockgranularität leakt und die Einmal-Benutzung eines Message Keys verletzt. Der vorhandene E2EE-2C-Vault-Spike löst genau dieses Problem bereits (monotone Revisionen, Rollback-Rejection) — die Architektur-Entscheidung erwähnt es aber nicht als das, was es ist: die sicherheitskritischste Eigenschaft des gesamten Designs. Dazu kommen ein **HIGH**-Blocker in der Supply Chain (keine CI, keine npm-Provenance, Build von einem Entwickler-Laptop mit `/Users/me/`-Pfaden im Binary, Single-Maintainer) und mehrere **sachlich falsche Detailangaben** im Dokument (Wrapper-Größe, Envelope-Vollständigkeit, teils die Kyber-Terminologie).
+But: I found **one CRITICAL blocker** that the architecture document does
+not address and that cannot be defined away by an adapter — **ratchet-state
+rollback leads to deterministic message-key/IV reuse** (§7, §13.A). I could
+reproducibly show that two encryptions from the same restored session state
+produce **byte-identical ciphertexts** for identical plaintext and share a
+134-byte prefix for different plaintext. **[CORRECTED]** This is **not**
+AES-CTR keystream reuse — the construction is AES-256-CBC + HMAC-SHA-256 —
+but reuse of the same `(cipher_key, iv)` pair, leaking prefix equality at
+16-byte block granularity and violating one-time use of a message key. The
+existing E2EE-2C vault spike already solves exactly this problem (monotonic
+revisions, rollback rejection) — but the architecture decision does not
+name it as what it is: the most security-critical property of the whole
+design. On top of that come a **HIGH** supply-chain blocker (no CI, no npm
+provenance, build from a developer laptop with `/Users/me/` paths in the
+binary, single maintainer) and several **factually wrong details** in the
+document (wrapper size, envelope completeness, partly Kyber terminology).
 
-Die Engine-Wahl selbst ist richtig — es existiert im August 2026 **keine bessere browserfähige Option**, das habe ich unabhängig geprüft (§12). Die Architektur *drumherum* braucht vor der Implementierung konkrete Korrekturen.
+The engine choice itself is right — in August 2026 **no better
+browser-capable option exists**, independently checked (§12). The
+architecture *around* it needs concrete corrections before implementation.
 
 ---
 
-## 2. Repository Findings
+## 2. Repository findings
 
-### 2.1 Tatsächlicher E2EE-Zustand
+### 2.1 Actual E2EE state
 
-| Phase | Status | Evidenz |
+| Phase | Status | Evidence |
 |---|---|---|
-| **E2EE-1** | ✅ **Gemergt, ausführbarer Produktionscode** | `src/lib/crypto/` — 13 TS-Module, 3811 LOC. X25519-Identity + Ed25519-Signing, non-extractable `CryptoKey` in IndexedDB, Prekey-Pool. |
-| **E2EE-2A** | ✅ **Gemergt, aber bewusst nicht verdrahtet** | `key-agreement.ts`, `kdf.ts`, `symmetric.ts`, `primitives.ts`. **Absichtlich nicht** aus `index.ts` re-exportiert — die Grenze ist per Test mechanisch erzwungen (`__tests__/primitives.test.mjs`). |
-| **E2EE-2B** | ⚠️ **Nur isolierter Spike** | `experiments/e2ee-2b/` — 403 LOC Harness, 13 Checks gegen `@getmaapp/signal-wasm@0.6.6`. Eigenes `package.json`, nie von `src/` importiert. |
-| **E2EE-2C** | ⚠️ **Nur isolierter Spike + Doku** | `experiments/e2ee-2c/` — 305 LOC Vault-Modell, 7 Tests. Plus `docs/e2ee-2c-architecture.md` (50 KB). |
-| **Compat-Spike** | ⚠️ **Nur Spike** | `spikes/e2ee-compat-spike/` — testet `mlkem-wasm` + `@noble/post-quantum`, **nicht** signal-wasm. |
-| **Supabase-Prekey-Schema** | ❌ **Existiert nicht** | Migrationen gehen nur bis `0010_identity_public_key.sql`. `crypto_devices`, `crypto_signed_prekeys`, `crypto_one_time_prekeys`, `crypto_kyber_prekeys`, `claim_prekey_bundle()` kommen **ausschließlich in `docs/` vor** — kein SQL. |
+| **E2EE-1** | ✅ **Merged, executable production code** | `src/lib/crypto/` — 13 TS modules, 3811 LOC. X25519 identity + Ed25519 signing, non-extractable `CryptoKey` in IndexedDB, prekey pool. |
+| **E2EE-2A** | ✅ **Merged, but deliberately not wired** | `key-agreement.ts`, `kdf.ts`, `symmetric.ts`, `primitives.ts`. **Intentionally not** re-exported from `index.ts` — the boundary is mechanically enforced by test (`__tests__/primitives.test.mjs`). |
+| **E2EE-2B** | ⚠️ **Isolated spike only** | `experiments/e2ee-2b/` — 403 LOC harness, 13 checks against `@getmaapp/signal-wasm@0.6.6`. Own `package.json`, never imported from `src/`. |
+| **E2EE-2C** | ⚠️ **Isolated spike + docs only** | `experiments/e2ee-2c/` — 305 LOC vault model, 7 tests. Plus `docs/e2ee-2c-architecture.md` (50 KB). |
+| **Compat spike** | ⚠️ **Spike only** | `spikes/e2ee-compat-spike/` — tests `mlkem-wasm` + `@noble/post-quantum`, **not** signal-wasm. |
+| **Supabase prekey schema** | ❌ **Does not exist** | Migrations only go to `0010_identity_public_key.sql`. `crypto_devices`, `crypto_signed_prekeys`, `crypto_one_time_prekeys`, `crypto_kyber_prekeys`, `claim_prekey_bundle()` appear **only in `docs/`** — no SQL. |
 
-**Testlauf-Ergebnisse (alle grün, von mir ausgeführt):**
+**Test-run results (all green, executed by me):**
 - `npm run test:crypto` → **87/87 passed**
-- `npm run build` → grün (`tsc --noEmit` + Vite, 488.84 kB / 137.21 kB gzip)
-- `npm run smoke` → alle bestanden
+- `npm run build` → green (`tsc --noEmit` + Vite, 488.84 kB / 137.21 kB gzip)
+- `npm run smoke` → all passed
 - `experiments/e2ee-2b` → **13/13 passed**
 - `experiments/e2ee-2c` → **7/7 passed**
 
-### 2.2 Plaintext-Zustand — bestätigt
+### 2.2 Plaintext state — confirmed
 
-**`messages.ciphertext` enthält heute reinen Klartext.** Beleg, exakte Stelle:
+**`messages.ciphertext` today holds pure plaintext.** Evidence, exact site:
 
 ```ts
 // src/lib/api.ts:602-606
@@ -90,38 +116,41 @@ const { data, error } = await supabase
   .insert({ connection_id: connectionId, sender_id: senderId, ciphertext: text })
 ```
 
-`text` ist der unveränderte String aus `MessageComposer`. Es findet **keinerlei** Verschlüsselung im echten Message-Flow statt.
+`text` is the unchanged string from `MessageComposer`. **No** encryption
+happens in the real message flow.
 
-Lesende/schreibende Stellen:
-- **Schreiben:** `api.ts:604` (`sendMessage`), `api.ts:623` (`deleteMessageForEveryone` setzt `ciphertext: ''`)
-- **Lesen:** `api.ts:556`, `api.ts:583` (SELECT-Listen), `components/MessageBubble.tsx:112-114` (rendert direkt), `components/Home.tsx:56` (Chat-Vorschau), `components/Chat.tsx:584`
-- **Server-seitig:** Systemnachrichten werden per SQL in Klartext eingefügt (`0001:182,210`, `0008:186,209,247`) — diese können naturgemäß **nie** E2EE-verschlüsselt werden und brauchen einen eigenen Envelope-Typ.
-- **DB-Constraint:** `0009_explicit_base_rls.sql:163-175` erzwingt, dass `ciphertext` nur auf `''` geändert werden darf, und nur beim Löschen.
+Read/write sites:
+- **Write:** `api.ts:604` (`sendMessage`), `api.ts:623` (`deleteMessageForEveryone` sets `ciphertext: ''`)
+- **Read:** `api.ts:556`, `api.ts:583` (SELECT lists), `components/MessageBubble.tsx:112-114` (renders directly), `components/Home.tsx:56` (chat preview), `components/Chat.tsx:584`
+- **Server-side:** system messages are inserted as plaintext via SQL (`0001:182,210`, `0008:186,209,247`) — these can **never** be E2EE-encrypted and need their own envelope type.
+- **DB constraint:** `0009_explicit_base_rls.sql:163-175` enforces that `ciphertext` may only be changed to `''`, and only on delete.
 
-**Fazit:** `src/lib/crypto/README.md` beschreibt den Zustand korrekt und ehrlich. Die Doku übertreibt hier nichts.
+**Conclusion:** `src/lib/crypto/README.md` describes the state correctly and
+honestly. The docs do not overclaim here.
 
 ---
 
-## 3. signal-wasm Verification
+## 3. signal-wasm verification
 
-### 3.1 Paket-Fakten (npm-Registry, unabhängig abgefragt)
+### 3.1 Package facts (npm registry, independently queried)
 
-| Feld | Wert |
+| Field | Value |
 |---|---|
-| Name / Version | `@getmaapp/signal-wasm@0.6.6` |
-| Veröffentlicht | 2026-08-19T12:50:10Z |
-| Lizenz | `AGPL-3.0-only` |
-| Maintainer | **`thecannabisapp <jia@thecannabis.app>` (einziger)** |
+| Name / version | `@getmaapp/signal-wasm@0.6.6` |
+| Published | 2026-08-19T12:50:10Z |
+| License | `AGPL-3.0-only` |
+| Maintainer | **`thecannabisapp <jia@thecannabis.app>` (only one)** |
 | `gitHead` | `0a5e3cb8bf282efb3521d7cdac5476caf3fb1acd` |
-| Dateien | 6 (LICENSE, README, package.json, .d.ts, .js, .wasm) |
-| Dependencies | **keine** |
-| Install-Scripts | **keine** (`hasInstallScript: None`) |
-| npm-Provenance | ❌ **keine** (`/-/npm/v1/attestations/...` → `{"error":"Not found"}`) |
-| Releases | 12 Versionen seit 2026-01-14 |
+| Files | 6 (LICENSE, README, package.json, .d.ts, .js, .wasm) |
+| Dependencies | **none** |
+| Install scripts | **none** (`hasInstallScript: None`) |
+| npm provenance | ❌ **none** (`/-/npm/v1/attestations/...` → `{"error":"Not found"}`) |
+| Releases | 12 versions since 2026-01-14 |
 
-**Positiv:** Keine transitiven Dependencies, keine Install-Scripts, keine unerwarteten Dateien. Die Angriffsfläche des npm-Pakets selbst ist minimal.
+**Positive:** no transitive dependencies, no install scripts, no unexpected
+files. The attack surface of the npm package itself is minimal.
 
-### 3.2 Trust Chain
+### 3.2 Trust chain
 
 ```
 Signal specification (PQXDH, Double Ratchet)     → VERIFIED
@@ -132,25 +161,26 @@ official libsignal v0.101.0 (b056faa6d)          → VERIFIED
         ↓
 WASM artifact (hash-matched, unreproducible)     → PARTIALLY VERIFIED
         ↓
-enough. adapter (existiert noch nicht)           → UNVERIFIED
+enough. adapter (does not exist yet)             → UNVERIFIED
 ```
 
-**Beweis Glied 2→3** — `Cargo.toml` des Wrappers (`/tmp/swgit`, HEAD = `0a5e3cb`, identisch mit npm `gitHead`):
+**Proof of link 2→3** — wrapper `Cargo.toml` (`/tmp/swgit`, HEAD = `0a5e3cb`, identical with npm `gitHead`):
 
 ```toml
 libsignal-protocol = { git = "https://github.com/signalapp/libsignal", rev = "b056faa6dd02961cff24064c54c089c52e1a0753" }
 zkgroup             = { git = "https://github.com/signalapp/libsignal", rev = "b056faa6dd02961cff24064c54c089c52e1a0753" }
 ```
 
-**Unabhängige Verifikation dieser Revision gegen Signal:**
+**Independent verification of this revision against Signal:**
 ```
 $ git ls-remote https://github.com/signalapp/libsignal | grep v0.101
 e1d4fd21fec6b9b5583aa4e7d319777765372d00  refs/tags/v0.101.0
 b056faa6dd02961cff24064c54c089c52e1a0753  refs/tags/v0.101.0^{}
 ```
-→ Der gepinnte Commit **ist** exakt das offizielle Signal-Release-Tag `v0.101.0`. Das ist der stärkste Einzelbefund dieser Validierung.
+→ The pinned commit **is** exactly the official Signal release tag `v0.101.0`.
+That is the strongest single finding of this validation.
 
-**Beweis, dass der Core im Binary steckt** — Strings aus `signal_wasm_bg.wasm`:
+**Proof that the core is in the binary** — strings from `signal_wasm_bg.wasm`:
 ```
 /Users/me/.cargo/git/checkouts/libsignal-2a193a9867decbc4/b056faa/rust/protocol/src/pqxdh.rs
 /Users/me/.cargo/git/checkouts/libsignal-2a193a9867decbc4/b056faa/rust/protocol/src/double_ratchet.rs
@@ -158,44 +188,53 @@ b056faa6dd02961cff24064c54c089c52e1a0753  refs/tags/v0.101.0^{}
 libsignal_protocol::kem::kyber1024::Parameters::encapsulate
 libsignal_protocol::ratchet::keys::MessageKeys::derive_keys
 ```
-Cargo-Git-Checkout-Pfade mit Revisions-Präfix `b056faa` — das ist ein echter Git-Dependency-Build, kein kopierter Code.
+Cargo git-checkout paths with revision prefix `b056faa` — a real git-dependency
+build, not copied code.
 
-### 3.3 Antworten auf die 12 Fragen aus §7 des Auftrags
+### 3.3 Answers to the 12 questions from assignment §7
 
-1. **libsignal-Version:** v0.101.0
-2. **Commit:** `b056faa6dd02961cff24064c54c089c52e1a0753` (= offizielles Tag)
-3. **Direkt als Dependency?** ✅ Ja, Cargo-Git-Dependency
-4. **Code kopiert?** ❌ Nein
-5. **Code geforkt?** ❌ Nein — Remote ist `github.com/signalapp/libsignal`
-6. **Core verändert?** ❌ Nein — keine `[patch.crates-io]`, keine `[replace]`, kein `vendor/`
-7. **Original Signal:** gesamte Kryptographie (PQXDH, Double Ratchet, KEM, Curve25519, KDF, AEAD, Fingerprints)
-8. **Vom Wrapper:** ausschließlich wasm-bindgen-Bindings + Store-Decorators (`RemovableSessionStore`, `ConsumptionTrackingPreKeyStore`, `KyberUsageTrackingStore`, `RemovableSenderKeyStore`)
-9. **Eigene Krypto-Implementierungen:** **keine** — `grep` nach `Hmac|Sha256::|Aes|chacha|fn hkdf|derive_key` in `src/lib.rs` liefert **null** Treffer
-10. **Patch-Dateien:** keine
-11. **Lokale Forks:** keine
-12. **Abweichungen:** nur additive Store-Funktionalität (`delete_session`, `remove_kyber_pre_key`, Usage-Tracking) — dokumentiert und begründet mit Upstream-Zeilenverweisen
+1. **libsignal version:** v0.101.0
+2. **Commit:** `b056faa6dd02961cff24064c54c089c52e1a0753` (= official tag)
+3. **Direct dependency?** ✅ Yes, Cargo git dependency
+4. **Code copied?** ❌ No
+5. **Code forked?** ❌ No — remote is `github.com/signalapp/libsignal`
+6. **Core changed?** ❌ No — no `[patch.crates-io]`, no `[replace]`, no `vendor/`
+7. **Original Signal:** all cryptography (PQXDH, Double Ratchet, KEM, Curve25519, KDF, AEAD, fingerprints)
+8. **From the wrapper:** wasm-bindgen bindings + store decorators only (`RemovableSessionStore`, `ConsumptionTrackingPreKeyStore`, `KyberUsageTrackingStore`, `RemovableSenderKeyStore`)
+9. **Homemade crypto implementations:** **none** — `grep` for `Hmac|Sha256::|Aes|chacha|fn hkdf|derive_key` in `src/lib.rs` yields **zero** hits
+10. **Patch files:** none
+11. **Local forks:** none
+12. **Deviations:** additive store functionality only (`delete_session`, `remove_kyber_pre_key`, usage tracking) — documented and justified with upstream line references
 
-> **Das Architekturdokument ist hier korrekt.** Die Behauptung „offizieller libsignal Rust Core" ist **VERIFIED**.
+> **The architecture document is correct here.** The claim “official libsignal
+> Rust core” is **VERIFIED**.
 
-### 3.4 Korrektur: Wrapper-Größe
+### 3.4 Correction: wrapper size
 
-> **The architecture document is incorrect here.** Die Behauptung „wrapper is ~500 lines" ist **INCORRECT**. `wc -l src/lib.rs` → **2024 Zeilen**, plus 2771 Zeilen Tests (`tests/web.rs`). Das ist ein Faktor 4. Das ist kein Sicherheitsproblem — mehr Code bedeutet hier mehr Store-Sorgfalt, nicht mehr Krypto —, aber die Zahl im Dokument ist schlicht falsch und muss korrigiert werden, weil sie zur Risikobewertung („trivial auditierbar") herangezogen wird. 2024 Zeilen Rust sind auditierbar, aber nicht an einem Nachmittag.
+> **The architecture document is incorrect here.** The claim “wrapper is ~500
+> lines” is **INCORRECT**. `wc -l src/lib.rs` → **2024 lines**, plus 2771 lines
+> of tests (`tests/web.rs`). That is a factor of 4. This is not a security
+> problem — more code here means more store care, not more crypto — but the
+> number in the document is simply wrong and must be corrected because it is
+> used for risk assessment (“trivially auditable”). 2024 lines of Rust are
+> auditable, but not in an afternoon.
 
 ---
 
-## 4. PQXDH Verification
+## 4. PQXDH verification
 
-### 4.1 Empirischer Nachweis
+### 4.1 Empirical evidence
 
-Aus meinem eigenen Test (`/tmp/redteam/t2.mjs`, nicht der Spike):
+From my own test (`/tmp/redteam/t2.mjs`, not the spike):
 ```
-[KEM] kyber pub bytes  = 1569   (ML-KEM-1024/Kyber1024 pk = 1568 + 1 Typ-Byte)
-[KEM] kyber sig bytes  = 64     (XEdDSA über X25519-Identity)
+[KEM] kyber pub bytes  = 1569   (ML-KEM-1024/Kyber1024 pk = 1568 + 1 type byte)
+[KEM] kyber sig bytes  = 64     (XEdDSA over X25519 identity)
 [KEM] kyber record     = 4821
 ```
-1568 Byte ist die **eindeutige** Public-Key-Größe von Kyber-1024 / ML-KEM-1024. Damit ist die Parameterwahl unabhängig von jeder Dokumentation bewiesen.
+1568 bytes is the **unique** public-key size of Kyber-1024 / ML-KEM-1024.
+That proves the parameter choice independently of any documentation.
 
-### 4.2 Quellcode-Nachweis
+### 4.2 Source evidence
 
 `/tmp/swgit/src/lib.rs:1473-1495`:
 ```rust
@@ -206,340 +245,474 @@ pub async fn generate_kyber_pre_key(key_id: u32, identity_key_pair: &WasmIdentit
         .calculate_signature(&key_pair.public_key.serialize(), &mut rng)?;
     let kyber_record = KyberPreKeyRecord::new(key_id.into(), timestamp, &key_pair, &signature);
 ```
-Der Kyber-Prekey wird mit dem **Identity-Key signiert** — genau wie die PQXDH-Spezifikation es verlangt. Ich habe das auch negativ geprüft: eine gefälschte Signatur wird mit `SignatureValidationFailed` abgelehnt.
+The Kyber prekey is **signed with the identity key** — exactly as the PQXDH
+specification requires. I also checked the negative case: a forged signature
+is rejected with `SignatureValidationFailed`.
 
-### 4.3 PQXDH-Info-String aus dem Binary
+### 4.3 PQXDH info string from the binary
 
 ```
 WhisperText_X25519_SHA-256_CRYSTALS-KYBER-1024
 X3DH no longer supported
 ```
-Das ist der kanonische PQXDH-Domain-Separator von libsignal. Bemerkenswert: **`X3DH no longer supported`** — die Engine erzwingt PQXDH, ein Downgrade auf klassisches X3DH ist nicht möglich. Zusätzlich bestätigt durch `Kyber pre key must be present for this session version`.
+That is libsignal’s canonical PQXDH domain separator. Notable: **`X3DH no
+longer supported`** — the engine enforces PQXDH; a downgrade to classical
+X3DH is impossible. Additionally confirmed by `Kyber pre key must be present
+for this session version`.
 
-Mein Test bestätigt das an der API: `processPreKeyBundle` hat **keine Overload ohne Kyber-Parameter** — `kyber_prekey_id`, `kyber_prekey`, `kyber_prekey_signature` sind non-nullable, während `prekey_id`/`prekey` nullable sind. **PQXDH ist nicht optional.**
+My test confirms this at the API: `processPreKeyBundle` has **no overload
+without Kyber parameters** — `kyber_prekey_id`, `kyber_prekey`,
+`kyber_prekey_signature` are non-nullable, while `prekey_id`/`prekey` are
+nullable. **PQXDH is not optional.**
 
-### 4.4 Terminologie — teilweise Korrektur
+### 4.4 Terminology — partial correction
 
-Die Frage aus §8 des Auftrags war berechtigt, die Antwort ist differenzierter als erwartet. Im Binary finden sich **zwei** PQ-Primitiven:
+The question from assignment §8 was justified; the answer is more nuanced
+than expected. The binary contains **two** PQ primitives:
 
-| Verwendung | Primitive | Nachweis |
+| Use | Primitive | Evidence |
 |---|---|---|
-| **PQXDH-Handshake** | **Kyber1024** (Round-3 CRYSTALS-Kyber, *nicht* FIPS-203-ML-KEM) | `libsignal_protocol::kem::kyber1024::Parameters::encapsulate`, Info-String `CRYSTALS-KYBER-1024` |
-| **SPQR / Triple Ratchet** | **ML-KEM-768** (FIPS 203) über `libcrux-ml-kem 0.0.10` | `spqr::incremental_mlkem768`, `Signal_PQCKA_V1_MLKEM768:...`, Dependency `SparsePostQuantumRatchet v1.5.3` |
+| **PQXDH handshake** | **Kyber1024** (Round-3 CRYSTALS-Kyber, *not* FIPS-203 ML-KEM) | `libsignal_protocol::kem::kyber1024::Parameters::encapsulate`, info string `CRYSTALS-KYBER-1024` |
+| **SPQR / Triple Ratchet** | **ML-KEM-768** (FIPS 203) via `libcrux-ml-kem 0.0.10` | `spqr::incremental_mlkem768`, `Signal_PQCKA_V1_MLKEM768:...`, dependency `SparsePostQuantumRatchet v1.5.3` |
 
-> **Verdict:** „Kyber1024" ist für **PQXDH** die **korrekte und weiterhin aktuelle** Bezeichnung — libsignal v0.101.0 verwendet dort bewusst das Round-3-Kyber, nicht ML-KEM. Das Dokument ist hier also **richtig**, aber **unvollständig**: Es erwähnt nicht, dass 0.6.6 zusätzlich Signals **SPQR-Triple-Ratchet mit ML-KEM-768** enthält. Das ist eine *Verbesserung* (kontinuierliche PQ-Rekeying statt nur PQ-Handshake), muss aber in der Doku stehen — schon weil es die Session-Record-Größe auf **5885 Byte** treibt (statt der ~2 KB, die man von klassischem libsignal erwartet). Das hat direkte Konsequenzen für das IndexedDB-Budget.
+> **Verdict:** “Kyber1024” is the **correct and still current** name for
+> **PQXDH** — libsignal v0.101.0 deliberately uses Round-3 Kyber there, not
+> ML-KEM. The document is therefore **right** here, but **incomplete**: it
+> does not mention that 0.6.6 additionally contains Signal’s **SPQR Triple
+> Ratchet with ML-KEM-768**. That is an *improvement* (continuous PQ rekeying
+> rather than PQ handshake only), but it must be in the docs — not least
+> because it drives session-record size to **5885 bytes** (instead of the
+> ~2 KB expected from classical libsignal). That has direct consequences
+> for the IndexedDB budget.
 
 **PQXDH: VERIFIED.**
 
 ---
 
-## 5. Double Ratchet Verification
+## 5. Double Ratchet verification
 
-Alle Prüfungen sind empirisch, mit eigenen Tests.
+All checks are empirical, with my own tests.
 
-| Eigenschaft | Ergebnis | Evidenz |
+| Property | Result | Evidence |
 |---|---|---|
-| Message-Typen | ✅ | `prekey=3`, `signal=2`, `senderkey=7` |
-| Erste Nachricht = PreKeyMessage | ✅ | `t=3`, danach `t=2` |
-| Sending/Receiving Chain | ✅ | Protobuf-Feldnamen im Binary: `sender_chain`, `receiver_chains`, `root_key`, `chain_key`, `message_keys` |
-| **DH-Ratchet** | ✅ | `ratchet_key_of_ciphertext` liefert für Alice und Bob **verschiedene** Ratchet-Keys |
-| Symmetrischer Ratchet | ✅ | Session-State ändert sich nach **jedem** encrypt/decrypt (6 unique Snapshots) |
-| **Skipped Message Keys / Out-of-order** | ✅ | M1→M3→M2 dekryptiert korrekt, danach M4 — Session bleibt konsistent |
-| **Replay-Rejection** | ✅ | Zweiter Decrypt desselben Ciphertexts → `DuplicatedMessage` |
-| Tampered Ciphertext | ✅ | Bit-Flip → abgelehnt |
-| **Forward Secrecy** | ✅ **empirisch** | Session-State nach m1..m3 gestohlen → **0 von 3** alten Ciphertexts entschlüsselbar |
-| **Post-Compromise Security** | ⚠️ **eingeschränkt** | Gestohlener State entschlüsselt m4 (nächste Nachricht derselben Chain). PCS greift erst, **nachdem** die Gegenseite den DH-Ratchet dreht. |
-| Session-Serialisierung | ✅ | `export_session`/`import_session`, 5885 B, kryptographisch neutral (rohe libsignal-Records) |
+| Message types | ✅ | `prekey=3`, `signal=2`, `senderkey=7` |
+| First message = PreKeyMessage | ✅ | `t=3`, then `t=2` |
+| Sending/receiving chain | ✅ | protobuf field names in the binary: `sender_chain`, `receiver_chains`, `root_key`, `chain_key`, `message_keys` |
+| **DH ratchet** | ✅ | `ratchet_key_of_ciphertext` yields **different** ratchet keys for Alice and Bob |
+| Symmetric ratchet | ✅ | session state changes after **every** encrypt/decrypt (6 unique snapshots) |
+| **Skipped message keys / out-of-order** | ✅ | M1→M3→M2 decrypts correctly, then M4 — session stays consistent |
+| **Replay rejection** | ✅ | second decrypt of the same ciphertext → `DuplicatedMessage` |
+| Tampered ciphertext | ✅ | bit-flip → rejected |
+| **Forward secrecy** | ✅ **empirical** | session state stolen after m1..m3 → **0 of 3** old ciphertexts decryptable |
+| **Post-compromise security** | ⚠️ **limited** | stolen state decrypts m4 (next message of the same chain). PCS only kicks in **after** the peer turns the DH ratchet. |
+| Session serialization | ✅ | `export_session`/`import_session`, 5885 B, cryptographically neutral (raw libsignal records) |
 
-> **Zur Behauptung „Double Ratchet provides forward secrecy and post-compromise security":** FS ist **VERIFIED** (empirisch). PCS ist **PARTIALLY VERIFIED** — das ist keine Schwäche der Engine, sondern die korrekte, spezifikationsgemäße Eigenschaft des Double Ratchet. Das Dokument sollte PCS aber nicht unqualifiziert behaupten: PCS ist *eventual*, nicht sofortig, und setzt einen Antwort-Roundtrip voraus. In einem 1:1-Messenger, in dem ein Nutzer tagelang nicht antwortet, ist das ein real relevanter Unterschied.
+> **On the claim “Double Ratchet provides forward secrecy and post-compromise
+> security”:** FS is **VERIFIED** (empirically). PCS is **PARTIALLY VERIFIED**
+> — that is not an engine weakness, but the correct, spec-conformant Double
+> Ratchet property. The document should not claim PCS unqualified: PCS is
+> *eventual*, not immediate, and requires a reply round-trip. In a 1:1
+> messenger where a user may not reply for days, that is a real difference.
 
 ---
 
-## 6. Browser/WASM Verification
+## 6. Browser/WASM verification
 
-| Prüfpunkt | Ergebnis | Evidenz |
+| Check | Result | Evidence |
 |---|---|---|
-| Node-Globals (`fs`, `path`, `process`, `Buffer`, `require`) | ✅ **keine** | grep über `signal_wasm.js` → null Treffer |
-| Node-Crypto-Import | ✅ **keiner** | Nutzt `globalThis.crypto.getRandomValues` (Web Crypto) |
-| Polyfills nötig | ✅ **nein** | Vite-Build ohne jede Polyfill-Konfiguration grün |
-| **SharedArrayBuffer / Atomics** | ✅ **nicht verwendet** | grep → null Treffer |
-| **COOP/COEP / Cross-Origin-Isolation** | ✅ **nicht erforderlich** | Folgt direkt aus dem vorigen Punkt |
-| Worker erforderlich | ✅ nein | Single-threaded |
-| WASM-Laden | ✅ | `new URL('signal_wasm_bg.wasm', import.meta.url)` → von Vite als Asset gehasht |
-| MIME | ⚠️ | `instantiateStreaming` braucht `application/wasm`; Fallback auf `instantiate` vorhanden. GitHub Pages liefert korrekt. |
-| **Vite-Build** | ✅ **grün** | `dist/assets/signal_wasm_bg-fOyaQtRb.wasm 797.75 kB │ gzip: 302.94 kB` |
-| Haupt-App-Build | ✅ grün | 488.84 kB / 137.21 kB gzip |
-| CSP | ⚠️ | Braucht `'wasm-unsafe-eval'` in `script-src`. **Im Dokument nicht erwähnt.** |
+| Node globals (`fs`, `path`, `process`, `Buffer`, `require`) | ✅ **none** | grep over `signal_wasm.js` → zero hits |
+| Node crypto import | ✅ **none** | uses `globalThis.crypto.getRandomValues` (Web Crypto) |
+| Polyfills needed | ✅ **no** | Vite build green with no polyfill config |
+| **SharedArrayBuffer / Atomics** | ✅ **not used** | grep → zero hits |
+| **COOP/COEP / cross-origin isolation** | ✅ **not required** | follows from the previous point |
+| Worker required | ✅ no | single-threaded |
+| WASM load | ✅ | `new URL('signal_wasm_bg.wasm', import.meta.url)` → hashed by Vite as an asset |
+| MIME | ⚠️ | `instantiateStreaming` needs `application/wasm`; fallback to `instantiate` present. GitHub Pages serves correctly. |
+| **Vite build** | ✅ **green** | `dist/assets/signal_wasm_bg-fOyaQtRb.wasm 797.75 kB │ gzip: 302.94 kB` |
+| Main app build | ✅ green | 488.84 kB / 137.21 kB gzip |
+| CSP | ⚠️ | needs `'wasm-unsafe-eval'` in `script-src`. **Not mentioned in the document.** |
 
-### 6.1 Korrektur: Bundle-Größe
+### 6.1 Correction: bundle size
 
-> **The architecture document is incorrect here.** Die Behauptung „299 KB gzip" ist **INCORRECT**, wenn auch knapp:
+> **The architecture document is incorrect here.** The claim “299 KB gzip”
+> is **INCORRECT**, if only narrowly:
 
-| Datei | roh | gzip -9 |
+| File | raw | gzip -9 |
 |---|---|---|
 | `signal_wasm_bg.wasm` | 797 749 B | **300 711 B** |
 | `signal_wasm.js` | 78 213 B | **12 920 B** |
-| **Summe** | 875 962 B | **313 631 B ≈ 306 KB** |
+| **Total** | 875 962 B | **313 631 B ≈ 306 KB** |
 
-Vite meldet für das WASM allein 302.94 kB gzip. Die korrekte Zahl für den **Gesamtzuwachs** ist **~306 KB gzip**, nicht 299 KB. Zum Vergleich: die aktuelle App ist 137 KB gzip — die Engine **verdreifacht** die Download-Größe. Für eine mobile-first PWA ist das die wichtigste Zahl im ganzen Dokument und sie sollte nicht zu niedrig angegeben werden.
+Vite reports 302.94 kB gzip for the WASM alone. The correct number for the
+**total increase** is **~306 KB gzip**, not 299 KB. For comparison: the
+current app is 137 KB gzip — the engine **triples** the download size. For
+a mobile-first PWA that is the most important number in the whole document
+and should not be understated.
 
-### 6.2 Nicht verifizierbar in dieser Umgebung
+### 6.2 Not verifiable in this environment
 
-Der Playwright-Chromium-Download ist in dieser Sandbox blockiert (Netzwerk + fehlende System-Fonts). **Alle Engine-Tests liefen unter Node 24, nicht in einem echten Browser.** Das ist eine ehrliche Lücke: Node und Browser teilen zwar `globalThis.crypto` und die WASM-Engine, aber iOS-Safari-spezifisches Verhalten (WASM-Speicherlimits, IndexedDB-Eviction, Web Locks) ist **nicht** getestet. Das Architekturdokument stützt sich auf denselben Node-Spike — die Behauptung „läuft sauber in Browser/PWA" ist damit **PARTIALLY VERIFIED** und braucht einen echten Gerätetest.
+Playwright Chromium download is blocked in this sandbox (network + missing
+system fonts). **All engine tests ran under Node 24, not in a real browser.**
+That is an honest gap: Node and the browser share `globalThis.crypto` and
+the WASM engine, but iOS Safari-specific behaviour (WASM memory limits,
+IndexedDB eviction, Web Locks) is **not** tested. The architecture document
+rests on the same Node spike — the claim “runs cleanly in browser/PWA” is
+therefore **PARTIALLY VERIFIED** and needs a real-device test.
 
 ---
 
-## 7. Persistence Verification
+## 7. Persistence verification
 
-### 7.1 Der CRITICAL-Befund: Rollback ⇒ Message-Key-/IV-Reuse **[KORRIGIERT]**
+### 7.1 The CRITICAL finding: rollback ⇒ message-key/IV reuse **[CORRECTED]**
 
-Das ist das wichtigste Ergebnis dieser Validierung. Reproduzierbarer Test (`/tmp/redteam/t3.mjs`):
+This is the most important result of this validation. Reproducible test
+(`/tmp/redteam/t3.mjs`):
 
 ```
-[KEYREUSE] gleicher Klartext, zurückgerollter State
-           → Ciphertext-Bodies IDENTISCH: true
-[KEYREUSE] verschiedene Klartexte, gleicher Counter
-           → gemeinsames Präfix: 134 von 1792 Byte
+[KEYREUSE] same plaintext, rolled-back state
+           → ciphertext bodies IDENTICAL: true
+[KEYREUSE] different plaintexts, same counter
+           → shared prefix: 134 of 1792 bytes
 ```
 
-**Was passiert:** libsignal ist deterministisch. Aus demselben Chain-Key und Counter leitet `MessageKeys::derive_keys` denselben `cipher_key` **und dieselbe IV** ab. Wird der Session-State auf Revision N zurückgesetzt und erneut verschlüsselt, wird derselbe Message-Key mit derselben IV auf einen **anderen** Klartext angewendet.
+**What happens:** libsignal is deterministic. From the same chain key and
+counter, `MessageKeys::derive_keys` derives the same `cipher_key` **and the
+same IV**. If session state is reset to revision N and encrypted again, the
+same message key with the same IV is applied to a **different** plaintext.
 
-**[KORRIGIERT]** Die ursprüngliche Fassung schloss hier auf „XOR beider Ciphertexts = XOR beider Klartexte". Das gilt für Stromchiffren bzw. CTR — **nicht** für die tatsächlich verwendete Konstruktion **AES-256-CBC + HMAC-SHA-256**. Die korrekte Konsequenz bei CBC mit wiederverwendetem `(key, iv)`:
+**[CORRECTED]** The original version concluded “XOR of both ciphertexts =
+XOR of both plaintexts”. That holds for stream ciphers / CTR — **not** for
+the construction actually used, **AES-256-CBC + HMAC-SHA-256**. The correct
+consequence of CBC with reused `(key, iv)`:
 
-* identischer Klartext ⇒ **bytegleiches** Chiffrat (bestätigt durch die Messung oben),
-* gemeinsames Klartext-Präfix ⇒ gemeinsames Chiffrat-Präfix, aufgelöst in **16-Byte-Blöcken** (die gemessenen 134 Byte entsprechen 8 vollen Blöcken plus Header),
-* daraus folgt ein **Leak von Präfix-Gleichheit**, keine direkte Klartext-Wiederherstellung per XOR.
+* identical plaintext ⇒ **byte-identical** ciphertext (confirmed by the
+  measurement above),
+* shared plaintext prefix ⇒ shared ciphertext prefix, resolved in
+  **16-byte blocks** (the measured 134 bytes correspond to 8 full blocks
+  plus header),
+* that yields a **leak of prefix equality**, not direct plaintext recovery
+  via XOR.
 
-Das ist weiterhin ein Bruch der Double-Ratchet-Anforderung „ein Message Key wird genau einmal benutzt" und bleibt **CRITICAL**. Der Angreifer braucht dafür keinen Schlüssel.
+This is still a break of the Double Ratchet requirement “a message key is
+used exactly once” and remains **CRITICAL**. The attacker needs no key.
 
-**Auslöser im geplanten Design:** Browser-Crash zwischen „Ratchet-State im WASM verändert" (`encryptMessage`) und „Vault-Commit". Beim Reload wird der alte State hydratisiert, die Nachricht neu gesendet — Message-Key-/IV-Wiederverwendung **[KORRIGIERT: nicht Keystream-Reuse]**. Auf iOS Safari ist genau das kein Randfall: Der OS-Kill von Hintergrund-Tabs ist Normalbetrieb.
+**Trigger in the planned design:** browser crash between “ratchet state
+mutated in WASM” (`encryptMessage`) and “vault commit”. On reload the old
+state is hydrated, the message is sent again — message-key/IV reuse
+**[CORRECTED: not keystream reuse]**. On iOS Safari that is not an edge
+case: OS kill of background tabs is normal operation.
 
-**Sekundäreffekt (empfindlich, aber nicht kritisch):** Nach Rollback lehnt der Empfänger die zweite Nachricht mit `DuplicatedMessage` ab. Die Nachricht ist **dauerhaft verloren** — die Session erholt sich zwar (msg-C kommt an), aber msg-B ist weg, ohne dass die UI es merkt. Ein stiller Nachrichtenverlust in einem Messenger ist ein Produktfehler.
+**Secondary effect (sensitive, but not critical):** after rollback the
+receiver rejects the second message with `DuplicatedMessage`. The message
+is **permanently lost** — the session recovers (msg-C arrives) but msg-B is
+gone without the UI noticing. Silent message loss in a messenger is a
+product bug.
 
-**Und die Empfängerseite ist noch schlimmer:**
+**And the receiver side is worse:**
 ```
 [ROLLBACK-RECEIVER]
-  erster Decrypt:            "secret"
-  sofortiger Replay:         DuplicatedMessage  ✅
-  nach Vault-Rollback:       AKZEPTIERT ERNEUT  ❌
+  first decrypt:            "secret"
+  immediate replay:         DuplicatedMessage  ✅
+  after vault rollback:     ACCEPTED AGAIN     ❌
 ```
-Der Replay-Schutz des Double Ratchet lebt **ausschließlich** im Session-State. Wer den Vault auf einen älteren Stand zurücksetzt (Backup-Restore, IndexedDB-Korruption, Angreifer mit lokalem Zugriff), reaktiviert Replay-Angriffe vollständig.
+Double Ratchet replay protection lives **exclusively** in session state.
+Whoever rolls the vault back to an older snapshot (backup restore,
+IndexedDB corruption, attacker with local access) fully reactivates replay
+attacks.
 
-**Warum kein Adapter das löst:** Die Determinismus-Eigenschaft steckt in libsignal selbst und ist dort korrekt. Ein Adapter kann sie nicht „wegkapseln". Die einzige Abwehr ist ein **Persistenz-Protokoll**, das garantiert, dass ein einmal fortgeschrittener Ratchet-State niemals rückwärts geht — d. h. **commit-before-send** mit monotoner Revision und Fail-closed-Verhalten.
+**Why no adapter solves this:** the determinism is in libsignal itself and
+is correct there. An adapter cannot “wrap it away”. The only defence is a
+**persistence protocol** that guarantees a once-advanced ratchet state
+never goes backwards — i.e. **commit-before-send** with monotonic revision
+and fail-closed behaviour.
 
-**Gute Nachricht:** `experiments/e2ee-2c/` implementiert **genau das** bereits im Modell:
-- `commitDecryptMutation()` schreibt Session + Kyber-Usage + Tombstones + Revision in **einer** IndexedDB-Transaktion mit `durability: 'strict'`
-- Test „older session backup is rejected (rollback protection)" ✅
-- Test „revision conflict aborts and leaves previous tombstones/session intact" ✅
-- AAD bindet jeden Record an `userId|kind|recordId` — Records lassen sich nicht zwischen Accounts oder Slots verschieben
+**Good news:** `experiments/e2ee-2c/` already implements **exactly that**
+in the model:
+- `commitDecryptMutation()` writes session + Kyber usage + tombstones +
+  revision in **one** IndexedDB transaction with `durability: 'strict'`
+- Test “older session backup is rejected (rollback protection)” ✅
+- Test “revision conflict aborts and leaves previous tombstones/session intact” ✅
+- AAD binds every record to `userId|kind|recordId` — records cannot be
+  moved between accounts or slots
 
-Der 2C-Spike ist die Lösung. Das Architekturdokument **verkauft sie nur nicht als das, was sie ist**, und schreibt die Reihenfolge-Garantie nicht als verbindliche Invariante fest.
+The 2C spike is the solution. The architecture document **just does not
+sell it as what it is**, and does not write the order guarantee as a
+binding invariant.
 
-### 7.2 Multi-Tab
+### 7.2 Multi-tab
 
 ```
-[MULTI-TAB FORK] zwei Tabs hydratisieren denselben Snapshot, beide senden
+[MULTI-TAB FORK] two tabs hydrate the same snapshot, both send
   tab1 → "from tab1" ✅
   tab2 → REJECTED: DuplicatedMessage
 ```
-Der Fork ist **nicht still** — der Empfänger lehnt ab. Das ist besser als befürchtet (**[KORRIGIERT]** keine unbemerkte Message-Key-/IV-Wiederverwendung zwischen Tabs, weil beide denselben Counter benutzen und der zweite auffliegt). Aber: Tab 2s Nachricht ist **verloren**, und der Sender erfährt es nicht. Ein Web Lock ist damit **funktional zwingend**, nicht optional.
+The fork is **not silent** — the receiver rejects. That is better than
+feared (**[CORRECTED]** no unnoticed message-key/IV reuse between tabs,
+because both use the same counter and the second is caught). But: tab 2’s
+message is **lost**, and the sender is not told. A Web Lock is therefore
+**functionally mandatory**, not optional.
 
-### 7.3 Web Locks auf iOS Safari
+### 7.3 Web Locks on iOS Safari
 
-`navigator.locks` ist seit Safari 15.4 verfügbar, das ist nicht das Problem. Das Problem ist die **Lebensdauer**: Wird ein iOS-Tab im Hintergrund vom OS beendet, verschwindet der Lock ohne `finally`-Ausführung. Das ist für die Korrektheit sogar gut (kein Deadlock), aber es bedeutet: **Ein Lock allein ist keine Garantie.** Die Revisions-Prüfung aus 2C muss die zweite, autoritative Verteidigungslinie sein — der Lock ist Performance-Optimierung, die Revision ist der Sicherheitsmechanismus. Kann ein Send hängen? Ja, wenn der Lock nicht mit Timeout genommen wird (`ifAvailable` oder `AbortSignal` nötig).
-
----
-
-## 8. Supabase Verification
-
-**Zentraler Befund: Es gibt nichts zu verifizieren.** Die vier Tabellen und `claim_prekey_bundle()` existieren **ausschließlich in Prosa** (`docs/e2ee-2c-architecture.md:646-649`, `docs/e2ee-session-architecture.md`). Kein SQL, keine Migration, keine RLS-Policy, keine Tests. Die Behauptung, das Supabase-Modell sei „korrekt", ist damit **UNVERIFIED** — nicht falsch, nur unbelegt.
-
-Was ich anhand des bestehenden Schemas beurteilen kann:
-
-**Positiv:** Das Projekt hat eine belastbare RLS-Kultur — `0009_explicit_base_rls.sql` mit expliziten Base-Policies, `guard_profile_update` als Spalten-Whitelist, und eine dedizierte `supabase/rls-tests.sql`. Das ist eine gute Grundlage.
-
-**Konkrete Risiken für das geplante Prekey-Schema:**
-
-1. **OTK-Consumption-Race** — `claim_prekey_bundle()` **muss** `FOR UPDATE SKIP LOCKED` verwenden. Ohne das können zwei gleichzeitige Sender denselben One-Time-Prekey erhalten. Konsequenz: Beide bauen eine Session gegen denselben OTK; der Empfänger akzeptiert nur die erste (der OTK ist nach dem ersten Decrypt weg), die zweite scheitert. Kein Krypto-Bruch, aber Nachrichtenverlust.
-2. **Kyber-Prekey-Consumption** — hier liegt der subtilere Fehler. Die Engine meldet konsumierte Kyber-IDs über `WasmDecryptResult.kyberPreKeyId`, **aber** `remove_kyber_pre_key()` darf für **Last-Resort-Keys nicht** aufgerufen werden (sonst geht der Anti-Replay-Schutz verloren, siehe `.d.ts:134-149`). Die Unterscheidung one-time/last-resort muss die **Anwendung** treffen — libsignal tut es nicht. Das Datenbankschema muss das `is_last_resort`-Flag also **autoritativ** führen.
-3. **Last-Resort-Prekey nicht erzeugbar** — siehe §15.
-4. **Claim-ohne-Send** — wenn ein Sender ein Bundle claimt und nie sendet, ist der OTK verbrannt. Braucht Nachfüll-Logik mit Schwellwert (z. B. < 20 → auf 100 auffüllen).
-5. **User-Enumeration** — `profiles` SELECT ist `authenticated USING true` (aus 0009). Eine Prekey-Tabelle mit derselben Policy erlaubt es jedem eingeloggten Nutzer, Bundles beliebiger Nutzer zu claimen und damit deren OTK-Pool zu erschöpfen (DoS → erzwungener Last-Resort-Fallback). Rate-Limiting nötig.
-6. **Deletion-Cascade** — `0004_delete_account.sql` muss um die Prekey-Tabellen erweitert werden.
+`navigator.locks` has been available since Safari 15.4; that is not the
+problem. The problem is **lifetime**: if iOS kills a background tab, the
+lock vanishes without `finally`. That is even good for correctness (no
+deadlock), but it means: **a lock alone is not a guarantee.** The 2C
+revision check must be the second, authoritative defence — the lock is a
+performance optimization, the revision is the security mechanism. Can a
+send hang? Yes, if the lock is not taken with a timeout (`ifAvailable` or
+`AbortSignal` required).
 
 ---
 
-## 9. Envelope Verification
+## 8. Supabase verification
 
-Vorgeschlagen:
+**Central finding: there is nothing to verify.** The four tables and
+`claim_prekey_bundle()` exist **only in prose** (`docs/e2ee-2c-architecture.md:646-649`,
+`docs/e2ee-session-architecture.md`). No SQL, no migration, no RLS policy,
+no tests. The claim that the Supabase model is “correct” is therefore
+**UNVERIFIED** — not false, just unproven.
+
+What I can judge from the existing schema:
+
+**Positive:** the project has a solid RLS culture — `0009_explicit_base_rls.sql`
+with explicit base policies, `guard_profile_update` as a column whitelist,
+and a dedicated `supabase/rls-tests.sql`. That is a good foundation.
+
+**Concrete risks for the planned prekey schema:**
+
+1. **OTK consumption race** — `claim_prekey_bundle()` **must** use
+   `FOR UPDATE SKIP LOCKED`. Without it two concurrent senders can get the
+   same one-time prekey. Consequence: both build a session against the same
+   OTK; the receiver accepts only the first (the OTK is gone after the first
+   decrypt), the second fails. No crypto break, but message loss.
+2. **Kyber prekey consumption** — the subtler bug. The engine reports
+   consumed Kyber IDs via `WasmDecryptResult.kyberPreKeyId`, **but**
+   `remove_kyber_pre_key()` must **not** be called for last-resort keys
+   (otherwise anti-replay protection is lost, see `.d.ts:134-149`). The
+   one-time vs last-resort distinction must be made by the **application**
+   — libsignal does not. The database schema must therefore carry the
+   `is_last_resort` flag **authoritatively**.
+3. **Last-resort prekey not generatable** — see §15.
+4. **Claim-without-send** — if a sender claims a bundle and never sends,
+   the OTK is burned. Needs refill logic with a threshold (e.g. < 20 → fill
+   to 100).
+5. **User enumeration** — `profiles` SELECT is `authenticated USING true`
+   (from 0009). A prekey table with the same policy lets any logged-in user
+   claim bundles of arbitrary users and exhaust their OTK pool (DoS → forced
+   last-resort fallback). Rate limiting needed.
+6. **Deletion cascade** — `0004_delete_account.sql` must be extended with
+   the prekey tables.
+
+---
+
+## 9. Envelope verification
+
+Proposed:
 ```json
 { "v": 1, "e": "sw", "t": 3, "b": "base64-of-libsignal-ciphertext-body" }
 ```
 
-### 9.1 Ist `t` manipulierbar?
+### 9.1 Is `t` tamperable?
 
-Getestet (`/tmp/redteam/t1.mjs`) — echter Typ 3, alle anderen Werte untergeschoben:
+Tested (`/tmp/redteam/t1.mjs`) — real type 3, all other values substituted:
 ```
 t=2   → rejected (Generic)
 t=7   → rejected (Validation failed)
 t=0   → rejected (Validation failed)
 t=255 → rejected (Validation failed)
 ```
-**Kein Sicherheitsbruch.** `t` ist ein Dispatch-Hinweis; der Ciphertext ist selbst-authentifizierend. Manipulation = DoS, nicht Entschlüsselung. Die Frage aus §16 ist damit beantwortet: `t` außerhalb der AEAD zu führen ist **akzeptabel**.
+**No security break.** `t` is a dispatch hint; the ciphertext is
+self-authenticating. Tampering = DoS, not decryption. The question from §16
+is therefore answered: carrying `t` outside the AEAD is **acceptable**.
 
-### 9.2 Was fehlt — das Envelope ist unvollständig
+### 9.2 What is missing — the envelope is incomplete
 
-> **The architecture document is incorrect here.** Das Envelope ist **nicht ausreichend**.
+> **The architecture document is incorrect here.** The envelope is **not
+> sufficient**.
 
-| Fehlend | Warum zwingend |
+| Missing | Why mandatory |
 |---|---|
-| **`deviceId` (Sender)** | `decryptMessage` verlangt `sender: WasmProtocolAddress(name, device_id)`. Ohne Device-ID im Envelope **kann der Empfänger die Adresse nicht bilden**. Aktuell hardcoded auf `1` — das zementiert Single-Device für immer. `src/` kennt heute **kein** Device-Konzept (`grep deviceId src/` findet nur Testdateien). |
-| **`registrationId` (Sender)** | Signal-Desktop nutzt das für Stale-Session-Erkennung; die Engine exponiert dafür extra `session_remote_registration_id()`. Ohne dieses Feld kann enough. eine Neuregistrierung des Peers nicht sauber erkennen. |
-| **Envelope-Typ für Systemnachrichten** | `messages` enthält SQL-generierte Klartext-Systemnachrichten (`kind: 'name_change'` etc., z. B. `0008:186`). Diese können nie E2EE sein. Ohne Diskriminator kann der Client verschlüsselt/unverschlüsselt nicht unterscheiden → Parse-Fehler oder, schlimmer, Fallback-auf-Klartext. |
+| **`deviceId` (sender)** | `decryptMessage` requires `sender: WasmProtocolAddress(name, device_id)`. Without a device id in the envelope **the receiver cannot form the address**. Currently hardcoded to `1` — that cements single-device forever. `src/` today has **no** device concept (`grep deviceId src/` finds only test files). |
+| **`registrationId` (sender)** | Signal Desktop uses this for stale-session detection; the engine even exposes `session_remote_registration_id()`. Without this field enough. cannot cleanly detect a peer re-registration. |
+| **Envelope type for system messages** | `messages` contains SQL-generated plaintext system messages (`kind: 'name_change'` etc., e.g. `0008:186`). These can never be E2EE. Without a discriminator the client cannot tell encrypted from unencrypted → parse errors or, worse, fallback-to-plaintext. |
 
-Empfohlenes Minimum:
+Recommended minimum:
 ```json
 { "v": 1, "e": "sw", "t": 3, "sd": 1, "sr": 12345, "b": "..." }
 ```
-`v`/`e` sind korrekt und sinnvoll (Versionierung + Engine-Diskriminator für spätere Migration). Die Base64-Kodierung des Bodies ist tragbar (+33 % Overhead auf ~1759 B PreKey-Messages ≈ 2.3 KB pro Nachricht; `bytea` wäre effizienter, aber `text` ist schema-kompatibel).
+`v`/`e` are correct and useful (versioning + engine discriminator for later
+migration). Base64 of the body is tolerable (+33 % overhead on ~1759 B
+prekey messages ≈ 2.3 KB per message; `bytea` would be more efficient, but
+`text` is schema-compatible).
 
-**Nicht** ins Envelope gehören dürfen: Session-Identifier (die Session ergibt sich aus `(sender_address, local_address)`), Message-Keys, irgendein Ratchet-State.
+Must **not** go in the envelope: session identifiers (the session follows
+from `(sender_address, local_address)`), message keys, any ratchet state.
 
-**Klassifikation:** **HIGH**, nicht CRITICAL — es ist kein Krypto-Bruch, aber es macht Multi-Device dauerhaft unmöglich und bricht am Systemnachrichten-Pfad.
+**Classification:** **HIGH**, not CRITICAL — not a crypto break, but it
+makes multi-device permanently impossible and breaks on the system-message
+path.
 
 ---
 
-## 10. Supply Chain Verification
+## 10. Supply-chain verification
 
-### 10.1 Hash-Verifikation — alle drei bestätigt ✅
+### 10.1 Hash verification — all three confirmed ✅
 
-Ich habe das Tarball frisch von der Registry geladen und gehasht:
+I loaded the tarball fresh from the registry and hashed it:
 
-| Artefakt | Dokument | Gemessen | |
+| Artifact | Document | Measured | |
 |---|---|---|---|
 | `signal_wasm_bg.wasm` | `71b456b8…20d6c1` | `71b456b8a1bfc93111be86fdff9726ed397de55f223ee9136dab619a6620d6c1` | ✅ |
 | `signal_wasm.js` | `c72af7ae…883410` | `c72af7ae13a17fca0b0c2a2b8acb948c9eb9c71a17f9c4194c53bdf2ab883410` | ✅ |
 | npm tarball | `c3e0d6cd…5e3082` | `c3e0d6cdd2598634ca95bf531513d3ea9e44ce01dbb4f5ddd64d49313e5e3082` | ✅ |
 
-Zusätzlich in `/tmp/run2b/node_modules` nach `npm ci` gegengeprüft — identisch. **Das Dokument ist hier exakt korrekt.**
+Additionally cross-checked in `/tmp/run2b/node_modules` after `npm ci` —
+identical. **The document is exactly correct here.**
 
-### 10.2 Aber: Hashes beweisen nur Unveränderlichkeit, nicht Vertrauenswürdigkeit
+### 10.2 But: hashes prove immutability, not trustworthiness
 
-> **Zur Frage „Ist vendored artifact + hash pinning ausreichend?" — Nein.**
+> **On “is vendored artifact + hash pinning sufficient?” — No.**
 
-Ein Hash bestätigt: „dieses Byte-Array ist dasselbe wie gestern". Er bestätigt **nicht**, dass das Byte-Array aus dem geprüften Quellcode entstanden ist. Genau diese Lücke ist hier offen:
+A hash confirms: “this byte array is the same as yesterday”. It does
+**not** confirm that the byte array was produced from the reviewed source.
+Exactly that gap is open here:
 
-| Kontrolle | Status |
+| Control | Status |
 |---|---|
-| npm-Provenance / SLSA-Attestation | ❌ **keine** — Registry-Endpoint liefert `{"error":"Not found"}` |
-| CI / Release-Automation | ❌ **keine** — `ls .github/workflows` → existiert nicht |
-| Reproducible Build | ❌ **nein** — `/Users/me/.cargo/...` und `/Users/me/src/signal-wasm/target/...` im Binary belegen einen **Laptop-Build** |
-| Signierte Tags | ❌ Tags nur bis `v0.2.0`, aktuelle Releases ungetaggt |
-| Maintainer | ⚠️ **Single Point of Failure** — genau eine Person |
-| SBOM | ❌ nicht veröffentlicht |
-| Unabhängige Audits | ❌ nur Selbst-Audit (`SECURITY_AUDIT_REPORT.md`, Stand v0.1.1 — **fünf Minor-Releases veraltet**) |
-| Install-Scripts / Deps | ✅ keine (positiv) |
-| Namensraum | ⚠️ unscoped `signal-wasm@0.6.2` existiert (gleicher Maintainer — kein Squat, aber Verwechslungsgefahr; Pinning auf den **scoped** Namen ist Pflicht) |
+| npm provenance / SLSA attestation | ❌ **none** — registry endpoint returns `{"error":"Not found"}` |
+| CI / release automation | ❌ **none** — `ls .github/workflows` → does not exist |
+| Reproducible build | ❌ **no** — `/Users/me/.cargo/...` and `/Users/me/src/signal-wasm/target/...` in the binary prove a **laptop build** |
+| Signed tags | ❌ tags only up to `v0.2.0`, current releases untagged |
+| Maintainer | ⚠️ **single point of failure** — exactly one person |
+| SBOM | ❌ not published |
+| Independent audits | ❌ only self-audit (`SECURITY_AUDIT_REPORT.md`, as of v0.1.1 — **five minor releases stale**) |
+| Install scripts / deps | ✅ none (positive) |
+| Namespace | ⚠️ unscoped `signal-wasm@0.6.2` exists (same maintainer — not a squat, but mix-up risk; pinning the **scoped** name is mandatory) |
 
-**Ich konnte den Build nicht reproduzieren** — in dieser Sandbox ist keine Rust-Toolchain vorhanden. Selbst mit Toolchain wäre exakte Reproduktion wegen der eingebetteten absoluten Pfade unwahrscheinlich, solange `--remap-path-prefix` nicht gesetzt wird.
+**I could not reproduce the build** — this sandbox has no Rust toolchain.
+Even with a toolchain, exact reproduction would be unlikely because of
+embedded absolute paths unless `--remap-path-prefix` is set.
 
-**Realistische Risikoeinschätzung:** Der Quellcode ist verifizierbar sauber und pinnt einen verifizierbar offiziellen libsignal-Commit. Ein böswilliges Binary müsste vom veröffentlichten Quellcode abweichen — möglich, aber es gibt keinen Hinweis darauf. Das Risiko ist nicht „das Paket ist kompromittiert", sondern „**niemand kann beweisen, dass es das nicht ist**", kombiniert mit „ein einziger kompromittierter npm-Account genügt für ein bösartiges 0.6.7". Bei einer E2EE-Engine ist das eine bewusst zu treffende Entscheidung, kein Detail.
+**Realistic risk assessment:** the source is verifiably clean and pins a
+verifiably official libsignal commit. A malicious binary would have to
+diverge from the published source — possible, but there is no indication.
+The risk is not “the package is compromised”, but “**nobody can prove it is
+not**”, combined with “one compromised npm account is enough for a
+malicious 0.6.7”. For an E2EE engine that is a decision to make
+consciously, not a detail.
 
-**Klassifikation: HIGH.** Minimal-Mitigation: Artefakt vendoren (nicht aus npm zur Buildzeit ziehen), Hash in CI erzwingen, `npm ci` mit Lockfile-Pin auf die **exakte** Version, und Upstream-Releases manuell reviewen statt automatisch zu übernehmen.
+**Classification: HIGH.** Minimal mitigation: vendor the artifact (do not
+pull from npm at build time), enforce the hash in CI, `npm ci` with
+lockfile pin to the **exact** version, and review upstream releases
+manually instead of taking them automatically.
 
 ---
 
-## 11. License Verification
+## 11. License verification
 
-**Ich bin kein Anwalt. Nichts hier ist Rechtsberatung.**
+**I am not a lawyer. Nothing here is legal advice.**
 
-**Technische Fakten:**
-- `@getmaapp/signal-wasm` → `AGPL-3.0-only` (npm-Metadaten **und** mitgelieferte `LICENSE` = AGPLv3-Volltext, verifiziert)
-- Upstream `libsignal` v0.101.0 → ebenfalls `AGPL-3.0-only` (Signals Standardlizenz)
+**Technical facts:**
+- `@getmaapp/signal-wasm` → `AGPL-3.0-only` (npm metadata **and** shipped `LICENSE` = full AGPLv3 text, verified)
+- Upstream `libsignal` v0.101.0 → also `AGPL-3.0-only` (Signal’s standard license)
 - `@signalapp/libsignal-client` → `AGPL-3.0-only`
-- Rust-Dependencies (wasm-bindgen, getrandom, uuid, zeroize, rand, subtle) → durchweg MIT/Apache-2.0, AGPL-kompatibel
-- **Verteilungsform:** Das WASM wird in das Vite-Bundle gelinkt und an jeden Browser ausgeliefert. Technisch ist das **Distribution** — und wegen der Bundle-Integration eher statisches als dynamisches Linken.
-- enough. hat aktuell **keine** `LICENSE`-Datei im Repository.
+- Rust dependencies (wasm-bindgen, getrandom, uuid, zeroize, rand, subtle) → MIT/Apache-2.0 throughout, AGPL-compatible
+- **Distribution form:** the WASM is linked into the Vite bundle and delivered to every browser. Technically that is **distribution** — and because of bundle integration closer to static than dynamic linking.
+- enough. currently has **no** `LICENSE` file in the repository.
 
-**Technisch wahrscheinlich:** Die AGPL-Verpflichtung greift. Weil der Client-Code ohnehin an den Browser ausgeliefert wird, ist die praktische Hürde niedrig — der Quellcode ist bereits öffentlich auf GitHub.
+**Technically likely:** the AGPL obligation applies. Because the client code
+is delivered to the browser anyway, the practical hurdle is low — the
+source is already public on GitHub.
 
-**Rechtlich unklar — Legal Counsel erforderlich:**
-1. **AGPL §13 („Remote Network Interaction")** — greift das, wenn der AGPL-Code im *Browser des Nutzers* läuft und nicht auf dem Server? Die Rechtslage zu WASM-im-Browser unter AGPL ist meines Wissens ungeklärt.
-2. **Umfang der „Corresponding Source"** — muss nur der E2EE-Adapter, oder die **gesamte** enough.-Anwendung unter AGPL gestellt werden? Bei statischem Linken in ein gemeinsames Bundle ist die konservative Lesart: alles.
-3. **Supabase-Backend** — wird die Server-Seite von §13 erfasst, obwohl dort kein AGPL-Code läuft?
-4. **Impressum/Haftung** — enough. hat ein Impressum (`src/config/imprint.ts`), operiert also vermutlich unter deutschem Recht. AGPL-Durchsetzbarkeit und Gewährleistungsausschlüsse sollten dort geprüft werden.
-5. **Zukünftige Kommerzialisierung** — AGPL schließt ein späteres proprietäres Modell praktisch aus. Das ist eine **Geschäftsentscheidung**, keine technische.
+**Legally unclear — legal counsel required:**
+1. **AGPL §13 (“Remote Network Interaction”)** — does it apply when the AGPL code runs in the *user’s browser* and not on the server? The legal situation for WASM-in-browser under AGPL is, to my knowledge, unsettled.
+2. **Scope of “Corresponding Source”** — only the E2EE adapter, or the **entire** enough. application under AGPL? With static linking into a shared bundle the conservative reading is: everything.
+3. **Supabase backend** — is the server side covered by §13 even though no AGPL code runs there?
+4. **Imprint/liability** — enough. has an imprint (`src/config/imprint.ts`), so it presumably operates under German law. AGPL enforceability and warranty disclaimers should be reviewed there.
+5. **Future commercialization** — AGPL practically rules out a later proprietary model. That is a **business decision**, not a technical one.
 
-> **The architecture document is incorrect here** — nicht in der Sache, sondern im Ton. „enough. kann deshalb einfach AGPL werden" ist eine **rechtliche Schlussfolgerung ohne rechtliche Prüfung**. Das Wort „einfach" ist unangebracht. Die Lizenzentscheidung ist irreversibel (einmal AGPL ausgeliefert, lässt sich das für ausgelieferte Versionen nicht zurücknehmen) und braucht eine bewusste, dokumentierte Entscheidung.
+> **The architecture document is incorrect here** — not on the facts, but
+> in tone. “enough. can therefore simply become AGPL” is a **legal
+> conclusion without legal review**. The word “simply” is inappropriate.
+> The license decision is irreversible (once AGPL is shipped, it cannot be
+> taken back for shipped versions) and needs a conscious, documented
+> decision.
 
 ---
 
-## 12. Alternative Engines
+## 12. Alternative engines
 
-Alle Angaben frisch von npm abgefragt (2026-08-23).
+All figures freshly queried from npm (2026-08-23).
 
-| Kandidat | Version | Lizenz | Browser? | Protokoll | Verdict |
+| Candidate | Version | License | Browser? | Protocol | Verdict |
 |---|---|---|---|---|---|
-| **`@signalapp/libsignal-client`** | 0.101.0 | AGPL-3.0 | ❌ **nein** | Signal PQXDH+DR | `node-gyp-build`-Dependency, `build_node_bridge.py` → **native Node-Binding**. Kein WASM-Target. **Doku bestätigt.** |
-| **`@getmaapp/signal-wasm`** | 0.6.6 | AGPL-3.0 | ✅ | Signal PQXDH+DR+SPQR | Einziger browserfähiger Weg zum echten libsignal-Core. |
-| **`@matrix-org/matrix-sdk-crypto-wasm`** | 18.5.0 | Apache-2.0 | ✅ | Olm/Megolm | Gepflegt (10.08.2026), sehr reif, bessere Supply Chain (Matrix.org-Org, CI). **Aber:** Olm ist **kein PQXDH** — kein Post-Quantum-Handshake. Zudem Matrix-Datenmodell (Rooms/Devices) tief verdrahtet → schwerer Impedance-Mismatch für einen 1:1-Messenger auf Supabase. |
-| **`@wireapp/core-crypto`** | 10.4.0 | GPL-3.0 | ✅ | MLS + Proteus | Aktiv (19.08.2026). MLS ist gruppenorientiert; für 1:1 Overkill. Proteus = altes Axolotl **ohne PQ**. Braucht MLS Delivery Service — passt nicht zu Supabase. |
-| **OpenMLS** | — | — | ⚠️ | MLS | **Nicht auf npm** (`npm view openmls` → 404). Doku bestätigt. |
-| **vodozemac** | — | — | ⚠️ | Olm | **Nicht auf npm** (404). Nur via matrix-sdk-crypto-wasm. |
-| **`openpgp`** | 6.3.1 | LGPL-3.0+ | ✅ | OpenPGP | **Kein Ratchet, keine Forward Secrecy.** Für Messaging ungeeignet. Doku bestätigt. |
-| Pure-TS-Ports | — | — | ✅ | Signal | `@lukium/libsignal-protocol-typescript@0.1.0-beta.2` — Beta, unmaintained. Nicht vertrauenswürdig. Doku bestätigt. |
+| **`@signalapp/libsignal-client`** | 0.101.0 | AGPL-3.0 | ❌ **no** | Signal PQXDH+DR | `node-gyp-build` dependency, `build_node_bridge.py` → **native Node binding**. No WASM target. **Docs confirmed.** |
+| **`@getmaapp/signal-wasm`** | 0.6.6 | AGPL-3.0 | ✅ | Signal PQXDH+DR+SPQR | Only browser-capable path to the real libsignal core. |
+| **`@matrix-org/matrix-sdk-crypto-wasm`** | 18.5.0 | Apache-2.0 | ✅ | Olm/Megolm | Maintained (2026-08-10), very mature, better supply chain (Matrix.org org, CI). **But:** Olm is **not PQXDH** — no post-quantum handshake. Also Matrix data model (rooms/devices) deeply wired → heavy impedance mismatch for a 1:1 messenger on Supabase. |
+| **`@wireapp/core-crypto`** | 10.4.0 | GPL-3.0 | ✅ | MLS + Proteus | Active (2026-08-19). MLS is group-oriented; overkill for 1:1. Proteus = old Axolotl **without PQ**. Needs an MLS delivery service — does not fit Supabase. |
+| **OpenMLS** | — | — | ⚠️ | MLS | **Not on npm** (`npm view openmls` → 404). Docs confirmed. |
+| **vodozemac** | — | — | ⚠️ | Olm | **Not on npm** (404). Only via matrix-sdk-crypto-wasm. |
+| **`openpgp`** | 6.3.1 | LGPL-3.0+ | ✅ | OpenPGP | **No ratchet, no forward secrecy.** Unsuitable for messaging. Docs confirmed. |
+| Pure-TS ports | — | — | ✅ | Signal | `@lukium/libsignal-protocol-typescript@0.1.0-beta.2` — beta, unmaintained. Not trustworthy. Docs confirmed. |
 
-**Neuere Kandidaten (Suche nach „pqxdh", August 2026):** `webcrypto-ratchet@0.7.2`, `@open-e2ee/signal-protocol-sdk@0.4.0`, `@oxpulse/crypto-primitives`, `@transmissionbot/core-wasm@0.1.2`. Alle scheitern an denselben Kriterien: Solo-Maintainer, Pre-1.0, kein libsignal-Core, keine Audits, teils Neuimplementierungen des Protokolls in TypeScript. **Keiner ist eine ernsthafte Alternative** — mehrere sind schlechter als signal-wasm, weil sie Signal *nachbauen* statt es einzubinden.
+**Newer candidates (search for “pqxdh”, August 2026):** `webcrypto-ratchet@0.7.2`, `@open-e2ee/signal-protocol-sdk@0.4.0`, `@oxpulse/crypto-primitives`, `@transmissionbot/core-wasm@0.1.2`. All fail the same criteria: solo maintainer, pre-1.0, no libsignal core, no audits, some reimplement the protocol in TypeScript. **None is a serious alternative** — several are worse than signal-wasm because they *rebuild* Signal instead of binding it.
 
-> **Fazit:** Die Alternativen-Analyse des Dokuments ist **VERIFIED**. Die Behauptung „only browser-capable Signal implementation" stimmt in der präzisierten Form: *die einzige browserfähige Bindung an den offiziellen libsignal-Core*. Wenn PQXDH gefordert ist, gibt es **keine Wahl**. Wenn PQ verhandelbar wäre, wäre `@matrix-org/matrix-sdk-crypto-wasm` wegen der drastisch besseren Supply Chain ein legitimer Gegenkandidat — aber der Protokoll-Mismatch wiegt schwerer.
+> **Conclusion:** the document’s alternatives analysis is **VERIFIED**. The
+> claim “only browser-capable Signal implementation” holds in the precise
+> form: *the only browser-capable binding to the official libsignal core*.
+> If PQXDH is required, there is **no choice**. If PQ were negotiable,
+> `@matrix-org/matrix-sdk-crypto-wasm` would be a legitimate counter-candidate
+> because of the drastically better supply chain — but the protocol mismatch
+> weighs more.
 
 ---
 
-## 13. Threat Model Results
+## 13. Threat-model results
 
-| # | Szenario | Ergebnis |
+| # | Scenario | Result |
 |---|---|---|
-| **A** | **Server-Compromise** (gesamte DB + Realtime) | ✅ **Hält.** Nur öffentliche Prekeys + Ciphertexts. Private Keys und Ratchet-State verlassen den Browser nie. Metadaten (wer-mit-wem-wann) bleiben exponiert — inhärent bei Supabase, im Dokument korrekt als „untrusted" markiert. |
-| **B** | **Malicious Server** (falsche Prekeys) | ✅ **Weitgehend hält.** Empirisch: Kyber-Prekey-Swap → `SignatureValidationFailed`; Signed-Prekey-Swap → `SignatureValidationFailed`. Beide sind identitätssigniert. OTK-Swap wird akzeptiert — das ist **spezifikationskonform** (OTKs sind in X3DH/PQXDH unsigniert) und harmlos, da der OTK nur in die KDF eingeht. Server kann OTK-Erschöpfung erzwingen (DoS → Last-Resort). |
-| **C** | **MITM** | ⚠️ **Hängt an enough., nicht an der Engine.** Identity-Key-Ersetzung: die Engine wirft `UntrustedIdentity` bei **bekanntem** Peer — bei **erstem** Kontakt gibt es naturgemäß keinen Vergleichswert. Der Server *kann* beim Erstkontakt einen falschen Identity Key liefern. Abwehr: Safety Numbers (`generateSafetyNumber` + `verifyScannableFingerprint`, beide vorhanden und getestet) + TOFU-Pinning. **Ohne Safety-Number-UI ist enough. gegen einen bösartigen Server beim Erstkontakt nicht geschützt.** Das Dokument nennt TOFU, aber nicht als Pflicht-Deliverable. |
-| **D** | **Rollback** | 🔴 **BRICHT — CRITICAL.** Siehe §7.1. Sender: Message-Key-/IV-Reuse **[KORRIGIERT: nicht Keystream-Reuse; AES-CBC + HMAC]**. Empfänger: Replay-Schutz vollständig aufgehoben (empirisch bestätigt: derselbe Ciphertext wird nach Vault-Rollback erneut akzeptiert). |
-| **E** | **Crash** (encrypt→persist→send) | 🔴 **BRICHT — CRITICAL.** Crash nach `encryptMessage`, vor Commit → Rollback (Fall D). Crash nach Commit, vor Send → Nachricht verloren, aber **kryptographisch sicher** (Ratchet ist bereits vorgerückt). ⇒ **Die einzig sichere Reihenfolge ist encrypt → commit → send.** Verlorene Nachrichten sind akzeptabel, Message-Key-Wiederverwendung nicht. **[KORRIGIERT]** |
-| **F** | **Multi-Tab** | ⚠️ **Degradiert, nicht gebrochen.** Zweiter Tab → `DuplicatedMessage` beim Empfänger. Keine Message-Key-Wiederverwendung **[KORRIGIERT]** (beide nutzen denselben Counter, der zweite fliegt auf), aber stiller Nachrichtenverlust. Web Lock + Revisions-Check zwingend. |
-| **G** | **Identity Change** (Bob löscht Browserdaten) | ✅ **Sauber.** Engine wirft `UntrustedIdentity` — Alices Store lässt die neue Identität **nicht** stillschweigend zu. enough. **muss** das als UI-Warnung behandeln („Sicherheitsnummer hat sich geändert") und darf nicht blind `archive_session` + Neuaufbau machen; sonst ist der MITM-Schutz wertlos. |
-| **H** | **Key Compromise** (Session-State gestohlen) | ✅/⚠️ **Wie spezifiziert.** Alte Nachrichten: **0 von 3** entschlüsselbar → **Forward Secrecy hält**. Zukünftige Nachrichten derselben Chain: entschlüsselbar → **PCS erst nach DH-Ratchet-Drehung**. Korrektes Double-Ratchet-Verhalten. |
+| **A** | **Server compromise** (entire DB + realtime) | ✅ **Holds.** Only public prekeys + ciphertexts. Private keys and ratchet state never leave the browser. Metadata (who-with-whom-when) stays exposed — inherent with Supabase, correctly marked “untrusted” in the document. |
+| **B** | **Malicious server** (wrong prekeys) | ✅ **Largely holds.** Empirically: Kyber prekey swap → `SignatureValidationFailed`; signed-prekey swap → `SignatureValidationFailed`. Both are identity-signed. OTK swap is accepted — that is **spec-conformant** (OTKs are unsigned in X3DH/PQXDH) and harmless because the OTK only enters the KDF. Server can force OTK exhaustion (DoS → last-resort). |
+| **C** | **MITM** | ⚠️ **Depends on enough., not the engine.** Identity-key replacement: the engine throws `UntrustedIdentity` for a **known** peer — on **first** contact there is naturally no comparison value. The server *can* deliver a wrong identity key at first contact. Defence: safety numbers (`generateSafetyNumber` + `verifyScannableFingerprint`, both present and tested) + TOFU pinning. **Without a safety-number UI enough. is not protected against a malicious server at first contact.** The document names TOFU, but not as a mandatory deliverable. |
+| **D** | **Rollback** | 🔴 **BREAKS — CRITICAL.** See §7.1. Sender: message-key/IV reuse **[CORRECTED: not keystream reuse; AES-CBC + HMAC]**. Receiver: replay protection fully lifted (empirically confirmed: the same ciphertext is accepted again after vault rollback). |
+| **E** | **Crash** (encrypt→persist→send) | 🔴 **BREAKS — CRITICAL.** Crash after `encryptMessage`, before commit → rollback (case D). Crash after commit, before send → message lost, but **cryptographically safe** (ratchet already advanced). ⇒ **The only safe order is encrypt → commit → send.** Lost messages are acceptable, message-key reuse is not. **[CORRECTED]** |
+| **F** | **Multi-tab** | ⚠️ **Degraded, not broken.** Second tab → `DuplicatedMessage` at the receiver. No message-key reuse **[CORRECTED]** (both use the same counter, the second is caught), but silent message loss. Web Lock + revision check mandatory. |
+| **G** | **Identity change** (Bob clears browser data) | ✅ **Clean.** Engine throws `UntrustedIdentity` — Alice’s store does **not** silently accept the new identity. enough. **must** treat this as a UI warning (“safety number has changed”) and must not blindly `archive_session` + rebuild; otherwise MITM protection is worthless. |
+| **H** | **Key compromise** (session state stolen) | ✅/⚠️ **As specified.** Old messages: **0 of 3** decryptable → **forward secrecy holds**. Future messages of the same chain: decryptable → **PCS only after DH ratchet turn**. Correct Double Ratchet behaviour. |
 
 ---
 
-## 14. Claim Verification Matrix
+## 14. Claim verification matrix
 
-| # | Behauptung | Verdict | Belegstelle |
+| # | Claim | Verdict | Evidence |
 |---|---|---|---|
-| 1 | „real Signal protocol" | ✅ **VERIFIED** | libsignal v0.101.0 als Git-Dep; PQXDH+DR-Symbole im Binary |
-| 2 | „official libsignal core" | ✅ **VERIFIED** | `rev = b056faa6d` = Tag `v0.101.0` via `git ls-remote` |
-| 3 | „PQXDH" | ✅ **VERIFIED** | `pqxdh.rs` im Binary; Kyber non-nullable; `X3DH no longer supported` |
-| 4 | „Kyber1024" | ⚠️ **PARTIALLY VERIFIED** | Für PQXDH korrekt (1569 B pk). Unerwähnt: SPQR-Triple-Ratchet nutzt zusätzlich **ML-KEM-768** |
-| 5 | „Double Ratchet" | ✅ **VERIFIED** | DH- + symmetrischer Ratchet empirisch bestätigt |
-| 6 | „forward secrecy" | ✅ **VERIFIED** | Gestohlener State entschlüsselt 0/3 alte Nachrichten |
-| 7 | „post-compromise security" | ⚠️ **PARTIALLY VERIFIED** | Erst nach DH-Ratchet-Drehung; nicht sofort |
-| 8 | „replay protection" | ⚠️ **PARTIALLY VERIFIED** | Gilt nur bei intaktem State — **durch Vault-Rollback aufhebbar** |
-| 9 | „browser compatible" | ⚠️ **PARTIALLY VERIFIED** | Vite-Build grün, keine Node-Globals. **Nie in echtem Browser getestet** |
-| 10 | „no COOP/COEP" | ✅ **VERIFIED** | Kein SharedArrayBuffer/Atomics |
-| 11 | „299 KB gzip" | ❌ **INCORRECT** | **~306 KB** (300 711 + 12 920 B) |
-| 12 | „API maps 1:1" | ❌ **INCORRECT** | Adapter für **jedes** Konzept nötig — siehe §17 |
-| 13 | „wrapper is ~500 lines" | ❌ **INCORRECT** | **2024 Zeilen** `src/lib.rs` |
-| 14 | „12 releases" | ✅ **VERIFIED** | 0.1.0 … 0.6.6 |
-| 15 | „official Signal code" | ✅ **VERIFIED** | Kein Fork, kein Patch, keine eigene Krypto |
-| 16 | „only browser-capable Signal implementation" | ✅ **VERIFIED** | Alle Alternativen geprüft |
-| 17 | „AGPL is acceptable" | ⚠️ **UNVERIFIED — legal** | Technisch plausibel, juristisch ungeklärt |
-| 18 | „hash pinning is sufficient" | ❌ **INCORRECT** | Keine Provenance, keine CI, Laptop-Build |
-| 19 | „IndexedDB design is safe" | ⚠️ **PARTIALLY VERIFIED** | 2C-Modell ist gut; Commit-before-Send fehlt als Invariante |
-| 20 | „Supabase model is correct" | ⚠️ **UNVERIFIED** | Existiert nur als Prosa |
+| 1 | “real Signal protocol” | ✅ **VERIFIED** | libsignal v0.101.0 as git dep; PQXDH+DR symbols in the binary |
+| 2 | “official libsignal core” | ✅ **VERIFIED** | `rev = b056faa6d` = tag `v0.101.0` via `git ls-remote` |
+| 3 | “PQXDH” | ✅ **VERIFIED** | `pqxdh.rs` in the binary; Kyber non-nullable; `X3DH no longer supported` |
+| 4 | “Kyber1024” | ⚠️ **PARTIALLY VERIFIED** | Correct for PQXDH (1569 B pk). Unmentioned: SPQR Triple Ratchet additionally uses **ML-KEM-768** |
+| 5 | “Double Ratchet” | ✅ **VERIFIED** | DH + symmetric ratchet empirically confirmed |
+| 6 | “forward secrecy” | ✅ **VERIFIED** | stolen state decrypts 0/3 old messages |
+| 7 | “post-compromise security” | ⚠️ **PARTIALLY VERIFIED** | only after DH ratchet turn; not immediate |
+| 8 | “replay protection” | ⚠️ **PARTIALLY VERIFIED** | only with intact state — **liftable by vault rollback** |
+| 9 | “browser compatible” | ⚠️ **PARTIALLY VERIFIED** | Vite build green, no Node globals. **Never tested in a real browser** |
+| 10 | “no COOP/COEP” | ✅ **VERIFIED** | no SharedArrayBuffer/Atomics |
+| 11 | “299 KB gzip” | ❌ **INCORRECT** | **~306 KB** (300 711 + 12 920 B) |
+| 12 | “API maps 1:1” | ❌ **INCORRECT** | adapter needed for **every** concept — see §17 |
+| 13 | “wrapper is ~500 lines” | ❌ **INCORRECT** | **2024 lines** `src/lib.rs` |
+| 14 | “12 releases” | ✅ **VERIFIED** | 0.1.0 … 0.6.6 |
+| 15 | “official Signal code” | ✅ **VERIFIED** | no fork, no patch, no homemade crypto |
+| 16 | “only browser-capable Signal implementation” | ✅ **VERIFIED** | all alternatives checked |
+| 17 | “AGPL is acceptable” | ⚠️ **UNVERIFIED — legal** | technically plausible, legally unsettled |
+| 18 | “hash pinning is sufficient” | ❌ **INCORRECT** | no provenance, no CI, laptop build |
+| 19 | “IndexedDB design is safe” | ⚠️ **PARTIALLY VERIFIED** | 2C model is good; commit-before-send missing as an invariant |
+| 20 | “Supabase model is correct” | ⚠️ **UNVERIFIED** | exists only as prose |
 
 ---
 
-## 15. Scorecard (neu berechnet)
+## 15. Scorecard (recomputed)
 
-| Dimension | Gewicht | signal-wasm | Matrix crypto-wasm | Wire core-crypto | OpenPGP.js |
+| Dimension | Weight | signal-wasm | Matrix crypto-wasm | Wire core-crypto | OpenPGP.js |
 |---|--:|--:|--:|--:|--:|
 | Protocol security | 25 % | **9** | 7 | 6 | 2 |
 | Browser suitability | 20 % | **8** | 9 | 7 | 9 |
@@ -548,18 +721,27 @@ Alle Angaben frisch von npm abgefragt (2026-08-23).
 | Persistence | 10 % | **6** | 7 | 6 | 8 |
 | Supply chain | 10 % | **3** | 9 | 8 | 8 |
 | Complexity | 10 % | **6** | 4 | 3 | 8 |
-| **Gewichtet** | **100 %** | **6.95** | **7.05** | **6.10** | **6.10** |
+| **Weighted** | **100 %** | **6.95** | **7.05** | **6.10** | **6.10** |
 
-**Begründungen (signal-wasm):**
-- **Protocol security 9/10** — echtes PQXDH + Double Ratchet + SPQR, unveränderter offizieller Core. Kein Punktabzug für Krypto; −1 weil PCS nicht sofort greift und Replay-Schutz zustandsabhängig ist.
-- **Browser suitability 8/10** — keine Polyfills, kein COOP/COEP, Vite-Build grün. −2 für 306 KB gzip (Verdreifachung des Bundles) auf einer mobile-first PWA und fehlenden echten Browsertest.
-- **Implementation maturity 5/10** — Version 0.6.6, **Pre-1.0**, 7 Monate alt, mehrere BREAKING Changes in der Historie, Selbst-Audit auf Stand v0.1.1. Der *Core* ist maximal reif; der *Wrapper* nicht.
-- **Integration 7/10** — API passt konzeptionell gut zum Vorhaben; −3 weil enough. kein Device-Modell hat, das Envelope erweitert werden muss und das gesamte Supabase-Schema noch fehlt.
-- **Persistence 6/10** — Export/Import-Primitive sind vollständig und sauber; −4 für die Rollback-/Message-Key-Reuse-Falle **[KORRIGIERT]**, die die Anwendung selbst abfangen muss.
-- **Supply chain 3/10** — der schwächste Punkt. Single Maintainer, keine CI, keine Provenance, Laptop-Build, keine externen Audits. Hashes reproduzieren zwar, beweisen aber nur Unveränderlichkeit.
-- **Complexity 6/10** — Thin-Adapter-Ansatz ist richtig, aber Store-Hydration, Tombstones, Kyber-Usage-Tracking und Locking sind erheblicher Aufwand.
+**Rationales (signal-wasm):**
+- **Protocol security 9/10** — real PQXDH + Double Ratchet + SPQR, unmodified official core. No crypto deduction; −1 because PCS is not immediate and replay protection is state-dependent.
+- **Browser suitability 8/10** — no polyfills, no COOP/COEP, Vite build green. −2 for 306 KB gzip (tripling the bundle) on a mobile-first PWA and missing real-browser test.
+- **Implementation maturity 5/10** — version 0.6.6, **pre-1.0**, 7 months old, several BREAKING changes in history, self-audit as of v0.1.1. The *core* is maximally mature; the *wrapper* is not.
+- **Integration 7/10** — API conceptually fits the plan; −3 because enough. has no device model, the envelope must be extended, and the entire Supabase schema is still missing.
+- **Persistence 6/10** — export/import primitives are complete and clean; −4 for the rollback/message-key-reuse trap **[CORRECTED]**, which the application itself must catch.
+- **Supply chain 3/10** — the weakest point. Single maintainer, no CI, no provenance, laptop build, no external audits. Hashes reproduce, but prove only immutability.
+- **Complexity 6/10** — thin-adapter approach is right, but store hydration, tombstones, Kyber usage tracking and locking are substantial work.
 
-> **Wichtig, und im Widerspruch zum Ausgangsdokument:** Matrix crypto-wasm gewinnt nach dieser Gewichtung **rechnerisch knapp** (7.05 vs. 6.95) — allein wegen Reife und Supply Chain. **Das macht es trotzdem nicht zur besseren Wahl**, denn die Scorecard bildet die harte Anforderung „PQXDH" nicht als K.-o.-Kriterium ab. Olm/Megolm bietet **keinen Post-Quantum-Handshake**; wenn PQ eine Anforderung ist (und das Dokument setzt sie), fällt Matrix aus der Menge der zulässigen Lösungen heraus, bevor die Punkte zählen. Ich halte das explizit fest, weil eine Scorecard, die die eigene Anforderung nicht abbildet, zu falschen Schlüssen einlädt. **Die Engine-Wahl ist richtig — die Scorecard des Dokuments war es aus den falschen Gründen.**
+> **Important, and in contradiction to the source document:** Matrix
+> crypto-wasm **narrowly wins** on this weighting (7.05 vs. 6.95) — solely
+> because of maturity and supply chain. **That still does not make it the
+> better choice**, because the scorecard does not encode the hard
+> requirement “PQXDH” as a knockout. Olm/Megolm offers **no post-quantum
+> handshake**; if PQ is a requirement (and the document sets it), Matrix
+> drops out of the set of admissible solutions before the points count. I
+> record this explicitly because a scorecard that does not encode its own
+> requirement invites the wrong conclusion. **The engine choice is right —
+> the document’s scorecard was right for the wrong reasons.**
 
 ---
 
@@ -567,99 +749,147 @@ Alle Angaben frisch von npm abgefragt (2026-08-23).
 
 ### 🔴 CRITICAL
 
-**C-1 — Ratchet-State-Rollback ⇒ Message-Key-/IV-Wiederverwendung [KORRIGIERT]**
-Reproduzierbar: identischer Klartext aus zurückgerolltem State ⇒ **bytegleicher Ciphertext**; unterschiedliche Klartexte ⇒ 134 Byte gemeinsames Präfix. Zusätzlich hebt ein Vault-Rollback beim Empfänger den `DuplicatedMessage`-Replay-Schutz **vollständig** auf (empirisch bestätigt). Auslöser sind Alltagsereignisse: iOS-Hintergrund-Kill, Crash zwischen Encrypt und Persist, Storage-Restore.
-*Nicht per Adapter lösbar* — der Determinismus ist korrektes libsignal-Verhalten. Nur ein Persistenz-Protokoll mit **commit-before-send** und monotoner Revision verhindert es.
+**C-1 — ratchet-state rollback ⇒ message-key/IV reuse [CORRECTED]**
+Reproducible: identical plaintext from rolled-back state ⇒ **byte-identical
+ciphertext**; different plaintexts ⇒ 134-byte shared prefix. Additionally a
+vault rollback on the receiver **fully** lifts `DuplicatedMessage` replay
+protection (empirically confirmed). Triggers are everyday events: iOS
+background kill, crash between encrypt and persist, storage restore.
+*Not solvable by adapter* — the determinism is correct libsignal behaviour.
+Only a persistence protocol with **commit-before-send** and monotonic
+revision prevents it.
 
-**Nachtrag E2EE-2D.2:** Die Mitigation liegt **nicht** im 2C-Vault. Der Vault ist ein brauchbarer At-Rest-Baustein, aber **kein Rollback-Trust-Anchor**: Vault, Schlüssel und Revision werden gemeinsam restauriert, seine AAD enthält die Revision nicht, und ein alter Blob lässt sich mit höherer Revision versehen. Umgesetzt wurde stattdessen ein lokaler Sealed-State-Envelope mit revisionsgebundener AAD plus CAS; siehe `docs/e2ee-crash-rollback-hardening.md`. Der koordinierte Full-Origin-Rollback (C-1) bleibt **offen** — und zwar bewusst: Der zunächst genannte serverseitige Epoch-Anker beim Session-Establishment wurde im Folge-Audit als **unzureichend verworfen**, weil C-1 auch innerhalb einer bestehenden Epoch auftritt und ein Establishment-Zähler dort konstant bleibt. Siehe `docs/e2ee-crash-rollback-hardening.md` §8.0/§8.1.
+**Addendum E2EE-2D.2:** The mitigation is **not** in the 2C vault. The vault
+is a usable at-rest building block, but **not a rollback trust anchor**:
+vault, keys and revision are restored together, its AAD does not contain
+the revision, and an old blob can be given a higher revision. What was
+implemented instead is a local sealed-state envelope with revision-bound
+AAD plus CAS; see `docs/e2ee-crash-rollback-hardening.md`. Coordinated
+full-origin rollback (C-1) remains **open** — deliberately: the initially
+named server-side epoch anchor at session establishment was **rejected as
+insufficient** in the follow-up audit, because C-1 also occurs inside an
+existing epoch and an establishment counter stays constant there. See
+`docs/e2ee-crash-rollback-hardening.md` §8.0/§8.1.
 
 ### 🟠 HIGH
 
-**H-1 — Supply Chain nicht unabhängig verifizierbar.** Keine npm-Provenance, keine CI, kein reproduzierbarer Build (`/Users/me/`-Pfade im Binary), Single Maintainer, Selbst-Audit fünf Releases veraltet.
-**H-2 — Envelope unvollständig.** Ohne `deviceId` kann der Empfänger die `WasmProtocolAddress` nicht bilden; ohne Systemnachrichten-Diskriminator bricht der Mixed-Content-Pfad in `messages`.
-**H-3 — Supabase-Prekey-Architektur existiert nicht.** Vier Tabellen + `claim_prekey_bundle()` sind reine Prosa. OTK-Race, Kyber-Consumption-Semantik, Last-Resort-Handling, RLS und Deletion-Cascade sind ungelöst.
-**H-4 — Multi-Tab ohne Lock ⇒ stiller Nachrichtenverlust.** Web Locks sind auf iOS bei OS-Kill nicht zuverlässig; die Revisionsprüfung muss die autoritative Verteidigung sein.
-**H-5 — Kein Test in einem echten Browser.** Alle Belege stammen aus Node. iOS Safari (WASM-Limits, IndexedDB-Eviction, Lifecycle) ist ungetestet.
+**H-1 — supply chain not independently verifiable.** No npm provenance, no CI, no reproducible build (`/Users/me/` paths in the binary), single maintainer, self-audit five releases stale.
+**H-2 — envelope incomplete.** Without `deviceId` the receiver cannot form the `WasmProtocolAddress`; without a system-message discriminator the mixed-content path in `messages` breaks.
+**H-3 — Supabase prekey architecture does not exist.** Four tables + `claim_prekey_bundle()` are pure prose. OTK race, Kyber consumption semantics, last-resort handling, RLS and deletion cascade are unsolved.
+**H-4 — multi-tab without lock ⇒ silent message loss.** Web Locks are unreliable on iOS OS kill; the revision check must be the authoritative defence.
+**H-5 — no test in a real browser.** All evidence is from Node. iOS Safari (WASM limits, IndexedDB eviction, lifecycle) is untested.
 
 ### 🟡 MEDIUM
 
-**M-1 — Last-Resort-Kyber-Prekey nicht erzeugbar.** `generateKyberPreKey(key_id, identity_key_pair, store)` hat **keinen** `is_last_resort`-Parameter. Der Wrapper kennt das Konzept in Doku und Anti-Replay-Logik, exponiert aber keinen Generator. Konsequenz: Bei erschöpftem OTK-Pool kann kein Fallback-Bundle bedient werden → Erstkontakt schlägt fehl. **Muss vor der Implementierung mit Upstream geklärt werden.**
-**M-2 — Pre-1.0-Engine** mit BREAKING Changes in der Historie; Session-Wire-Format-Stabilität über Upgrades nicht garantiert (CHANGELOG dokumentiert Wire-Format-Stabilität immerhin explizit für den letzten Pin).
-**M-3 — Bundle +306 KB gzip** verdreifacht die App-Größe.
-**M-4 — Session-Records ~5.9 KB** (wegen SPQR) → IndexedDB-Quota bei vielen Peers beachten.
-**M-5 — CSP** braucht `'wasm-unsafe-eval'`; im Dokument nicht erwähnt.
-**M-6 — PCS-Behauptung** unqualifiziert.
+**M-1 — last-resort Kyber prekey not generatable.** `generateKyberPreKey(key_id, identity_key_pair, store)` has **no** `is_last_resort` parameter. The wrapper knows the concept in docs and anti-replay logic but exposes no generator. Consequence: with an exhausted OTK pool no fallback bundle can be served → first contact fails. **Must be clarified with upstream before implementation.**
+**M-2 — pre-1.0 engine** with BREAKING changes in history; session wire-format stability across upgrades not guaranteed (CHANGELOG at least documents wire-format stability explicitly for the last pin).
+**M-3 — bundle +306 KB gzip** triples app size.
+**M-4 — session records ~5.9 KB** (because of SPQR) → watch IndexedDB quota with many peers.
+**M-5 — CSP** needs `'wasm-unsafe-eval'`; not mentioned in the document.
+**M-6 — PCS claim** unqualified.
 
 ### 🔵 LOW
 
-L-1 Wrapper-LOC falsch (500 → 2024) · L-2 gzip-Größe falsch (299 → 306 KB) · L-3 „API maps 1:1" falsch · L-4 Kyber-Terminologie unvollständig (SPQR/ML-KEM-768 fehlt) · L-5 unscoped `signal-wasm` als Verwechslungsrisiko dokumentieren
+L-1 wrapper LOC wrong (500 → 2024) · L-2 gzip size wrong (299 → 306 KB) · L-3 “API maps 1:1” wrong · L-4 Kyber terminology incomplete (SPQR/ML-KEM-768 missing) · L-5 document unscoped `signal-wasm` as mix-up risk
 
 ---
 
-## 17. Required Corrections
+## 17. Required corrections
 
-Vor Implementierungsbeginn verbindlich zu erledigen:
+Binding before implementation starts:
 
-1. **Persistenz-Invariante festschreiben (C-1):** `encrypt → commit(vault, rev+1) → send`. Niemals senden, bevor der Ratchet-State committed ist. Monotone Revision, Rollback = harter Fehler (fail-closed). Verlorene Nachricht ist akzeptabel; Rollback ist es nicht. Das 2C-Modell zum verbindlichen Vault-Design erheben.
-2. **Envelope korrigieren (H-2):** `{v, e, t, sd (senderDeviceId), sr (registrationId), b}` + eigener Diskriminator für unverschlüsselte Systemnachrichten.
-3. **Device-Modell einführen (H-2):** enough. hat keines. Vor dem Adapter entscheiden: fixe `deviceId=1` mit dokumentierter Single-Device-Beschränkung, oder echtes Device-Register.
-4. **Supabase-Schema tatsächlich entwerfen (H-3):** Migration mit `claim_prekey_bundle()` inkl. `FOR UPDATE SKIP LOCKED`, `is_last_resort`-Flag autoritativ in der DB, RLS-Matrix, Deletion-Cascade in `0004`, Nachfüll-Schwellwert, Rate-Limit gegen OTK-Erschöpfung. Plus Erweiterung von `supabase/rls-tests.sql`.
-5. **Last-Resort-Prekey klären (M-1):** Upstream-Issue bei `getmaapp/signal-wasm`. **Ohne Antwort kein Produktions-Rollout** — sonst scheitert der Erstkontakt bei leerem OTK-Pool.
-6. **Supply-Chain-Maßnahmen (H-1):** WASM+JS vendoren statt zur Buildzeit ziehen; Hash-Check in `.github/workflows/deploy.yml` als Pflicht-Gate; Upstream-Updates nur nach manuellem Review; Single-Maintainer-Risiko schriftlich akzeptieren.
-7. **Locking (H-4):** Web Lock `enough-e2ee:{userId}` **mit** Timeout/`AbortSignal`, plus Revisionsprüfung als autoritative zweite Linie.
-8. **Echter Gerätetest (H-5):** iOS Safari + Android Chrome, installierte PWA, inkl. Hintergrund-Kill-Szenario und IndexedDB-Persistenz über App-Neustart.
-9. **TOFU + Safety Numbers als Pflicht-Deliverable (Threat C/G):** `generateSafetyNumber` + `verifyScannableFingerprint` sind vorhanden und getestet. `UntrustedIdentity` **muss** eine Nutzerwarnung auslösen, nicht einen stillen Session-Neuaufbau.
-10. **Dokument-Korrekturen (LOW):** 306 KB statt 299 KB · 2024 statt 500 Zeilen · „API maps 1:1" streichen · SPQR/ML-KEM-768 ergänzen · PCS als *eventual* qualifizieren · CSP `'wasm-unsafe-eval'` ergänzen.
-11. **Lizenzentscheidung (§11):** Bewusster, dokumentierter Beschluss + `LICENSE`-Datei; die fünf benannten Punkte anwaltlich klären.
+1. **Write the persistence invariant (C-1):** `encrypt → commit(vault, rev+1) → send`. Never send before ratchet state is committed. Monotonic revision, rollback = hard error (fail-closed). Lost message is acceptable; rollback is not. Elevate the 2C model to the binding vault design.
+2. **Correct the envelope (H-2):** `{v, e, t, sd (senderDeviceId), sr (registrationId), b}` + a dedicated discriminator for unencrypted system messages.
+3. **Introduce a device model (H-2):** enough. has none. Decide before the adapter: fixed `deviceId=1` with a documented single-device restriction, or a real device register.
+4. **Actually design the Supabase schema (H-3):** migration with `claim_prekey_bundle()` including `FOR UPDATE SKIP LOCKED`, `is_last_resort` flag authoritative in the DB, RLS matrix, deletion cascade in `0004`, refill threshold, rate limit against OTK exhaustion. Plus extension of `supabase/rls-tests.sql`.
+5. **Clarify last-resort prekey (M-1):** upstream issue at `getmaapp/signal-wasm`. **No production rollout without an answer** — otherwise first contact fails on an empty OTK pool.
+6. **Supply-chain measures (H-1):** vendor WASM+JS instead of pulling at build time; hash check in `.github/workflows/deploy.yml` as a mandatory gate; upstream updates only after manual review; accept the single-maintainer risk in writing.
+7. **Locking (H-4):** Web Lock `enough-e2ee:{userId}` **with** timeout/`AbortSignal`, plus revision check as authoritative second line.
+8. **Real device test (H-5):** iOS Safari + Android Chrome, installed PWA, including background-kill scenario and IndexedDB persistence across app restart.
+9. **TOFU + safety numbers as a mandatory deliverable (threat C/G):** `generateSafetyNumber` + `verifyScannableFingerprint` exist and are tested. `UntrustedIdentity` **must** trigger a user warning, not a silent session rebuild.
+10. **Document corrections (LOW):** 306 KB instead of 299 KB · 2024 instead of 500 lines · drop “API maps 1:1” · add SPQR/ML-KEM-768 · qualify PCS as *eventual* · add CSP `'wasm-unsafe-eval'`.
+11. **License decision (§11):** conscious, documented resolution + `LICENSE` file; have the five named points reviewed by counsel.
 
 ---
 
-## 18. Final Decision
+## 18. Final decision
 
 # CONDITIONAL GO
 
 **Required before implementation:**
 
 ```
-1.  Commit-before-send Persistenz-Invariante + monotone Revision (C-1)
-2.  Envelope um senderDeviceId + registrationId + Systemnachrichten-Diskriminator erweitern (H-2)
-3.  Device-Modell entscheiden und festschreiben (H-2)
-4.  Supabase-Prekey-Migration real entwerfen inkl. SKIP LOCKED + RLS + Cascade (H-3)
-5.  Last-Resort-Kyber-Prekey mit Upstream klären (M-1)
-6.  Artefakt vendoren + Hash-Gate in CI + Single-Maintainer-Risiko akzeptieren (H-1)
-7.  Web Lock mit Timeout + Revision als autoritative zweite Linie (H-4)
-8.  Realer iOS-Safari-/Android-Chrome-PWA-Test (H-5)
-9.  TOFU + Safety-Number-UI als Pflicht-Deliverable (Threat C/G)
-10. Faktenkorrekturen im Architekturdokument (LOW)
-11. Bewusste, dokumentierte AGPL-Entscheidung + LICENSE-Datei (§11)
+1.  Commit-before-send persistence invariant + monotonic revision (C-1)
+2.  Extend envelope with senderDeviceId + registrationId + system-message discriminator (H-2)
+3.  Decide and write down the device model (H-2)
+4.  Actually design the Supabase prekey migration including SKIP LOCKED + RLS + cascade (H-3)
+5.  Clarify last-resort Kyber prekey with upstream (M-1)
+6.  Vendor the artifact + hash gate in CI + accept single-maintainer risk (H-1)
+7.  Web Lock with timeout + revision as authoritative second line (H-4)
+8.  Real iOS Safari / Android Chrome PWA test (H-5)
+9.  TOFU + safety-number UI as a mandatory deliverable (threat C/G)
+10. Factual corrections in the architecture document (LOW)
+11. Conscious, documented AGPL decision + LICENSE file (§11)
 ```
 
 ---
 
-## 19. Recommended Next Step
+## 19. Recommended next step
 
-**Nicht** mit dem Engine-Adapter beginnen. Die Engine ist der am besten verstandene Teil des Systems; die Risiken liegen ausschließlich drumherum.
+**Do not** start with the engine adapter. The engine is the best-understood
+part of the system; the risks sit exclusively around it.
 
-**Schritt 1 — E2EE-2D: Crash-/Rollback-Härtung (höchste Priorität).** `experiments/e2ee-2c/` um genau die Fälle erweitern, die ich gebrochen habe: Crash zwischen Encrypt und Commit, Vault-Rollback beim Empfänger, konkurrierende Tabs. Erst wenn ein Test **beweist**, dass ein zurückgerollter State niemals einen zweiten Ciphertext produziert, ist C-1 geschlossen. Das ist die Bedingung, an der alles andere hängt.
+**Step 1 — E2EE-2D: crash/rollback hardening (highest priority).** Extend
+`experiments/e2ee-2c/` with exactly the cases I broke: crash between encrypt
+and commit, vault rollback on the receiver, concurrent tabs. Only when a
+test **proves** that a rolled-back state never produces a second ciphertext
+is C-1 closed. That is the condition everything else hangs on.
 
-**Schritt 2 — parallel: Upstream-Issue zum Last-Resort-Kyber-Prekey.** Blockiert nichts anderes, hat aber Vorlaufzeit und ist Voraussetzung für den Produktionsbetrieb.
+**Step 2 — in parallel: upstream issue on last-resort Kyber prekey.** Blocks
+nothing else, but has lead time and is a prerequisite for production.
 
-**Schritt 3 — Supabase-Prekey-Migration als eigener, reviewbarer PR** mit `claim_prekey_bundle()`, RLS-Tests und Concurrency-Test gegen den OTK-Race.
+**Step 3 — Supabase prekey migration as its own reviewable PR** with
+`claim_prekey_bundle()`, RLS tests and a concurrency test against the OTK
+race.
 
-**Schritt 4 — erst danach** der Adapter (`engine-adapter.ts` + `session-manager.ts`) gegen die dann feststehenden Envelope- und Schema-Verträge.
+**Step 4 — only then** the adapter (`engine-adapter.ts` + `session-manager.ts`)
+against the then-fixed envelope and schema contracts.
 
 ---
 
-## Antwort auf die Abschlussfrage
+## Answer to the closing question
 
-> **„Würdest du diese Architektur mit gutem technischem Gewissen als Grundlage für echtes E2EE in enough. implementieren?"**
+> **“Would you implement this architecture with a clear technical conscience as the basis for real E2EE in enough.?”**
 
 ## **YES — CONDITIONAL GO**
 
-Die Engine-Entscheidung ist **richtig und belegt**. Ich habe versucht, sie zu zerstören, und die zentralen Behauptungen haben gehalten: Der Kern ist nachweisbar offizieller libsignal v0.101.0 — verifiziert gegen Signals eigenes Git-Tag, nicht gegen ein README. Es gibt keinen Fork, keine Patches, keine selbstgebaute Kryptographie. PQXDH mit Kyber1024 ist real und nicht abschaltbar. Forward Secrecy, Replay-Rejection und identitätsgebundene Prekey-Signaturen habe ich empirisch bestätigt. Alle drei Hashes reproduzieren exakt. Und es existiert im August 2026 nachweislich **keine bessere browserfähige Option**.
+The engine decision is **right and evidenced**. I tried to destroy it, and
+the central claims held: the core is demonstrably official libsignal
+v0.101.0 — verified against Signal’s own git tag, not against a README.
+There is no fork, no patches, no homemade cryptography. PQXDH with Kyber1024
+is real and not switchable off. Forward secrecy, replay rejection and
+identity-bound prekey signatures I confirmed empirically. All three hashes
+reproduce exactly. And in August 2026 there is demonstrably **no better
+browser-capable option**.
 
-Aber ich würde sie **nicht so implementieren, wie das Dokument sie beschreibt**. Das Dokument hat einen blinden Fleck an der gefährlichsten Stelle: Es behandelt Persistenz als Engineering-Detail, obwohl sie hier der eigentliche Sicherheitsmechanismus ist. Bei einem deterministischen Ratchet ist die Reihenfolge von Persist und Send **kein Implementierungsdetail, sondern die Krypto-Eigenschaft selbst**. Ein einziger falsch platzierter `await` — senden, bevor committed wurde — erzeugt IV-Reuse und macht die gesamte AEAD-Garantie wertlos, ohne dass irgendein Test rot wird und ohne dass ein Nutzer es je bemerkt. Genau deshalb ist C-1 CRITICAL und nicht HIGH.
+But I would **not implement it the way the document describes it**. The
+document has a blind spot at the most dangerous place: it treats persistence
+as an engineering detail, although here it is the actual security mechanism.
+With a deterministic ratchet the order of persist and send is **not an
+implementation detail, it is the crypto property itself**. A single
+misplaced `await` — send before commit — produces IV reuse and makes the
+entire AEAD guarantee worthless, without any test going red and without a
+user ever noticing. That is why C-1 is CRITICAL and not HIGH.
 
-Dazu kommt eine ehrliche Einordnung des Supply-Chain-Risikos: Man vertraut hier einer einzelnen Person, die auf ihrem Laptop ein 800-KB-Binary baut und ohne CI, ohne Provenance und ohne externes Audit auf npm veröffentlicht. Der Quellcode ist sauber und pinnt verifizierbar offiziellen Signal-Code — aber niemand kann beweisen, dass das ausgelieferte Binary aus diesem Quellcode entstanden ist. Das ist ein akzeptables Risiko, wenn man es **bewusst** eingeht und das Artefakt vendored plus hash-gated. Es ist kein akzeptables Risiko, wenn man `npm install` in eine Pipeline schreibt und hofft.
+On top of that an honest ranking of the supply-chain risk: you are trusting
+a single person who builds an 800 KB binary on their laptop and publishes it
+to npm with no CI, no provenance and no external audit. The source is clean
+and verifiably pins official Signal code — but nobody can prove the shipped
+binary came from that source. That is an acceptable risk if you take it
+**consciously** and vendor plus hash-gate the artifact. It is not an
+acceptable risk if you write `npm install` into a pipeline and hope.
 
-Mit den elf Korrekturen aus §17 — insbesondere der Commit-before-Send-Invariante — ist das eine tragfähige Grundlage für echtes E2EE. Ohne sie wäre das Ergebnis ein System, das in jedem Test grün ist und trotzdem Klartext preisgibt, sobald ein iPhone einen Tab im Hintergrund beendet.
+With the eleven corrections from §17 — especially the commit-before-send
+invariant — this is a viable basis for real E2EE. Without them the result
+would be a system that is green in every test and still leaks plaintext as
+soon as an iPhone kills a tab in the background.

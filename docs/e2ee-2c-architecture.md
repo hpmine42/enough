@@ -30,7 +30,7 @@ Answer, after this architecture pass:
 | v1 device model? | **Exactly one cryptographic device per account.** Browser wipe = new identity. No auto-accept of identity changes. |
 | Production now? | **No.** Legal review, artifact provenance/reproducible build, independent wrapper review, mobile tests, CSP, and the storage/concurrency design in this document are prerequisites. |
 
-**Kurzfassung:** `@getmaapp/signal-wasm` bleibt der beste Browser-Kandidat. Die Architektur ist belastbar genug für eine spätere Integration, aber **nicht** für sofortige Produktionsarbeit. AGPL, Provenance, reproduzierbarer WASM-Build und unabhängige Review sind weiterhin Blocker. Verschlüsselung in IndexedDB löst XSS **nicht**.
+**In short:** `@getmaapp/signal-wasm` remains the best browser candidate. The architecture is solid enough for a later integration, but **not** for immediate production work. AGPL, provenance, a reproducible WASM build and independent review remain blockers. Encrypting IndexedDB does **not** solve XSS.
 
 ---
 
