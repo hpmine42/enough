@@ -6,20 +6,20 @@
 **Target Application:** `enough.` — React 18 / TypeScript / Vite 6 / Supabase / GitHub Pages PWA (`/enough/`)
 **Status:** Final — **NO-GO** (see [§12](#12-recommendation))
 
-> **Kurzfassung (Deutsch):** Dieser Review hat den Markt browserfähiger E2EE-Lösungen
-> (Stand 2026-08-19) anhand von Primärquellen neu vermessen: npm-Registry-Metadaten,
-> GitHub-Repositories (README, Issues, Releases, Code-Suche), Tarball-Inspektion
-> (`.d.ts`-Exports, WASM-Dateigrößen) und veröffentlichte Audits. Ergebnis in einem Satz:
-> **Es gibt weiterhin keine Lösung, die gleichzeitig (a) im Browser läuft, (b) die für
-> enough. freigegebene Protokollarchitektur (PQXDH + Double Ratchet) implementiert,
-> (c) auditiert bzw. institutionell getragen ist, (d) ohne fremde Server-Semantik
-> (Matrix-Homeserver / Wire-Delivery-Service) nutzbar ist und (e) mit der
-> Lizenzpolitik des Projekts vereinbar ist.** Neu seit E2EE-2.5: OpenMLS wurde im Mai
-> 2026 von SRLabs (Sovereign Tech Agency) auditiert — hat aber keine offiziellen
-> JS-Bindings; mit `@getmaapp/signal-wasm` existiert erstmals ein inoffizieller
-> WASM-Bau der offiziellen libsignal-Crates — ohne unabhängiges Audit, mit AGPL und
-> minimaler Adoption. Beides ändert die Entscheidung nicht. Die Empfehlung bleibt und
-> lautet exakt: **NO-GO.**
+> **Summary:** This review re-measured the market of browser-capable E2EE
+> solutions (as of 2026-08-19) from primary sources: npm registry metadata,
+> GitHub repositories (README, issues, releases, code search), tarball
+> inspection (`.d.ts` exports, WASM file sizes) and published audits. In one
+> sentence: **there is still no solution that simultaneously (a) runs in the
+> browser, (b) implements the protocol architecture approved for enough.
+> (PQXDH + Double Ratchet), (c) is audited or institutionally backed,
+> (d) can be used without foreign server semantics (Matrix homeserver /
+> Wire delivery service), and (e) is compatible with the project's license
+> policy.** New since E2EE-2.5: OpenMLS was audited in May 2026 by SRLabs
+> (Sovereign Tech Agency) — but has no official JS bindings; `@getmaapp/signal-wasm`
+> is the first unofficial WASM build of the official libsignal crates — without
+> an independent audit, with AGPL, and with minimal adoption. Neither changes
+> the decision. The recommendation remains exactly: **NO-GO.**
 
 ---
 
@@ -358,7 +358,7 @@ assessment stands; effort is not the blocker, trust is.
 
 > ### ❌ **NO-GO**
 >
-> **Keine der untersuchten Lösungen ist derzeit für enough. geeignet.**
+> **None of the examined solutions is currently suitable for enough.**
 >
 > The decision rule (unchanged since E2EE-2.5): *GO only if a concrete,
 > trustworthy, browser-capable implementation of the approved protocol exists and is

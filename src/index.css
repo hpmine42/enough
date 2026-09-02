@@ -432,12 +432,12 @@ textarea {
   padding-left: 31px;
 }
 
-/* Suchleiste: festes @ fett und deutlich vom Platzhalter/Suchtext abgesetzt.
-   - Gleiche Position (left:16px bleibt), nicht editierbar (span, pointer-events:none)
-   - Fett + Textfarbe statt muted → klarer Kontrast zu
-     normalgewichtetem Platzhalter (--muted) und normalgewichtetem Suchtext
-   - Funktioniert in Light & Dark (var(--text) passt sich der Theme an)
-   - Nur für die Suchleiste; Registrierung bleibt unverändert */
+/* Search field: keep the leading @ bold and distinct from placeholder/query.
+   - Same position (left: 16px), not editable (span, pointer-events: none)
+   - Bold + text color instead of muted → clearer contrast against the
+     normal-weight placeholder (--muted) and the normal-weight query
+   - Works in light and dark (var(--text) follows the theme)
+   - Search field only; registration stays unchanged */
 .search-field .at-prefix {
   font-weight: 700;
   color: var(--text);

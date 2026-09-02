@@ -9,19 +9,18 @@
 
 ---
 
-> **Kurzfassung (Deutsch):** Die in E2EE-2 festgelegte Architektur (PQXDH + Double
-> Ratchet) ist kryptografisch sinnvoll und in ihren **Primitiven** browserfähig:
-> X25519, Ed25519, HKDF-SHA-256 und AES-256-GCM laufen nativ über die Web Crypto
-> API, ML-KEM-768 wurde mit zwei Bibliotheken (`mlkem-wasm`, `@noble/post-quantum`)
-> erfolgreich getestet — inklusive produktionsnahem Vite-Build unter `/enough/`.
-> **Aber:** Es existiert heute **keine vertrauenswürdige, auditierte,
-> browserfähige Implementierung des Protokollkerns** (PQXDH-Handshake +
-> Double-Ratchet-Zustandsmaschine). Signals offizielles `libsignal` ist
-> Node-only und AGPL-lizenziert; alle Browser-Alternativen sind ungeprüft,
-> inaktiv oder protokollfremd. Nach der Entscheidungsregel dieses Reviews ist
-> das ein **NO-GO für E2EE-3**. Es darf keine eigene Protokoll-Implementierung
-> gebaut werden, um die Lücke zu schließen. Der E2EE-2-Architekturtext wurde an
-> sechs fehlerhaften Aussagen korrigiert (Abschnitt 9 unten).
+> **Summary:** The architecture set in E2EE-2 (PQXDH + Double Ratchet) is
+> cryptographically sound and **browser-capable in its primitives**: X25519,
+> Ed25519, HKDF-SHA-256 and AES-256-GCM run natively via the Web Crypto API;
+> ML-KEM-768 was successfully tested with two libraries (`mlkem-wasm`,
+> `@noble/post-quantum`) — including a production-like Vite build under
+> `/enough/`. **But:** there is today **no trustworthy, audited, browser-capable
+> implementation of the protocol core** (PQXDH handshake + Double Ratchet
+> state machine). Signal's official `libsignal` is Node-only and AGPL-licensed;
+> every browser alternative is unaudited, inactive, or a different protocol.
+> Under this review's decision rule that is a **NO-GO for E2EE-3**. A homemade
+> protocol implementation must not be built to close the gap. The E2EE-2
+> architecture text was corrected on six inaccurate claims (section 9 below).
 
 ## Table of Contents
 
@@ -46,8 +45,8 @@
 
 ### 1.1 The one-line answer to the gating question
 
-> **"Welche konkrete Implementierung führt die kryptografischen
-> Protokolloperationen aus?"**
+> **"Which concrete implementation performs the cryptographic
+> protocol operations?"**
 
 | Layer | Concrete implementation | Status |
 |---|---|---|
@@ -76,11 +75,11 @@ history, license, and audit trail — not README claims.
 | P9 | `2key-ratchet` (Virgil), `nostr-double-ratchet`, `@matrix-org/olm` | various | various | Inactive/deprecated | 2023 or older | partial | **Rejected** — inactive, P-256/legacy, or niche |
 
 **Conclusion (protocol layer):** The E2EE-1 finding
-([`docs/e2ee-architecture.md`](./e2ee-architecture.md): *"keine der untersuchten
-Signal-Protokoll-Bibliotheken kann sauber im Browser betrieben werden"*) **still
+([`docs/e2ee-architecture.md`](./e2ee-architecture.md): *"none of the examined
+Signal protocol libraries can be run cleanly in the browser"*) **still
 holds in August 2026** for audited implementations. New arrivals since then
 (P6, P7) are unaudited single-author projects that do not meet the
-"vertrauenswürdig" bar of this review.
+"trustworthy" bar of this review.
 
 ### 1.3 Candidate audit (ML-KEM-768 primitive layer)
 
@@ -133,7 +132,7 @@ Classification requested by the review (A/B/C/D) for the chosen solution:
   (Chrome 151 stable, Aug 2026). A W3C/WICG draft ("Modern Algorithms in the
   Web Cryptography API", draft of 2026-06-29) specifies `ML-KEM-768`
   encapsulate/decapsulate operations; Node implemented it early (≥ 24.7.0).
-  **This falsifies E2EE-2's "W3C Web Crypto API für ML-KEM-768" claim — corrected
+  **This falsifies E2EE-2's "W3C Web Crypto API for ML-KEM-768" claim — corrected
   in the architecture doc.**
 - **B) WASM:** ✅ **chosen.** `mlkem-wasm` embeds an Emscripten-style WASM build
   of `mlkem-native` **inside a single ~53 kB unminified ES module** (17 kB
@@ -248,7 +247,7 @@ marking every deviation of the E2EE-2 document:
 | Replay handling | initial-msg replay mitigations; AEAD failure discards state without mutation | same policy | ✅ match |
 | AEAD choice | free (must be IND-CPA/INT-CTXT); Signal's own impl uses AES-CBC+HMAC | AES-256-GCM | ✅ spec-allowed; ⚠️ **not wire-compatible with Signal clients** (irrelevant — no Signal interop planned); documented |
 | DR bootstrap | Bob inits DR with his SPK keypair as first ratchet key (DR spec §7.1) | session record has ratchet keypair | ✅ compatible; must be pinned in E2EE-3 |
-| Safety number | 60 digits, 12×5, per-side 30 digits via 5200× iterated SHA-512 (~112-bit security per research literature) | "60-stellige Safety Number" | ✅ claim **verified** (spike constructs it deterministically) |
+| Safety number | 60 digits, 12×5, per-side 30 digits via 5200× iterated SHA-512 (~112-bit security per research literature) | "60-digit Safety Number" | ✅ claim **verified** (spike constructs it deterministically) |
 
 ---
 
@@ -421,10 +420,10 @@ allowed to import it).
 
 | E2EE-2 claim | Verdict | Action taken |
 |---|---|---|
-| "W3C Web Crypto API für ML-KEM-768" | ❌ **false** — no browser ships it (WICG draft 2026-06; Node ≥ 24.7 only) | Architecture doc corrected (§1.3, §18); ML-KEM via `mlkem-wasm` (WASM) documented |
-| "PQXDH + klassischer Double Ratchet wie Signal" | ⚠️ sound *design*, but no implementation exists for browsers | Kept as target architecture; implementation gated (NO-GO); spec deviations corrected in doc |
-| "~48 Bytes Double-Ratchet-Overhead" | ❌ **misleading** — counts only 32 B ratchet-pub + 16 B tag, ignores PN/N counters and the doc's own JSON+Base64 container (≈ ×2.4 expansion) | Corrected to honest per-message overhead table (≈ 56–60 B binary; ≈ 190–260 B in the planned JSON container) |
-| "60-stellige Safety Number" | ✅ **correct** — matches Signal/WhatsApp format (12×5 digits, 5200× iterated SHA-512 per side) | Verified by spike; algorithm documented in adapter section |
+| "W3C Web Crypto API for ML-KEM-768" | ❌ **false** — no browser ships it (WICG draft 2026-06; Node ≥ 24.7 only) | Architecture doc corrected (§1.3, §18); ML-KEM via `mlkem-wasm` (WASM) documented |
+| "PQXDH + classical Double Ratchet as in Signal" | ⚠️ sound *design*, but no implementation exists for browsers | Kept as target architecture; implementation gated (NO-GO); spec deviations corrected in doc |
+| "~48 Bytes Double Ratchet overhead" | ❌ **misleading** — counts only 32 B ratchet-pub + 16 B tag, ignores PN/N counters and the doc's own JSON+Base64 container (≈ ×2.4 expansion) | Corrected to honest per-message overhead table (≈ 56–60 B binary; ≈ 190–260 B in the planned JSON container) |
+| "60-digit Safety Number" | ✅ **correct** — matches Signal/WhatsApp format (12×5 digits, 5200× iterated SHA-512 per side) | Verified by spike; algorithm documented in adapter section |
 | "AES-256-GCM" | ⚠️ spec-permitted AEAD, but **not** Signal's own wire choice (AES-CBC+HMAC) | Kept, deviation documented (no Signal-client interop planned) |
 | "My Notes Loopback Self Session" | ✅ technically consistent — PQXDH-to-self and a DR session A↔A are well-defined; hides notes from the server like any session | Kept; noted that single-device loopback protects only against server, not device compromise (already the doc's intent) |
 | (§1.2) "0 KB added" browser bundle for PQXDH+DR | ❌ ML-KEM cannot run on WebCrypto today | Corrected: ≈ +15 kB gzip (mlkem-wasm) |

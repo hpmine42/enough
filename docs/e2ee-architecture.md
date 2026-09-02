@@ -1,301 +1,301 @@
 # enough. E2EE Architecture Decision
 
-**Status:** Decision document for E2EE-1A (Compatibility Spike) and E2EE-1B (Key Infrastructure).
+**Status:** Decision document for E2EE-1A (compatibility spike) and E2EE-1B (key infrastructure).
 **Date:** 2026-08-19
 **Version:** v0.2 (single-device, no multi-device, no key backup)
 
-> **TL;DR — Empfehlung:** enough. verwendet **keine selbst-entworfene Messenger-Kryptografie** und kann derzeit (Stand August 2026) **keine der untersuchten Signal-Protokoll-Bibliotheken** sauber im Browser betreiben. Wir etablieren deshalb eine saubere **Crypto-Infrastruktur-Schicht** auf Basis der **Web Crypto API** (Identity Keys, PreKey-Persistenz, IndexedDB-Storage, Public-Key-Serialisierung) — aber **ohne** selbst Double-Ratchet/X3DH/PQXDH zu implementieren. Der produktive Nachrichtenfluss bleibt vorerst Klartext. Sobald eine auditierbare, browserfaehige Signal-kompatible Bibliothek verfuegbar ist (z.B. offizielle libsignal WASM-Bindings oder eine stabilisierte vodozemac-JS-Bindung), wird sie hinter dem abstrahierten Crypto-Layer eingehangen.
+> **TL;DR — recommendation:** enough. uses **no homemade messenger cryptography** and currently (as of August 2026) **cannot run any of the examined Signal protocol libraries** cleanly in the browser. We therefore establish a clean **crypto infrastructure layer** on the **Web Crypto API** (identity keys, prekey persistence, IndexedDB storage, public-key serialization) — but **without** implementing Double Ratchet/X3DH/PQXDH ourselves. The productive message flow stays plaintext for now. As soon as an auditable, browser-capable Signal-compatible library is available (e.g. official libsignal WASM bindings or a stabilized vodozemac JS binding), it will be plugged in behind the abstracted crypto layer.
 
 ---
 
-## 1. Threat Model
+## 1. Threat model
 
-### Aktive Angreifer
+### Active attackers
 
-| Angreifer                                   | Faehigkeiten                                                                                             |
-|---------------------------------------------|----------------------------------------------------------------------------------------------------------|
-| Supabase-Administrator                      | Lese-/Schreibzugriff auf alle DB-Zeilen inkl. `messages.ciphertext`, Realtime-Mitschnitt auf DB-Seite    |
-| Datenbank-Leak / SQL-Injection              | Abfluss aller gespeicherten Ciphertexts, Public-Keys und Metadaten                                       |
-| TLS-Mitschnitt / TLS-Kompromittierung       | Lesen des zwischen Client und Supabase laufenden Traffics                                                |
-| Kompromittierter Realtime-Kanal             | Mitlesen und Injizieren von Nachrichten in laufende Realtime-Sessions                                    |
-| Rogue Client mit gueltigem Supabase-Auth    | Lesen aller Nachrichten, zu denen RLS Zugriff gewaehrt (also Connections des Users)                      |
+| Attacker | Capabilities |
+|---|---|
+| Supabase administrator | Read/write access to all DB rows including `messages.ciphertext`, realtime capture on the DB side |
+| Database leak / SQL injection | Exfiltration of all stored ciphertexts, public keys and metadata |
+| TLS intercept / TLS compromise | Reading traffic between client and Supabase |
+| Compromised realtime channel | Reading and injecting messages in live realtime sessions |
+| Rogue client with valid Supabase auth | Reading all messages RLS grants (i.e. the user’s connections) |
 
-### Nicht im Scope von E2EE-1
+### Out of scope for E2EE-1
 
-| Angreifer                                        | Warum nicht                                                                     |
-|--------------------------------------------------|---------------------------------------------------------------------------------|
-| Kompromittiertes Endgeraet                       | Kein Browser-basiertes Kryptosystem kann davor schuetzen                        |
-| XSS / manipuliertes JavaScript                   | Gleicher Trust-Bereich wie legitimer Code — kann auf Schluessel zugreifen       |
-| Schaedliche Browser-Erweiterungen                | Koennen Code und DOM mitlesen                                                   |
-| Screenshot / physischer Zugriff                  | Ausserhalb der Software-Kontrolle                                               |
-
----
-
-## 2. Sicherheitsziele
-
-1. **Vertraulichkeit gegenueber Supabase:** Weder Datenbank noch Realtime noch ein Datenbank-Leak darf Klartext-Nachrichten lesen koennen.
-2. **Forward Secrecy:** Kompromittierung eines langfristigen Schluessels darf vergangene Sitzungen nicht offenlegen. (Ziel fuer spaetere Phase — noch nicht implementiert.)
-3. **Post-Compromise Security (Future Secrecy):** Nach Kompromittierung eines Sitzungsschluessels sollen zukuenftige Nachrichten wieder sicher sein. (Ziel fuer spaetere Phase.)
-4. **Asynchrone Kommunikation:** Ein Benutzer muss offline sein koennen; der andere muss trotzdem eine Sitzung aufbauen und eine Nachricht senden koennen (PreKey-Modell).
-5. **Authentizitaet:** Empfaenger muss sicher sein, dass eine Nachricht vom behaupteten Absender stammt (via Signatur/Key-Agreement).
-6. **Minimale Angriffsflaeche:** Geheime Schluessel verlassen das Geraet nie als Klartext und werden nicht in React-State, URL, Cookies oder `localStorage` gehalten.
-7. **Trennung der Identitaeten:** Supabase-User-ID, Connection-ID und kryptographische Identitaet sind unabhaengige Ebenen.
-
-### Explizit nicht durch E2EE abgedeckt
-
-- RLS / Zugriffskontrolle (bleibt bei Supabase).
-- Transport-Verschluesselung (bleibt bei TLS).
-- Geraete-Kompromittierung (siehe Threat Model).
-- Metadata-Hiding (wer mit wem wann kommuniziert) — weiterhin sichtbar auf DB-Ebene.
-- Push-Benachrichtigungen — es gibt keine.
+| Attacker | Why not |
+|---|---|
+| Compromised endpoint | No browser-based cryptosystem can protect against that |
+| XSS / manipulated JavaScript | Same trust domain as legitimate code — can access keys |
+| Malicious browser extensions | Can read code and DOM |
+| Screenshot / physical access | Outside software control |
 
 ---
 
-## 3. Browser-Anforderungen
+## 2. Security goals
 
-### Minimalanforderungen
+1. **Confidentiality toward Supabase:** neither the database nor realtime nor a database leak must be able to read plaintext messages.
+2. **Forward secrecy:** compromise of a long-term key must not disclose past sessions. (Goal for a later phase — not yet implemented.)
+3. **Post-compromise security (future secrecy):** after compromise of a session key, future messages should be secure again. (Goal for a later phase.)
+4. **Asynchronous communication:** a user must be able to be offline; the other must still be able to establish a session and send a message (prekey model).
+5. **Authenticity:** the recipient must be sure a message comes from the claimed sender (via signature/key agreement).
+6. **Minimal attack surface:** secret keys never leave the device as plaintext and are not held in React state, URL, cookies or `localStorage`.
+7. **Separation of identities:** Supabase user id, connection id and cryptographic identity are independent layers.
 
-| Feature                       | Zweck                                  | Verfuegbarkeit (2026)                                       |
-|-------------------------------|----------------------------------------|-------------------------------------------------------------|
-| `crypto.subtle` (Web Crypto)  | Alle kryptographischen Primitive       | Alle modernen Browser (Chrome >= 37, FF >= 34, Safari >= 11, Edge >= 79) |
-| **Ed25519** in `SubtleCrypto` | Identity Key (Signaturen)              | Chrome >= 137 (Mai 2025), Firefox >= 130, Safari >= 17       |
-| **X25519** in `SubtleCrypto`  | ECDH Key Agreement                     | Chrome >= 113, Firefox >= 130, Safari >= 17.2               |
-| AES-GCM                       | Nachrichtenverschluesselung            | Alle modernen Browser                                       |
-| HKDF                          | Schluesselableitung                    | Alle modernen Browser                                       |
-| `non-extractable` `CryptoKey` | Schutz privater Schluessel vor Export  | Alle modernen Browser                                       |
-| IndexedDB                     | Persistenz der Schluessel/Sessions     | Alle modernen Browser                                       |
-| `crypto.getRandomValues`      | Sichere Zufallszahlen                  | Alle modernen Browser                                       |
+### Explicitly not covered by E2EE
 
-### Graceful-Degradation
-
-- Browser ohne `crypto.subtle` oder ohne Ed25519/X25519 **duerfen nicht in den E2EE-Pfad gezwungen werden**; die bestehende Klartext-Funktion muss erhalten bleiben.
-- Da Ed25519 in Chrome erst ab Version 137 (Mai 2025) verfuegbar ist, werden wir E2EE-Funktionalitaet erst nach Feature-Erkennung aktivieren. Bis zur flaechendeckenden Verbreitung bleibt `messages.ciphertext` der klare Text.
-
-### Deployment-Kontext
-
-- Vite (ESM-Bundler)
-- GitHub-Pages-Deployment unter Pfad `/enough/`
-- Kein Node.js im Browser, keine Server-Side-Komponente fuer Krypto
-- PWA: Krypto-Storage muss offline verfuegbar sein (IndexedDB ist PWA-kompatibel)
-- **Keine** Service-Worker-Krypto in E2EE-1
+- RLS / access control (stays with Supabase).
+- Transport encryption (stays with TLS).
+- Device compromise (see threat model).
+- Metadata hiding (who talks to whom when) — still visible at the DB layer.
+- Push notifications — there are none.
 
 ---
 
-## 4. Untersuchte Bibliotheken
+## 3. Browser requirements
 
-### Option A — `@signalapp/libsignal-client` (offiziell)
+### Minimum requirements
 
-| Kriterium                    | Ergebnis                                                                                                |
-|------------------------------|---------------------------------------------------------------------------------------------------------|
-| Version                      | 0.101.0 (2026)                                                                                          |
-| Installationsgroesse         | 147,5 MB entpackt, inkl. nativer `.node`-Binaries fuer darwin/linux/win32 auf arm64 und x64             |
-| Modulformat                  | ESM (`"type": "module"`), aber ueber `node-gyp-build`                                                    |
-| **Browser-Faehigkeit**       | **Nicht gegeben.** Importiert `node:buffer`, `node:crypto` und laedt native `.node`-Addons. Keine WASM-Builds im npm-Paket. |
-| Vite-Build-Test              | **Fehlgeschlagen:** `Buffer is not exported by "__vite-browser-external"` (Adress.js:6). Native Bindings koennen im Browser nicht geladen werden. |
-| Offizielle Doku              | Die TypeScript-API ist ein **Node.js-only-Wrapper** um die Rust-Core-Library. Signal bietet keinen Web-Client an und hat wiederholt begruendet, dass das Browser-Trust-Modell fuer ihren Threat-Model nicht ausreicht. |
-| Unterstuetzte Protokollteile | Alle (PQXDH, Double Ratchet, X3DH, Sealed Sender, Group Sessions, SVR2, etc.) — aber nur in Node/Electron/nativen Clients. |
-| Lizenz                       | AGPL-3.0-only                                                                                           |
-| Eignung fuer enough.         | **Nein.** Kann nicht in einer Vite-/GitHub-Pages-Browser-App betrieben werden. Polyfills wuerden native Bindungen nicht ersetzen. |
+| Feature | Purpose | Availability (2026) |
+|---|---|---|
+| `crypto.subtle` (Web Crypto) | All cryptographic primitives | All modern browsers (Chrome >= 37, FF >= 34, Safari >= 11, Edge >= 79) |
+| **Ed25519** in `SubtleCrypto` | Identity key (signatures) | Chrome >= 137 (May 2025), Firefox >= 130, Safari >= 17 |
+| **X25519** in `SubtleCrypto` | ECDH key agreement | Chrome >= 113, Firefox >= 130, Safari >= 17.2 |
+| AES-GCM | Message encryption | All modern browsers |
+| HKDF | Key derivation | All modern browsers |
+| `non-extractable` `CryptoKey` | Protect private keys from export | All modern browsers |
+| IndexedDB | Persistence of keys/sessions | All modern browsers |
+| `crypto.getRandomValues` | Secure random numbers | All modern browsers |
 
-### Option B — Web Crypto API (Primitives)
+### Graceful degradation
 
-| Kriterium                    | Ergebnis                                                                                                |
-|------------------------------|---------------------------------------------------------------------------------------------------------|
-| APIs                         | X25519 (ab ~2023/24 in allen grossen Engines), Ed25519 (ab Chrome 137, FF 130, Safari 17), AES-GCM, HKDF, SHA-256/512, HMAC, `non-extractable` CryptoKeys, `getRandomValues` |
-| Node-Kompatibilitaet         | `globalThis.crypto.subtle` existiert ab Node 15; Tests koennen in Node laufen.                          |
-| Persistenz                   | Keine eingebaute — IndexedDB muss selbst adressiert werden.                                             |
-| **Wichtig: Was Web Crypto NICHT ist** | **Es ist kein Signal-Protokoll.** Es liefert Bausteine (DH, Signaturen, AEAD, KDF, PRF), aber kein Schluesselabkommen (X3DH/PQXDH), keinen Double Ratchet, keine PreKey-Behandlung, keine Session-Verwaltung. |
-| Verbotene Nutzung            | Daraus eigenstaendig einen "eigenen Signal-aehnlichen" Messenger zusammenzubauen waere ein kryptographischer Anti-Pattern und wird in diesem Projekt **explizit nicht getan**. |
-| Eignung fuer enough.         | **Teilweise.** Hervorragend fuer **Identity Keys, signierte PreKeys, Persistenz-Schicht, Public-Key-Serialisierung** und als Backend fuer eine zukuenftige Protokollbibliothek. Reicht allein **nicht** fuer E2EE-Nachrichten. |
+- Browsers without `crypto.subtle` or without Ed25519/X25519 **must not be forced onto the E2EE path**; existing plaintext function must remain.
+- Because Ed25519 in Chrome is only available from version 137 (May 2025), we activate E2EE functionality only after feature detection. Until widespread availability, `messages.ciphertext` remains plaintext.
 
-### Option C — Dritt-Bibliotheken
+### Deployment context
 
-#### C.1 — `libsignal-protocol-javascript` (signalapp, veraltet)
-- Offiziell **deprecated** seit 2021.
-- Benoetigt einen selbst bereitzustellenden `curve25519`-WebWorker (asm.js/WASM).
-- Seit Jahren keine Sicherheitsupdates; PQXDH, Kyber und neuere Signal-Anpassungen fehlen.
-- **Entscheid:** Nicht verwenden. Ein nicht gewartetes Protokoll in der Verschluesselungsschicht ist ein Sicherheitsrisiko.
+- Vite (ESM bundler)
+- GitHub Pages deployment under path `/enough/`
+- No Node.js in the browser, no server-side crypto component
+- PWA: crypto storage must be available offline (IndexedDB is PWA-compatible)
+- **No** service-worker crypto in E2EE-1
+
+---
+
+## 4. Examined libraries
+
+### Option A — `@signalapp/libsignal-client` (official)
+
+| Criterion | Result |
+|---|---|
+| Version | 0.101.0 (2026) |
+| Install size | 147.5 MB unpacked, including native `.node` binaries for darwin/linux/win32 on arm64 and x64 |
+| Module format | ESM (`"type": "module"`), but via `node-gyp-build` |
+| **Browser capability** | **Not given.** Imports `node:buffer`, `node:crypto` and loads native `.node` addons. No WASM builds in the npm package. |
+| Vite build test | **Failed:** `Buffer is not exported by "__vite-browser-external"` (Adress.js:6). Native bindings cannot be loaded in the browser. |
+| Official docs | The TypeScript API is a **Node.js-only wrapper** around the Rust core library. Signal offers no web client and has repeatedly argued that the browser trust model is insufficient for their threat model. |
+| Supported protocol parts | All (PQXDH, Double Ratchet, X3DH, Sealed Sender, group sessions, SVR2, etc.) — but only in Node/Electron/native clients. |
+| License | AGPL-3.0-only |
+| Fit for enough. | **No.** Cannot be run in a Vite/GitHub Pages browser app. Polyfills would not replace native bindings. |
+
+### Option B — Web Crypto API (primitives)
+
+| Criterion | Result |
+|---|---|
+| APIs | X25519 (from ~2023/24 in all major engines), Ed25519 (from Chrome 137, FF 130, Safari 17), AES-GCM, HKDF, SHA-256/512, HMAC, `non-extractable` CryptoKeys, `getRandomValues` |
+| Node compatibility | `globalThis.crypto.subtle` exists from Node 15; tests can run in Node. |
+| Persistence | None built in — IndexedDB must be addressed ourselves. |
+| **Important: what Web Crypto is NOT** | **It is not a Signal protocol.** It provides building blocks (DH, signatures, AEAD, KDF, PRF), but no key agreement (X3DH/PQXDH), no Double Ratchet, no prekey handling, no session management. |
+| Forbidden use | Assembling a “homemade Signal-like” messenger from it would be a cryptographic anti-pattern and is **explicitly not done** in this project. |
+| Fit for enough. | **Partial.** Excellent for **identity keys, signed prekeys, persistence layer, public-key serialization** and as a backend for a future protocol library. Alone **not** enough for E2EE messages. |
+
+### Option C — third-party libraries
+
+#### C.1 — `libsignal-protocol-javascript` (signalapp, obsolete)
+- Officially **deprecated** since 2021.
+- Needs a self-provided `curve25519` WebWorker (asm.js/WASM).
+- No security updates for years; PQXDH, Kyber and newer Signal adaptations missing.
+- **Decision:** do not use. An unmaintained protocol in the encryption layer is a security risk.
 
 #### C.2 — `2key-ratchet` (PeculiarVentures)
-- TypeScript-Implementierung von X3DH + Double Ratchet auf WebCrypto-Basis.
-- **Nicht mehr aktiv gewartet** (README: "This library is no longer actively maintained"; Empfehlung Migration zu `pqc-ratchet`).
-- Nutzt **secp256r1 (P-256)** statt Curve25519 — signifikante Abweichung vom Signal-Oekosystem, kein Interop.
-- Eigene Protokoll-Deltas ("two-key"-Modell) ohne breite externe Auditierung.
-- Lizenz unklar/custom.
-- **Entscheid:** Nicht verwenden. Ungewartet, andere Kurve, nicht Signal-kompatibel.
+- TypeScript implementation of X3DH + Double Ratchet on WebCrypto.
+- **No longer actively maintained** (README: “This library is no longer actively maintained”; recommendation to migrate to `pqc-ratchet`).
+- Uses **secp256r1 (P-256)** instead of Curve25519 — significant deviation from the Signal ecosystem, no interop.
+- Own protocol deltas (“two-key” model) without broad external audit.
+- License unclear/custom.
+- **Decision:** do not use. Unmaintained, different curve, not Signal-compatible.
 
 #### C.3 — `triple-double` (zbo14)
-- Implementiert X3DH + Double Ratchet inkl. Header-Encryption.
-- **Node.js-only** (nutzt `tls`, `https`, `net`, eigene WebSocket-Implementierung).
-- 6 Jahre alt, ein Maintainer, keine Audits bekannt.
-- **Entscheid:** Nicht verwenden.
+- Implements X3DH + Double Ratchet including header encryption.
+- **Node.js-only** (uses `tls`, `https`, `net`, own WebSocket implementation).
+- 6 years old, one maintainer, no known audits.
+- **Decision:** do not use.
 
 #### C.4 — `@towns-protocol/vodozemac` / `@cogia/vodozemac-nodejs`
-- JS/WASM-Bindings fuer [matrix-org/vodozemac](https://github.com/matrix-org/vodozemac) (Rust-Implementierung von Olm/Megolm).
-- `@towns-protocol/vodozemac` ist ein **Fork fuer das Towns-Protokoll** — kein offizielles Matrix-Paket, keine stabile Versionierung, keine unabhaengigen Security-Audits dokumentiert.
-- `@cogia/vodozemac-nodejs` ist Node.js-only.
-- Offiziell gibt es von matrix-org kein eigenes npm-Paket fuer vodozemac-JS.
-- **Entscheid:** Derzeit nicht verwenden. Zu viel Unsicherheit ueber Maintenance, API-Stabilitaet und Audit-Status.
+- JS/WASM bindings for [matrix-org/vodozemac](https://github.com/matrix-org/vodozemac) (Rust implementation of Olm/Megolm).
+- `@towns-protocol/vodozemac` is a **fork for the Towns protocol** — not an official Matrix package, no stable versioning, no independent security audits documented.
+- `@cogia/vodozemac-nodejs` is Node.js-only.
+- Officially matrix-org has no own npm package for vodozemac JS.
+- **Decision:** do not use for now. Too much uncertainty about maintenance, API stability and audit status.
 
 #### C.5 — `@matrix-org/matrix-sdk-crypto-wasm`
-- WASM-Build der Matrix-Rust-Crypto (vodozemac + Matrix-Key-Management).
-- Sehr stark an Matrix-Raeume, Geraete-Listen, Server-Signaturen, Megolm-Sessions etc. gekoppelt.
-- Keine eigenstaendige "nur Double-Ratchet"-API — wuerde die gesamte Matrix-Crypto-Infrastruktur mitbringen.
-- **Entscheid:** Nicht geeignet fuer einen 1:1-Messenger ohne Matrix-Server.
+- WASM build of Matrix Rust crypto (vodozemac + Matrix key management).
+- Tightly coupled to Matrix rooms, device lists, server signatures, Megolm sessions, etc.
+- No standalone “Double Ratchet only” API — would bring the entire Matrix crypto infrastructure.
+- **Decision:** not suitable for a 1:1 messenger without a Matrix server.
 
 #### C.6 — `libomemo.js` (conversejs)
-- XMPP-OMEMO-Implementierung (basierend auf libsignal-protocol-javascript).
-- Wartungszustand unklar, XMPP-fokussiert, keine auditierten Releases.
-- **Entscheid:** Nicht verwenden.
+- XMPP OMEMO implementation (based on libsignal-protocol-javascript).
+- Maintenance unclear, XMPP-focused, no audited releases.
+- **Decision:** do not use.
 
 ---
 
-## 5. Vor- und Nachteile im Ueberblick
+## 5. Pros and cons at a glance
 
-| Option                      | Browser-tauglich | Signal-kompatibel | Auditierbar | Aktiv gewartet | Einfach integrierbar | Fazit                                        |
-|-----------------------------|------------------|-------------------|-------------|----------------|----------------------|----------------------------------------------|
-| libsignal-client (offiziell)| Nein (nur Node)  | Ja                | Ja          | Ja             | Nein                 | Nicht im Browser nutzbar                     |
-| Web Crypto API (nur)        | Ja               | Nur Primitive     | Ja          | Ja (Browsers)  | Ja                   | Kein Protokoll -> darf nicht allein stehen   |
-| libsignal-protocol-js (alt) | Ja               | Ja (alt)          | Ja (hist.)  | Nein (deprecated)| Bedingt             | Nicht mehr gewartet — zu riskant             |
-| 2key-ratchet                | Ja               | Nein (secp256r1)  | Nein        | Nein           | Bedingt              | Falsche Kurve, EOL                           |
-| triple-double               | Nein (Node)      | Ja                | Nein        | Nein           | Nein                 | Node-only, unbeachtet                        |
-| @towns-protocol/vodozemac   | Ja (WASM)        | Nein (Olm/Megolm) | Nein        | Bedingt (Fork) | Bedingt              | Unklare Wartung, Olm statt Signal            |
-| matrix-sdk-crypto-wasm      | Ja               | Nein (Matrix)     | Ja          | Ja             | Nein                 | Zu Matrix-spezifisch                         |
-
----
-
-## 6. Build- / Deployment-Auswirkungen
-
-### Aktuelle Situation
-- Vite-Bundle: ~474 KB JS / ~27 KB CSS (GZip ~139 KB) — sehr schlank.
-- Keine WASM-Dateien, keine Node-Polyfills noetig.
-- GitHub-Pages-Deployment mit `base: '/enough/'` funktioniert.
-
-### Auswirkungen der gewaehlten Architektur
-- **Identity-/Storage-Layer auf Web Crypto:** Keine zusaetzlichen Abhaengigkeiten -> Bundle-Steigerung < 5 KB (nur eigener TS-Code). Keine WASM, keine Polyfills.
-- **Kein nativer Code:** Vite muss `node:*`-Module nicht polyfillen.
-- **WASM-Bibliothek (zukuenftig):** Spaeter kann `vite.config.ts` um `assetsInclude: ['**/*.wasm']` und ggf. `optimizeDeps.exclude` ergaenzt werden. Fuer E2EE-1 ist dies nicht erforderlich.
-- **GitHub-Pages-WASM:** Vite serviert WASM als Asset mit korrektem MIME-Type; `/enough/`-Base-Pfad funktioniert fuer relative Asset-Loads, solange die Bibliothek nicht `fetch('/...')` mit absolutem Pfad nutzt. Dies ist zu testen, sobald WASM tatsaechlich benutzt wird.
-
-### Verifikation (bereits durchgefuehrt)
-- `npm run build` laeuft vor und nach den Aenderungen fehlerfrei durch.
-- Ein Import von `@signalapp/libsignal-client` wurde probeweise hinzugefuegt — der Vite-Build schlaegt wie erwartet fehl (siehe §4 Option A). Die Dependency wurde wieder entfernt.
+| Option | Browser-capable | Signal-compatible | Auditable | Actively maintained | Easy to integrate | Verdict |
+|---|---|---|---|---|---|---|
+| libsignal-client (official) | No (Node only) | Yes | Yes | Yes | No | Not usable in the browser |
+| Web Crypto API (only) | Yes | Primitives only | Yes | Yes (browsers) | Yes | No protocol → must not stand alone |
+| libsignal-protocol-js (old) | Yes | Yes (old) | Yes (hist.) | No (deprecated) | Conditional | No longer maintained — too risky |
+| 2key-ratchet | Yes | No (secp256r1) | No | No | Conditional | Wrong curve, EOL |
+| triple-double | No (Node) | Yes | No | No | No | Node-only, ignored |
+| @towns-protocol/vodozemac | Yes (WASM) | No (Olm/Megolm) | No | Conditional (fork) | Conditional | Unclear maintenance, Olm instead of Signal |
+| matrix-sdk-crypto-wasm | Yes | No (Matrix) | Yes | Yes | No | Too Matrix-specific |
 
 ---
 
-## 7. Persistenz des kryptografischen Zustands
+## 6. Build / deployment impact
 
-### Speicherort: IndexedDB (nicht localStorage!)
+### Current situation
+- Vite bundle: ~474 KB JS / ~27 KB CSS (gzip ~139 KB) — very lean.
+- No WASM files, no Node polyfills needed.
+- GitHub Pages deployment with `base: '/enough/'` works.
 
-| Daten                         | Speicherort            | Begruendung                                                                 |
-|-------------------------------|------------------------|-----------------------------------------------------------------------------|
-| Identity Key Pair (Ed25519)   | IndexedDB              | Private Key wird als `non-extractable` CryptoKey gehalten; IndexedDB kann CryptoKey-Objekte speichern |
-| Signed PreKey                 | IndexedDB              | Enthaelt privaten PreKey + Signatur; darf nicht in localStorage.            |
-| One-Time PreKeys              | IndexedDB              | Werden verbraucht; atomare Transaktionen erforderlich.                      |
-| Session-Records (zukuenftig)  | IndexedDB              | Groessere Objekte, strukturiert.                                            |
-| Public-Key-Metadaten          | IndexedDB (lokal) + Supabase (nur oeffentliche Teile)                     | Oeffentliche Keys werden fuer andere Geraete auf Supabase veroeffentlicht.  |
+### Impact of the chosen architecture
+- **Identity/storage layer on Web Crypto:** no extra dependencies → bundle increase < 5 KB (own TS code only). No WASM, no polyfills.
+- **No native code:** Vite does not have to polyfill `node:*` modules.
+- **WASM library (future):** later `vite.config.ts` can add `assetsInclude: ['**/*.wasm']` and possibly `optimizeDeps.exclude`. Not required for E2EE-1.
+- **GitHub Pages WASM:** Vite serves WASM as an asset with the correct MIME type; `/enough/` base path works for relative asset loads as long as the library does not `fetch('/...')` with an absolute path. This is to be tested once WASM is actually used.
 
-### Verbotene Speicherorte
-- `localStorage` (synchron, plaintext-serialisiert, XSS-leicht zugreifbar)
-- React-State / Context (verloren bei Reload, ueber DevTools einsehbar)
-- URL-Hash / Query-Parameter (Logs, Browser-History)
-- Cookies (werden an Server geschickt)
-- `window.name` oder aehnliche Hacks
-
-### Storage-Layer-Design
-- Ein dediziertes `src/lib/crypto/storage.ts`-Modul kapselt alle IndexedDB-Zugriffe.
-- Die Schicht ist logisch von UI und von Supabase getrennt.
-- Private Key-Materialien werden als `non-extractable` `CryptoKey`-Objekte erzeugt und als solche in IndexedDB persistiert.
-- Als Fallback fuer Browser, die keine nicht-exportierbaren CryptoKeys in IndexedDB speichern koennen, werden Schluessel mit einem geraetegebundenen AES-GCM-Wrap-Key umschlossen (`wrapKey`/`unwrapKey`).
-
-### Storage-Clear-Verhalten
-
-| Ereignis                                              | Verhalten                                                                                                        |
-|-------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|
-| Reload / Tab-Wechsel                                  | CryptoState bleibt erhalten (IndexedDB-persistiert).                                                             |
-| Logout                                                | CryptoState bleibt lokal erhalten; Benutzer kann sich wieder einloggen und das vorhandene Geraet weiterverwenden.|
-| "Browserdaten loeschen" / IndexedDB geloescht          | Alle lokalen Schluessel gehen verloren. Da kein Backup existiert (v0.2), ist der Zustand wie bei einem neuen Geraet. Dokumentiert. |
-| Account-Loeschung                                     | Lokaler CryptoState wird ebenfalls geloescht, damit keine halbe Identitaet verbleibt.                            |
-| Zweites Geraet / zweiter Browser                      | Jedes Geraet erzeugt eine eigene Identity. Multi-Device ist fuer v0.2 **nicht** unterstuetzt.                    |
+### Verification (already done)
+- `npm run build` runs cleanly before and after the changes.
+- An import of `@signalapp/libsignal-client` was added as a probe — the Vite build fails as expected (see §4 option A). The dependency was removed again.
 
 ---
 
-## 8. Empfohlene Loesung (Entscheidung)
+## 7. Persistence of cryptographic state
 
-**Fuer enough. E2EE-1 empfehlen wir:**
+### Storage location: IndexedDB (not localStorage!)
 
-> **Schritt 1 (E2EE-1A, jetzt):** Keine der untersuchten Dritt-Bibliotheken ist ohne erhebliche Kompromisse im Browser produktionsreif. Wir **stoppen die produktive Nachrichtenverschluesselung an dieser Stelle** (d.h. `messages.ciphertext` bleibt vorerst Klartext) und **dokumentieren dies explizit**.
+| Data | Location | Rationale |
+|---|---|---|
+| Identity key pair (Ed25519) | IndexedDB | Private key held as `non-extractable` CryptoKey; IndexedDB can store CryptoKey objects |
+| Signed prekey | IndexedDB | Contains private prekey + signature; must not be in localStorage. |
+| One-time prekeys | IndexedDB | Consumed; atomic transactions required. |
+| Session records (future) | IndexedDB | Larger objects, structured. |
+| Public-key metadata | IndexedDB (local) + Supabase (public parts only) | Public keys are published to Supabase for other devices. |
+
+### Forbidden storage locations
+- `localStorage` (synchronous, plaintext-serialized, easy XSS access)
+- React state / context (lost on reload, visible via DevTools)
+- URL hash / query parameters (logs, browser history)
+- Cookies (sent to the server)
+- `window.name` or similar hacks
+
+### Storage-layer design
+- A dedicated `src/lib/crypto/storage.ts` module encapsulates all IndexedDB access.
+- The layer is logically separate from UI and from Supabase.
+- Private key material is generated as `non-extractable` `CryptoKey` objects and persisted as such in IndexedDB.
+- As a fallback for browsers that cannot store non-extractable CryptoKeys in IndexedDB, keys are wrapped with a device-bound AES-GCM wrap key (`wrapKey`/`unwrapKey`).
+
+### Storage-clear behaviour
+
+| Event | Behaviour |
+|---|---|
+| Reload / tab switch | CryptoState remains (IndexedDB-persisted). |
+| Logout | CryptoState remains locally; the user can log in again and keep using the existing device. |
+| “Clear browser data” / IndexedDB deleted | All local keys are lost. Because there is no backup (v0.2), state is as for a new device. Documented. |
+| Account deletion | Local CryptoState is also deleted so no half-identity remains. |
+| Second device / second browser | Each device generates its own identity. Multi-device is **not** supported for v0.2. |
+
+---
+
+## 8. Recommended solution (decision)
+
+**For enough. E2EE-1 we recommend:**
+
+> **Step 1 (E2EE-1A, now):** None of the examined third-party libraries is production-ready in the browser without major compromises. We **stop productive message encryption here** (i.e. `messages.ciphertext` stays plaintext for now) and **document this explicitly**.
 >
-> **Schritt 2 (E2EE-1B, jetzt):** Wir bauen eine **saubere Crypto-Infrastruktur-Schicht** (`src/lib/crypto/`) auf Basis der **Web Crypto API** und **IndexedDB**, die:
-> - langlebige Identity Key Pairs (Ed25519) erzeugt, laedt und persistiert,
-> - Signed PreKeys (X25519, durch Identity Key signiert) erzeugt,
-> - One-Time PreKeys erzeugt und verwaltet,
-> - Public-Key-Material typsicher serialisiert/deserialisiert (ohne private Anteile),
-> - den Storage vom UI/API-Layer trennt,
-> - **keine eigenen Double-Ratchet- oder X3DH-Implementierungen enthaelt**.
+> **Step 2 (E2EE-1B, now):** We build a **clean crypto infrastructure layer** (`src/lib/crypto/`) on the **Web Crypto API** and **IndexedDB** that:
+> - generates, loads and persists long-lived identity key pairs (Ed25519),
+> - generates signed prekeys (X25519, signed by the identity key),
+> - generates and manages one-time prekeys,
+> - serializes/deserializes public-key material in a type-safe way (without private parts),
+> - separates storage from the UI/API layer,
+> - **contains no homemade Double Ratchet or X3DH implementations**.
 >
-> **Schritt 3 (spaetere Phase, nicht E2EE-1):** Sobald eine der folgenden Optionen verfuegbar und auditierbar ist, wird sie hinter dem Crypto-Layer als Session-/Ratchet-Engine eingehangen:
-> 1. Offizielle WASM-Builds von `libsignal-client` (falls Signal jemals Browser-Support anbietet),
-> 2. Ein offiziell von matrix-org veroeffentlichtes und auditiertes vodozemac-JS/WASM-Paket, oder
-> 3. Eine andere von der Security-Community gepruefte, browserfaehige Signal-kompatible Bibliothek.
+> **Step 3 (later phase, not E2EE-1):** As soon as one of the following options is available and auditable, it will be plugged in behind the crypto layer as the session/ratchet engine:
+> 1. Official WASM builds of `libsignal-client` (if Signal ever offers browser support),
+> 2. An officially published and audited vodozemac JS/WASM package from matrix-org, or
+> 3. Another security-community-reviewed, browser-capable Signal-compatible library.
 >
-> Bis dahin bleibt `sendMessage()` Klartext in `messages.ciphertext` schreiben. Die Felder `kind` und `meta` (Systemnachrichten etc.) bleiben unverschluesselt und sind explizit als Metadaten behandelt.
+> Until then `sendMessage()` keeps writing plaintext to `messages.ciphertext`. The `kind` and `meta` fields (system messages etc.) stay unencrypted and are explicitly treated as metadata.
 
-### Begruendung
-- **Sicherheit vor Geschwindigkeit:** Eine ungewartete, selbst zusammengebaute oder unsichere "Verschluesselung" ist schlimmer als gar keine, weil sie falsche Sicherheit suggeriert.
-- **Infrastruktur ist portabel:** Der Identity-/Storage-Layer ist unabhaengig von der spaeteren Ratchet-Bibliothek.
-- **Beste App funktioniert weiter:** Keine Breaking Changes, keine Datenmigration, keine verlorenen Nachrichten.
-- **Schlankes Bundle:** Keine 150-MB-nativen Module, kein WASM zur Build-Zeit.
+### Rationale
+- **Safety before speed:** unmaintained, homemade or insecure “encryption” is worse than none, because it suggests false security.
+- **Infrastructure is portable:** the identity/storage layer is independent of the later ratchet library.
+- **Existing app keeps working:** no breaking changes, no data migration, no lost messages.
+- **Lean bundle:** no 150 MB native modules, no WASM at build time.
 
-### Explizit NICHT in E2EE-1
-- AES-GCM-"Quick-Fix"-Verschluesselung mit einem gemeinsamen Passwort
-- Selbst erfundene PreKey-Logik / X3DH / Double Ratchet aus Web-Crypto-Primitiven
-- Einhaengen einer ungewarteten Dritt-Bibliothek nur "weil es funktioniert"
-- Multi-Device, Key-Backup, Geraetetransfer
-- Push-Benachrichtigungen
-- Migration von Bestandsnachrichten
-- Systemnachrichten-Verschluesselung (wird in spaeterer Phase separat behandelt)
+### Explicitly NOT in E2EE-1
+- AES-GCM “quick-fix” encryption with a shared password
+- Homemade prekey logic / X3DH / Double Ratchet from Web Crypto primitives
+- Plugging in an unmaintained third-party library just “because it works”
+- Multi-device, key backup, device transfer
+- Push notifications
+- Migration of existing messages
+- System-message encryption (handled separately in a later phase)
 
 ---
 
-## 9. Verworfene Alternativen
+## 9. Rejected alternatives
 
-| Alternative                                          | Grund der Verwerfung                                                                 |
-|------------------------------------------------------|--------------------------------------------------------------------------------------|
-| Eigenes Double-Ratchet auf WebCrypto                 | Hochkomplex, fehleranfaellig, keine Auditierbarkeit.                                 |
-| `@signalapp/libsignal-client` im Browser             | Native `.node`-Addons und `node:*`-Module — nicht browserfaehig.                      |
-| Veraltetes `libsignal-protocol-javascript`           | Offiziell deprecated seit 2021, ohne aktuelle Sicherheitsupdates.                    |
-| `2key-ratchet`                                       | EOL, nutzt secp256r1 statt Curve25519, keine Signal-Kompatibilitaet.                 |
-| `triple-double`                                      | Node-only, keine Wartung.                                                            |
-| Inoffizielle libsignal-WASM-Forks                    | Keine offizielle Herkunft, keine Audit-Trails.                                       |
-| `@towns-protocol/vodozemac`                          | Fork eines Dritten, keine klaren Releases, Olm statt Signal.                         |
-| AES-GCM mit festem Schluessel                        | Schein-E2EE, keine Forward Secrecy, kein PreKey-Modell.                              |
-| Verschluesselung mit User-Passwort                   | Supabase-Auth-Passwoerter sind fuer Authentifizierung, nicht fuer Krypto gedacht.    |
-| `window.crypto.subtle` direkt in `api.ts`            | Keine Trennung der Schichten, keine persistente Schluesselverwaltung.                |
+| Alternative | Reason for rejection |
+|---|---|
+| Homemade Double Ratchet on WebCrypto | Highly complex, error-prone, not auditable. |
+| `@signalapp/libsignal-client` in the browser | Native `.node` addons and `node:*` modules — not browser-capable. |
+| Obsolete `libsignal-protocol-javascript` | Officially deprecated since 2021, no current security updates. |
+| `2key-ratchet` | EOL, uses secp256r1 instead of Curve25519, no Signal compatibility. |
+| `triple-double` | Node-only, no maintenance. |
+| Unofficial libsignal WASM forks | No official origin, no audit trails. |
+| `@towns-protocol/vodozemac` | Third-party fork, no clear releases, Olm instead of Signal. |
+| AES-GCM with a fixed key | Fake E2EE, no forward secrecy, no prekey model. |
+| Encryption with the user password | Supabase auth passwords are for authentication, not for crypto. |
+| `window.crypto.subtle` directly in `api.ts` | No layering, no persistent key management. |
 
 ---
 
-## 10. Geraete- / Multi-Device-Modell (v0.2)
+## 10. Device / multi-device model (v0.2)
 
 ```
 Supabase auth user (user.id)
         |
         |  (1:1 in v0.2)
         v
-enough. crypto device (device_id = client-generierte UUID)
+enough. crypto device (device_id = client-generated UUID)
         |
-        +-- Identity Key Pair (Ed25519) — private verbleibt auf dem Geraet
-        +-- Current Signed PreKey (X25519, signed by Identity)
-        +-- One-Time PreKey-Pool (X25519)
-        +-- Session Records (zukuenftig)
+        +-- Identity key pair (Ed25519) — private stays on the device
+        +-- Current signed prekey (X25519, signed by identity)
+        +-- One-time prekey pool (X25519)
+        +-- Session records (future)
 ```
 
-- **1 Account = 1 aktives kryptographisches Geraet** in v0.2.
-- Ein zweiter Browser / ein zweites Geraet erzeugt eine neue, unabhaengige Identitaet.
-- **Supabase-Account != Crypto-Identity:** `auth.users.id` ist eine UUID aus Supabase; `device_id` ist eine client-generierte UUID, die spaeter in einem `crypto_devices`-Eintrag an den `auth.uid()` gebunden wird. Der Public Identity Key ist ein separates Byte-Feld.
-- **Connection != Crypto-Session:** Die bestehende `connections.id` ist die Messenger-Zuordnungsebene.
+- **1 account = 1 active cryptographic device** in v0.2.
+- A second browser / second device generates a new, independent identity.
+- **Supabase account != crypto identity:** `auth.users.id` is a UUID from Supabase; `device_id` is a client-generated UUID later bound to `auth.uid()` in a `crypto_devices` row. The public identity key is a separate byte field.
+- **Connection != crypto session:** existing `connections.id` is the messenger association layer.
 
-### Datenbank-Schema (Vorschlag, additiv, nicht aktiv in E2EE-1 verwendet)
+### Database schema (proposal, additive, not used in E2EE-1)
 
 ```sql
 CREATE TABLE IF NOT EXISTS public.crypto_devices (
@@ -319,304 +319,304 @@ CREATE TABLE IF NOT EXISTS public.crypto_one_time_prekeys (
 );
 ```
 
-> **Wichtig:** Die Produktivschaltung dieser Tabellen (und der RLS-Policies) erfolgt **nicht in E2EE-1**, da sie erst sinnvoll befuellt werden, wenn die Session-/Ratchet-Schicht steht. Fuer die Storage-Infrastruktur reicht die lokale IndexedDB. Die Migration wird als Vorschlag mitgeliefert, aber **nicht automatisch angewendet**.
+> **Important:** going live with these tables (and RLS policies) is **not in E2EE-1**, because they are only useful once the session/ratchet layer exists. For the storage infrastructure local IndexedDB is enough. The migration is supplied as a proposal but **not applied automatically**.
 
 ---
 
-## 11. Connection-Binding
+## 11. Connection binding
 
-- `connections.id` (bestehend) ist die Messenger-Konversationsebene.
-- Pro Connection gibt es spaeter (nach Einhaengen einer Ratchet-Engine) genau eine aktive Crypto-Session pro Geraete-Paar.
-- Die Connection-ID ist **nicht** Teil des Schluesselmaterials; sie dient nur zur Zuordnung.
-- **My Notes** (Self-Connection, `user_a = user_b`) wird dieselbe Infrastruktur verwenden — kein Spezialpfad "user_id = shared secret".
-- **Systemnachrichten** (`kind: 'name_change'`, `connection_event`, `deleted_account`) werden serverseitig mit leerem `ciphertext` und `meta`-JSON erzeugt. Diese bleiben vorerst unverschluesselt sichtbar. Dies ist **dokumentiert, nicht geloest** in E2EE-1.
-
----
-
-## 12. Delete-for-everyone / Delete-for-me
-
-- **Delete-for-me:** Wie bisher (lokale Deletions-Liste + `message_deletions`-Tabelle). Keine Aenderung.
-- **Delete-for-everyone:** Server kann den Ciphertext auf leer setzen und damit die weitere Zustellung unterbinden. Er kann aber **nicht** garantieren, dass ein bereits zugestellter und auf dem Geraet entschluesselter Klartext vernichtet wird. Dies ist dokumentiert.
-- In E2EE-1 gibt es keine Ciphertexts zu loeschen — Verhalten bleibt wie bisher.
+- `connections.id` (existing) is the messenger conversation layer.
+- Per connection there will later (after plugging in a ratchet engine) be exactly one active crypto session per device pair.
+- The connection id is **not** part of the key material; it is only for association.
+- **My Notes** (self-connection, `user_a = user_b`) will use the same infrastructure — no special path “user_id = shared secret”.
+- **System messages** (`kind: 'name_change'`, `connection_event`, `deleted_account`) are produced server-side with empty `ciphertext` and `meta` JSON. These stay unencrypted for now. This is **documented, not solved** in E2EE-1.
 
 ---
 
-## 13. Security Boundaries (explizit)
+## 12. Delete-for-everyone / delete-for-me
 
-### Geschuetzt durch E2EE (wenn vollstaendig implementiert)
-- Supabase-Datenbank-Administrator ohne Geraeteschluessel
-- Supabase-Storage-Leserechte (z.B. Service-Role-Leak)
-- Realtime-Traffic-Mitschnitt
-- Gestohlene Ciphertext-Daten (z.B. DB-Dump)
-- Direkter Serverzugriff auf Message-Payloads (nach Aktivierung der Verschluesselung)
-
-### Nicht automatisch geschuetzt (auch spaeter nicht)
-- Kompromittiertes Endgeraet (Malware, Root/Administrator-Zugriff)
-- Cross-Site-Scripting (XSS) — Schluessel sind im selben JS-Kontext
-- Manipuliertes JavaScript (z.B. kompromittierter Deploy auf GitHub Pages)
-- Kompromittierter Browser oder Browser-Profil
-- Schaedliche Browser-Erweiterungen (koennen Seitenkontext lesen)
-- Bereits entschluesselte Nachrichten (bleiben im UI-Speicher/DOM)
-- Screenshots, Fotografie, Screen-Recording
-- Traffic-Metadaten (wer wann mit wem) — bleiben sichtbar
-- Downgrade-Angriffe durch kompromittierten JavaScript-Code (erfordert CSP/SRI-Haertung, separat zu planen)
+- **Delete-for-me:** as today (local deletions list + `message_deletions` table). No change.
+- **Delete-for-everyone:** the server can set ciphertext empty and thereby stop further delivery. It **cannot** guarantee that plaintext already delivered and decrypted on the device is destroyed. This is documented.
+- In E2EE-1 there are no ciphertexts to delete — behaviour stays as today.
 
 ---
 
-## 14. Risiken
+## 13. Security boundaries (explicit)
 
-| Risiko                                                                 | Wahrscheinlichkeit | Auswirkung | Mitigation                                                                          |
-|------------------------------------------------------------------------|--------------------|------------|-------------------------------------------------------------------------------------|
-| Browser Ed25519-Unterstuetzung nicht ausreichend verbreitet            | Mittel             | E2EE kann bei Nutzern aelterer Browser nicht aktiviert werden | Feature-Erkennung; Klartext-Fallback; schrittweiser Rollout         |
-| IndexedDB-Exportierbarkeitsverhalten variiert zwischen Browsern        | Niedrig            | Private Keys koennen ggf. nicht non-extractable persistiert werden | Wrap-Key-Pattern mit zusaetzlichem AES-GCM-Wrapping als Fallback    |
-| XSS-Leck von privaten Schluesseln                                      | Mittel             | Totalverlust der Vertraulichkeit | Strenge CSP, keine eval, Dependency-Audits, keine Schluessel in Strings |
-| Spaetere Bibliotheks-Integration fuehrt zu Breaking Changes            | Mittel             | Erneuter Umbau | Crypto-Layer-API ist bewusst eng und bibliotheksagnostisch gehalten     |
-| Lizenz-Konflikte bei zukuenftigen Bibliotheken                         | Niedrig            | Rechtliches Risiko | Lizenzpruefung vor jeder Integration                                    |
-| Fehlender Cloud-Key-Backup fuehrt zu Datenverlust                      | Hoch (in v0.2)     | Nachrichtenverlust bei Geraeteverlust | Dokumentation; Backup-Loesung in spaeterer Version                     |
-| Systemnachrichten bleiben dauerhaft Klartext                           | Niedrig            | Meta-Daten-Leck | Spaeteres Design-Dokument fuer System-Events                              |
+### Protected by E2EE (when fully implemented)
+- Supabase database administrator without device keys
+- Supabase storage read rights (e.g. service-role leak)
+- Realtime traffic intercept
+- Stolen ciphertext data (e.g. DB dump)
+- Direct server access to message payloads (after encryption is activated)
 
----
-
-## 15. Offene Entscheidungen (Folge-Phasen)
-
-- **O1:** Wann und auf welche Bibliothek setzen wir fuer die Session-/Ratchet-Schicht? Empfehlung: Beobachten von (a) offizieller libsignal WASM, (b) offizieller vodozemac-JS-Bindung. Entscheidung in E2EE-2.
-- **O2:** Ab welchem Browser-Support-Level aktivieren wir E2EE per Default?
-- **O3:** Multi-Device-Strategie (Geraete-Linking, Key-Fanout, Device-Revocation).
-- **O4:** Key-Backup / Recovery (SVR-aehnlich wie bei Signal, oder Recovery-Key / Paper-Key).
-- **O5:** Behandlung von Systemnachrichten unter E2EE.
-- **O6:** Sicherheits-Haertung: CSP-Header, SRI fuer Build-Artefakte.
-- **O7:** My-Notes-Keys (selbe Identity, separate Session? Selbstverschluesselung mit PreKey?).
-- **O8:** Wie wird der oeffentliche Identity Key an den Peer verteilt?
-- **O9:** Umgang mit Verstoessen gegen die "no key in logs/URL/error"-Regel in Drittabhaengigkeiten.
+### Not automatically protected (not later either)
+- Compromised endpoint (malware, root/administrator access)
+- Cross-site scripting (XSS) — keys are in the same JS context
+- Manipulated JavaScript (e.g. compromised deploy on GitHub Pages)
+- Compromised browser or browser profile
+- Malicious browser extensions (can read page context)
+- Already decrypted messages (remain in UI memory/DOM)
+- Screenshots, photography, screen recording
+- Traffic metadata (who when with whom) — stays visible
+- Downgrade attacks via compromised JavaScript (requires CSP/SRI hardening, to be planned separately)
 
 ---
 
-## 16. Modul-Struktur (umgesetzt in E2EE-1B)
+## 14. Risks
+
+| Risk | Likelihood | Impact | Mitigation |
+|---|---|---|---|
+| Browser Ed25519 support not widespread enough | Medium | E2EE cannot be activated for users of older browsers | Feature detection; plaintext fallback; gradual rollout |
+| IndexedDB extractability behaviour varies across browsers | Low | Private keys may not persist as non-extractable | Wrap-key pattern with extra AES-GCM wrapping as fallback |
+| XSS leak of private keys | Medium | Total loss of confidentiality | Strict CSP, no eval, dependency audits, no keys in strings |
+| Later library integration causes breaking changes | Medium | Rebuild | Crypto-layer API kept deliberately narrow and library-agnostic |
+| License conflicts with future libraries | Low | Legal risk | License review before every integration |
+| Missing cloud key backup leads to data loss | High (in v0.2) | Message loss on device loss | Documentation; backup solution in a later version |
+| System messages stay permanently plaintext | Low | Metadata leak | Later design document for system events |
+
+---
+
+## 15. Open decisions (follow-on phases)
+
+- **O1:** When and which library do we use for the session/ratchet layer? Recommendation: watch (a) official libsignal WASM, (b) official vodozemac JS binding. Decision in E2EE-2.
+- **O2:** From which browser-support level do we enable E2EE by default?
+- **O3:** Multi-device strategy (device linking, key fanout, device revocation).
+- **O4:** Key backup / recovery (SVR-like as in Signal, or recovery key / paper key).
+- **O5:** Handling of system messages under E2EE.
+- **O6:** Security hardening: CSP headers, SRI for build artifacts.
+- **O7:** My Notes keys (same identity, separate session? Self-encryption with prekey?).
+- **O8:** How is the public identity key distributed to the peer?
+- **O9:** Handling of violations of the “no key in logs/URL/error” rule in third-party dependencies.
+
+---
+
+## 16. Module structure (implemented in E2EE-1B)
 
 ```
 src/lib/crypto/
-  index.ts          Oeffentliche API (initIdentity, getIdentity, getPublicBundle, ...)
-  types.ts          Typen (SerializedIdentityKey, PreKeyBundle, ...)
-  storage.ts        IndexedDB-Layer (init, put, get, delete, list, versioning)
-  identity.ts       Identity-Key-Generierung, Speichern, Laden, Export des Public-Anteils
-  prekeys.ts        Signed PreKey + One-Time PreKeys (generieren, signieren, persistieren)
-  serialization.ts  Oeffentliche Schluessel <-> Base64/Uint8Array (ohne private Anteile!)
-  key-agreement.ts  (E2EE-2A) X25519 Shared Secret als nicht-exportierbarer HKDF-CryptoKey
-  kdf.ts            (E2EE-2A) HKDF-SHA-256 (Message-Key-Ableitung, Domain Separation)
-  symmetric.ts      (E2EE-2A) AES-256-GCM encrypt/decrypt mit 96-Bit-Random-Nonce und AAD
-  primitives.ts     (E2EE-2A) Barrel der Primitive-Schicht (nicht aus index.ts exportiert)
-  errors.ts         Eigene Crypto-Fehler (ohne geheime Inhalte in message/stack)
-  __tests__/        Tests (Storage, Identity, Serialization, Security)
-  README.md         Developer-Doku
+  index.ts          Public API (initIdentity, getIdentity, getPublicBundle, ...)
+  types.ts          Types (SerializedIdentityKey, PreKeyBundle, ...)
+  storage.ts        IndexedDB layer (init, put, get, delete, list, versioning)
+  identity.ts       Identity-key generation, store, load, export of the public half
+  prekeys.ts        Signed prekey + one-time prekeys (generate, sign, persist)
+  serialization.ts  Public keys <-> Base64/Uint8Array (without private parts!)
+  key-agreement.ts  (E2EE-2A) X25519 shared secret as non-extractable HKDF CryptoKey
+  kdf.ts            (E2EE-2A) HKDF-SHA-256 (message-key derivation, domain separation)
+  symmetric.ts      (E2EE-2A) AES-256-GCM encrypt/decrypt with 96-bit random nonce and AAD
+  primitives.ts     (E2EE-2A) barrel of the primitive layer (not exported from index.ts)
+  errors.ts         Own crypto errors (no secret contents in message/stack)
+  __tests__/        Tests (storage, identity, serialization, security)
+  README.md         Developer docs
 ```
 
-**Wichtig:** Die Module exportieren keine privaten Schluessel als serialisierbare Werte. `CryptoKey`-Objekte werden nur in `non-extractable`-Form erzeugt und als solche gehandhabt. `index.ts` ist der **einzige** oeffentliche Einstiegspunkt.
+**Important:** the modules do not export private keys as serializable values. `CryptoKey` objects are created only in `non-extractable` form and handled as such. `index.ts` is the **only** public entry point.
 
-### Zukuenftige Erweiterung (E2EE-2+)
+### Future extension (E2EE-2+)
 ```
 src/lib/crypto/
   sessions/
     index.ts
-    <bibliothek>.ts    # Adapter zur ausgewaehlten Ratchet-Bibliothek
-  messages.ts          # encryptMessage / decryptMessage (delegiert an sessions)
+    <library>.ts    # adapter to the chosen ratchet library
+  messages.ts          # encryptMessage / decryptMessage (delegates to sessions)
 ```
 
 ---
 
-## 17. Referenzen
+## 17. References
 
 - Signal Specifications: https://signal.org/docs/
   - X3DH: https://signal.org/docs/specifications/x3dh/
   - Double Ratchet: https://signal.org/docs/specifications/doubleratchet/
   - PQXDH: https://signal.org/docs/specifications/pqxdh/
-- libsignal (Rust-Core): https://github.com/signalapp/libsignal
+- libsignal (Rust core): https://github.com/signalapp/libsignal
 - Web Crypto API: https://www.w3.org/TR/WebCryptoAPI/
 - WebCrypto Secure Curves (Ed25519/X25519): https://wicg.github.io/webcrypto-secure-curves/
-- vodozemac (Matrix Rust-Implementierung von Olm/Megolm): https://github.com/matrix-org/vodozemac
+- vodozemac (Matrix Rust implementation of Olm/Megolm): https://github.com/matrix-org/vodozemac
 - Olm / Megolm Specification: https://gitlab.matrix.org/matrix-org/olm/-/blob/master/docs/
 - 2key-ratchet (PeculiarVentures): https://github.com/PeculiarVentures/2key-ratchet
-- "Can I use Secure Curves": https://blogs.igalia.com/jfernandez/2025/02/28/can-i-use-secure-curves-in-the-web-platform/
+- “Can I use Secure Curves”: https://blogs.igalia.com/jfernandez/2025/02/28/can-i-use-secure-curves-in-the-web-platform/
 
 ---
 
-## 18. Change Log
+## 18. Change log
 
-- **2026-08-19 — E2EE-1A:** Initiale Architektur-Entscheidung. Empfehlung: Web-Crypto-basierter Identity/Storage-Layer, keine produktive Nachrichtenverschluesselung in E2EE-1.
-- **2026-08-19 — E2EE-1C:** Security-Review der implementierten Infrastruktur (Details siehe §19).
-- **2026-08-19 — E2EE-2A:** Lokale Primitive-Schicht (X25519 -> HKDF-SHA-256 -> AES-256-GCM) additiv ergaenzt, ohne produktive Integration (Details siehe §20).
-- **2026-08-20 — E2EE-2C (Vorbereitung):** Architektur und Blocker-Aufloesung fuer eine moegliche Session-Engine (`@getmaapp/signal-wasm`) in [`e2ee-2c-architecture.md`](./e2ee-2c-architecture.md). **Keine Produktionsintegration.** Entscheidung: CONDITIONAL GO fuer die Engine-Wahl, NO-GO fuer Implementierung bis Legal/Provenance/Mobile/Review.
+- **2026-08-19 — E2EE-1A:** Initial architecture decision. Recommendation: Web-Crypto-based identity/storage layer, no productive message encryption in E2EE-1.
+- **2026-08-19 — E2EE-1C:** Security review of the implemented infrastructure (details in §19).
+- **2026-08-19 — E2EE-2A:** Local primitive layer (X25519 -> HKDF-SHA-256 -> AES-256-GCM) added additively, without productive integration (details in §20).
+- **2026-08-20 — E2EE-2C (preparation):** Architecture and blocker resolution for a possible session engine (`@getmaapp/signal-wasm`) in [`e2ee-2c-architecture.md`](./e2ee-2c-architecture.md). **No production integration.** Decision: CONDITIONAL GO for engine choice, NO-GO for implementation until legal/provenance/mobile/review.
 
 ---
 
-## 19. E2EE-1C Security Review
+## 19. E2EE-1C security review
 
-Dieser Abschnitt dokumentiert den gezielten Security-Review der nach E2EE-1B entstandenen Crypto-Foundation vor der Freigabe fuer E2EE-2 (Session-/Ratchet-Layer).
+This section documents the targeted security review of the crypto foundation produced after E2EE-1B, before release for E2EE-2 (session/ratchet layer).
 
-### 19.1 Gepruefte Bereiche
+### 19.1 Areas reviewed
 
-| # | Bereich | Ergebnis |
-|---|---------|----------|
-| 1 | Private Key Exposure (logs, errors, localStorage, URL, props, JSON, Supabase) | Keine Lecks — siehe §19.2 |
-| 2 | User-Isolation (Logout/Login, Reload, Storage-Clear) | Urspruenglich **fehlerhaft** (Kritisch), nach Fix sauber — siehe §19.3 Finding F-1 |
-| 3 | IndexedDB-Design (Schema, Migrationen, Corruption, fehlende Records) | Korruptionserkennung vorhanden, User-Scoping nach Fix — §19.3 F-1 |
-| 4 | Key Extractability (`extractable: false` und tatsaechlicher Export-Fehlschlag) | In Ordnung; Tests pruefen echten `exportKey`-Fehlschlag — §19.3 F-2 |
-| 5 | Public-Bundle-Inhalt (keine privaten Felder) | In Ordnung; negative Tests und JSON-Scans — §19.3 F-3 |
-| 6 | Error-Handling (keine Secrets in `message`/`stack`/`console`) | Urspruenglich unsichere Cause-Weitergabe, gefixt — §19.3 F-4 |
-| 7 | PreKey-Parameter-Dokumentation | Werte sind genug.-Foundation-Parameter, keine Signal-Konstanten — §19.6 |
-| 8 | Protokollgrenze (keine impl. X3DH/PQXDH/Double-Ratchet/Verschluesselung) | Bestaetigt, Test prueft auf Abwesenheit dieser APIs — §19.7 |
-| 9 | Auth-Lifecycle (Login, Session-Restore, Logout, Account-Deletion) | Logout haelt Identity; Account-Deletion loescht sie — §19.8 |
-| 10 | Build/Smoke/Crypto-Tests | `npm run build`, `npm run smoke`, `npm run test:crypto` erfolgreich (30/30 Tests) — §19.9 |
+| # | Area | Result |
+|---|---|---|
+| 1 | Private-key exposure (logs, errors, localStorage, URL, props, JSON, Supabase) | No leaks — see §19.2 |
+| 2 | User isolation (logout/login, reload, storage clear) | Originally **broken** (critical), clean after fix — see §19.3 finding F-1 |
+| 3 | IndexedDB design (schema, migrations, corruption, missing records) | Corruption detection present, user scoping after fix — §19.3 F-1 |
+| 4 | Key extractability (`extractable: false` and actual export failure) | OK; tests check real `exportKey` failure — §19.3 F-2 |
+| 5 | Public-bundle content (no private fields) | OK; negative tests and JSON scans — §19.3 F-3 |
+| 6 | Error handling (no secrets in `message`/`stack`/`console`) | Originally unsafe cause forwarding, fixed — §19.3 F-4 |
+| 7 | Prekey-parameter documentation | Values are enough. foundation parameters, not Signal constants — §19.6 |
+| 8 | Protocol boundary (no implicit X3DH/PQXDH/Double Ratchet/encryption) | Confirmed, test checks absence of these APIs — §19.7 |
+| 9 | Auth lifecycle (login, session restore, logout, account deletion) | Logout keeps identity; account deletion deletes it — §19.8 |
+| 10 | Build/smoke/crypto tests | `npm run build`, `npm run smoke`, `npm run test:crypto` successful (30/30 tests) — §19.9 |
 
-### 19.2 Findings — Private Key Exposure
+### 19.2 Findings — private-key exposure
 
-**Scan-Methodik:**
-- `grep` nach `console.log/error/warn` innerhalb von `src/lib/crypto/` → **keine** Treffer (produktiver Code; Tests nutzen keine Console-Ausgaben von Secrets).
-- `grep` nach `localStorage/sessionStorage` innerhalb von `src/lib/crypto/` → nur in Kommentaren ("NOT in localStorage").
-- Manuelle Inspektion aller Serialisierungs-Pfade: `serializeIdentityBundle`, `serializeSignedPreKey`, `serializeOneTimePreKey`, `getPublicDeviceBundle` nehmen ausschliesslich die dafuer vorgesehenen `Public*Bundle`-Typen entgegen; diese Typen enthalten keine `CryptoKey`-Felder.
-- `CryptoError` haengt die `cause`-Ursache an ein **nicht-enumerierbares Symbol** (`Symbol.for('enough.crypto.cause')`), sodass `JSON.stringify`, `console.log` (bei Standard-Serialisierung) und `Error.toString()` den Cause nicht offenlegen.
-- Automatisierte Tests scannen das JSON der Public Bundles nach `privateKey`, `signingPrivateKey`, `secret`, `CryptoKey`, `extractable`, `pkcs8` (schlagen an, falls ein Treffer).
+**Scan method:**
+- `grep` for `console.log/error/warn` inside `src/lib/crypto/` → **no** hits (production code; tests do not print secrets to the console).
+- `grep` for `localStorage/sessionStorage` inside `src/lib/crypto/` → only in comments (“NOT in localStorage”).
+- Manual inspection of all serialization paths: `serializeIdentityBundle`, `serializeSignedPreKey`, `serializeOneTimePreKey`, `getPublicDeviceBundle` accept only the intended `Public*Bundle` types; those types contain no `CryptoKey` fields.
+- `CryptoError` hangs the `cause` on a **non-enumerable symbol** (`Symbol.for('enough.crypto.cause')`), so `JSON.stringify`, `console.log` (with standard serialization) and `Error.toString()` do not disclose the cause.
+- Automated tests scan public-bundle JSON for `privateKey`, `signingPrivateKey`, `secret`, `CryptoKey`, `extractable`, `pkcs8` (fail on a hit).
 
-**Ergebnis:** Kein privates Material verlässt den Crypto-Layer auf irgendeinem der geprueften Pfade.
+**Result:** no private material leaves the crypto layer on any of the checked paths.
 
-### 19.3 Findings (Schweregrad)
+### 19.3 Findings (severity)
 
-| ID | Severity | Titel | Status |
-|----|----------|-------|--------|
-| F-1 | **Kritisch** | Crypto-State war nicht per-User isoliert | **Behoben** |
-| F-2 | Niedrig | Extractability nur ueber Flag, nicht per Export-Test geprueft | **Behoben** |
-| F-3 | Mittel | `_resetIdentityCacheForTests` war ueber Public-Barrel exportiert | **Behoben** |
-| F-4 | Niedrig | `cause`-Handling in `CryptoError` koennte Detais im stack verlieren | **Behoben** |
-| F-5 | Niedrig | `initCrypto` hatte keine Mutex-Guard gegen doppelte Generierung | **Behoben** |
-| F-6 | Mittel | `deleteAccount()` loeschte keinen lokalen CryptoState | **Behoben** |
-| F-7 | Informativ | PreKey-Pool-Konstanten (100/20/30Tage) muessen als genug.-eigene Foundation-Parameter markiert werden | **Behoben** (Doku) |
-| F-8 | Informativ | `sendMessage()` bleibt Klartext — bewusst | **Bestaetigt** |
-| F-9 | Informativ | Keine Multi-Device-, Backup-, Push- oder System-Nachrichten-Kryptografie | **Dokumentiert** (E2EE-1-Scope) |
+| ID | Severity | Title | Status |
+|---|---|---|---|
+| F-1 | **Critical** | Crypto state was not isolated per user | **Fixed** |
+| F-2 | Low | Extractability checked only via flag, not via export test | **Fixed** |
+| F-3 | Medium | `_resetIdentityCacheForTests` was exported via the public barrel | **Fixed** |
+| F-4 | Low | `cause` handling in `CryptoError` could lose details in the stack | **Fixed** |
+| F-5 | Low | `initCrypto` had no mutex against double generation | **Fixed** |
+| F-6 | Medium | `deleteAccount()` did not delete local CryptoState | **Fixed** |
+| F-7 | Informational | Prekey-pool constants (100/20/30 days) must be marked as enough.’s own foundation parameters | **Fixed** (docs) |
+| F-8 | Informational | `sendMessage()` stays plaintext — deliberate | **Confirmed** |
+| F-9 | Informational | No multi-device, backup, push or system-message cryptography | **Documented** (E2EE-1 scope) |
 
-#### F-1 — User-Isolation (Kritisch)
+#### F-1 — user isolation (critical)
 
-**Original-Bug:** `IDENTITY_RECORD_KEY = 'identity'` und `SIGNED_PREKEY_RECORD_KEY = 'signed-prekey'` waren **globale** IndexedDB-Keys ohne User-Namespace. Logout + Login als anderer Benutzer auf demselben Browser-Profil haetten die Identitaet des vorherigen Benutzers weiterverwendet (Cross-User-Identity-Reuse).
+**Original bug:** `IDENTITY_RECORD_KEY = 'identity'` and `SIGNED_PREKEY_RECORD_KEY = 'signed-prekey'` were **global** IndexedDB keys without a user namespace. Logout + login as another user on the same browser profile would have reused the previous user’s identity (cross-user identity reuse).
 
 **Fix:**
-- State wird unter **composite Keys** `${userId}:${recordKey}` gespeichert (`stateKeyFor()`/`prekeyCompositeKey()`).
-- PreKey-Object-Store verwendet zusammengesetzte String-Keys `${userId}:${keyId}`; `listPreKeys(userId)` macht einen Prefix-Scan ueber `IDBKeyRange.bound(prefix, prefix + '\uffff')` und defensiv einen `userId`-Check auf jedem Record.
-- `PersistedIdentity`/`PersistedSignedPreKey`/`StoredPreKey` enthalten zusaetzlich ein `userId`-Feld; `validateRecord` prueft `record.userId === expectedUserId` und wirft bei Mismatch `USER_MISMATCH` (Isolationsverletzung wird erkannt, statt stillschweigend falsche Daten zu liefern).
-- `PublicIdentityBundle` enthaelt jetzt `userId`; der Deserialisierer erzwingt dieses Feld.
+- State is stored under **composite keys** `${userId}:${recordKey}` (`stateKeyFor()`/`prekeyCompositeKey()`).
+- Prekey object store uses composite string keys `${userId}:${keyId}`; `listPreKeys(userId)` does a prefix scan via `IDBKeyRange.bound(prefix, prefix + '\\uffff')` and defensively checks `userId` on every record.
+- `PersistedIdentity`/`PersistedSignedPreKey`/`StoredPreKey` additionally contain a `userId` field; `validateRecord` checks `record.userId === expectedUserId` and throws `USER_MISMATCH` on mismatch (isolation violation is detected instead of silently returning wrong data).
+- `PublicIdentityBundle` now contains `userId`; the deserializer enforces this field.
 
-**Neue Tests:** `user A and user B get distinct identities`, `deleteUserCryptoState removes only that user`, `identity record with wrong userId fails validation`.
+**New tests:** `user A and user B get distinct identities`, `deleteUserCryptoState removes only that user`, `identity record with wrong userId fails validation`.
 
-#### F-2 — Key-Extractability-Pruefung (Niedrig)
+#### F-2 — key-extractability check (low)
 
-**Original-Zustand:** Tests prueften nur `key.extractable === false`, nicht ob ein tatschlicher `crypto.subtle.exportKey('pkcs8', ...)`-Aufruf fehlschlaegt.
+**Original state:** tests only checked `key.extractable === false`, not whether an actual `crypto.subtle.exportKey('pkcs8', ...)` call fails.
 
-**Fix:** Tests versuchen aktiv `exportKey('pkcs8', privKey)` fuer Identity-, Signed-PreKey- und OTK-Private-Keys und erwarten einen Fehlschlag.
+**Fix:** tests actively try `exportKey('pkcs8', privKey)` for identity, signed-prekey and OTK private keys and expect failure.
 
-#### F-3 — Test-Helper im Public-Barrel (Mittel)
+#### F-3 — test helper in the public barrel (medium)
 
-**Original-Bug:** `_resetIdentityCacheForTests` war aus `src/lib/crypto/index.ts` re-exportiert und damit fuer Produktivcode zugaenglich. Ein Aufruf haette den Cache zurueckgesetzt.
+**Original bug:** `_resetIdentityCacheForTests` was re-exported from `src/lib/crypto/index.ts` and therefore reachable from production code. A call would have reset the cache.
 
-**Fix:** Der Helper ist aus dem Public-Barrel entfernt (verbleibt nur im `identity.ts`-Export, der in Tests direkt importiert wird).
+**Fix:** the helper is removed from the public barrel (remains only in the `identity.ts` export, imported directly in tests).
 
-#### F-4 — CryptoError-Cause-Handling (Niedrig)
+#### F-4 — CryptoError cause handling (low)
 
-**Original-Zustand:** `cause` wurde nicht auf den Error gelegt; es wurde nur ein Symbol-Property verwendet. Das ist fuer sich genommen korrekt.
+**Original state:** `cause` was not put on the Error; only a symbol property was used. That is correct in itself.
 
-**Review-Ergebnis:** Das Verhalten ist korrekt und erwuenscht (keine Lecks), wurde aber in Tests explizit verifiziert (`CryptoError messages are generic and do not echo inputs`). Kein Code-Aendernotwendig; Test hinzugefuegt.
+**Review result:** the behaviour is correct and desired (no leaks), but was explicitly verified in tests (`CryptoError messages are generic and do not echo inputs`). No code change necessary; test added.
 
-#### F-5 — Race-Condition in `initCrypto` (Niedrig)
+#### F-5 — race in `initCrypto` (low)
 
-**Original-Bug:** `initCrypto()` hatte keine Synchronisation; `onAuthStateChange` und `getSession()`-Callback koennten beide `generateIdentity()` aufrufen, wenn der erste Aufruf noch laeuft, was zu `ALREADY_INITIALIZED`-Fehlern oder — im unguenstigsten Fall — zu einer stillen Ueberschreibung haette fuehren koennen.
+**Original bug:** `initCrypto()` had no synchronization; `onAuthStateChange` and the `getSession()` callback could both call `generateIdentity()` while the first call was still running, leading to `ALREADY_INITIALIZED` errors or — in the worst case — a silent overwrite.
 
-**Fix:** Per-User-Mutex `initLocks: Map<userId, Promise>` — gleichzeitige Aufrufe fuer denselben User erhalten das gleiche Promise; nach Abschluss wird der Eintrag entfernt.
+**Fix:** per-user mutex `initLocks: Map<userId, Promise>` — concurrent calls for the same user get the same promise; the entry is removed after completion.
 
 **Test:** `concurrent initCrypto calls for the same user produce one identity`.
 
-#### F-6 — `deleteAccount()` ohne Crypto-Cleanup (Mittel)
+#### F-6 — `deleteAccount()` without crypto cleanup (medium)
 
-**Original-Bug:** Nach `deleteOwnAccount()` (server-seitige Account-Loeschung) wurde nur der Supabase-Session beendet, aber die lokale Identitaet verblieb in IndexedDB. Ein spaeterer neuer Account mit derselben Browser-Instanz haette potentiell die alte Identity gesehen (bzw. waere in "already initialized" gelaufen).
+**Original bug:** after `deleteOwnAccount()` (server-side account deletion) only the Supabase session was ended, but the local identity remained in IndexedDB. A later new account on the same browser instance could potentially have seen the old identity (or hit “already initialized”).
 
-**Fix:** `deleteAccount()` ruft jetzt `deleteUserCryptoState(deletedUserId)` **vor** dem Sign-Out auf. Fehler werden geschluckt, damit ein Fehlschlag der lokalen Bereinigung den Account-Deletion-Flow nicht blockiert.
+**Fix:** `deleteAccount()` now calls `deleteUserCryptoState(deletedUserId)` **before** sign-out. Errors are swallowed so a local-cleanup failure does not block the account-deletion flow.
 
-**Test:** Logout/Deletion-Isolation wird in `logout preserves identity; deleteAccount wipes it` getestet (indirekt ueber `deleteUserCryptoState`).
+**Test:** logout/deletion isolation is tested in `logout preserves identity; deleteAccount wipes it` (indirectly via `deleteUserCryptoState`).
 
-#### F-7 — PreKey-Parameter als genug.-Foundation-Parameter markiert (Informativ)
+#### F-7 — prekey parameters marked as enough. foundation parameters (informational)
 
-Die Werte `DEFAULT_OTK_POOL_SIZE = 100`, `MIN_OTK_THRESHOLD = 20`, `SIGNED_PREKEY_ROTATION_MS = 30d` sind **nicht** einem Signal-Spezifikationsdokument entnommen. Sie wurden in `src/lib/crypto/prekeys.ts` explizit als "enough. foundation parameter — NOT a final Signal-protocol constant" dokumentiert. Sie werden voraussichtlich durch die Werte der spaeteren Ratchet-Bibliothek ersetzt werden.
+The values `DEFAULT_OTK_POOL_SIZE = 100`, `MIN_OTK_THRESHOLD = 20`, `SIGNED_PREKEY_ROTATION_MS = 30d` are **not** taken from a Signal specification document. They are explicitly documented in `src/lib/crypto/prekeys.ts` as “enough. foundation parameter — NOT a final Signal-protocol constant”. They will likely be replaced by the later ratchet library’s values.
 
-#### F-8 — `sendMessage()`-Klartext (Informativ / Bestaetigung)
+#### F-8 — `sendMessage()` plaintext (informational / confirmation)
 
-`src/lib/api.ts` `sendMessage()` schreibt nach wie vor direkt `ciphertext: text` (Klartext). Dies ist gemaess E2EE-1-Umfang korrekt — produktive Nachrichtenverschluesselung erfolgt erst in E2EE-2 nach der Bibliotheksentscheidung. Test bestaetigt dies (Grep-Prüfung).
+`src/lib/api.ts` `sendMessage()` still writes `ciphertext: text` (plaintext) directly. This is correct per E2EE-1 scope — productive message encryption happens only in E2EE-2 after the library decision. Test confirms this (grep check).
 
-#### F-9 — Ausserhalb des E2EE-1-Scopes liegende Features (Informativ)
+#### F-9 — features outside E2EE-1 scope (informational)
 
-- Multi-Device — **nicht implementiert** (wie vorgesehen).
-- Key-Backup / Recovery — **nicht implementiert**.
-- Push Notifications — **nicht implementiert** (wie vorgesehen; `package.json` enthaelt keine entsprechenden Dependencies).
-- System-Nachrichten-Verschluesselung — **dokumentiert** (§11).
-- My-Notes-Spezialkryptografie — **nicht implementiert** (wird ueber denselben Crypto-Layer abgebildet).
+- Multi-device — **not implemented** (as intended).
+- Key backup / recovery — **not implemented**.
+- Push notifications — **not implemented** (as intended; `package.json` has no corresponding dependencies).
+- System-message encryption — **documented** (§11).
+- My Notes special cryptography — **not implemented** (will be mapped through the same crypto layer).
 
-### 19.4 IndexedDB-Details
+### 19.4 IndexedDB details
 
-| Eigenschaft | Wert |
-|-------------|------|
-| Datenbankname | `enough-crypto` |
-| DB-Version | 1 |
-| Object-Stores | `state` (keyed by composite string `${userId}:${recordKey}`), `prekeys` (keyed by `${userId}:${keyId}`) |
-| Persistenz | Transaktionen mit `durability: 'strict'` |
-| Parallelitaet | Jeder API-Aufruf oeffnet eine neue Connection in `openDatabase()` und schliesst sie in `finally`; V8/IDB sorgt fuer Serialisierung. |
-| Corruption-Recovery | Bei Schema-/Feld-Validierungsfehlern wird `CORRUPT_STATE` geworfen — **kein** automatisches Loeschen/Neugenerieren, um stille Identitaetsersetzung zu vermeiden. Der UI-Layer (zukuenftig) kann den Nutzer ueber den korrupten Zustand informieren. |
-| Reload | Alle Datensaetze bleiben auf Platte; der In-Memory-Cache ist per-User-Map und wird nach Reload neu aus IndexedDB befuellt. |
-| Zweiter Tab | IndexedDB ist ueber Tabs der selben Origin geteilt. Sign-Out in Tab A loescht Daten nicht (Logout behaelt Identity); Account-Deletion in Tab A loescht sie ueber `deleteUserCryptoState`. Tab B wuerde beim naechsten Lesezugriff feststellen, dass die Identitaet fehlt, und eine neue erzeugen — dies ist dokumentiert und der spaetere Session-Layer muss Multi-Tab-Races behandeln (fuer v0.2: "ein Tab = ein Geraet"-Empfehlung). |
+| Property | Value |
+|---|---|
+| Database name | `enough-crypto` |
+| DB version | 1 |
+| Object stores | `state` (keyed by composite string `${userId}:${recordKey}`), `prekeys` (keyed by `${userId}:${keyId}`) |
+| Persistence | transactions with `durability: 'strict'` |
+| Concurrency | each API call opens a new connection in `openDatabase()` and closes it in `finally`; V8/IDB serializes. |
+| Corruption recovery | on schema/field validation errors `CORRUPT_STATE` is thrown — **no** automatic delete/regenerate, to avoid silent identity replacement. The UI layer (future) can inform the user about the corrupt state. |
+| Reload | all records stay on disk; the in-memory cache is a per-user map and is refilled from IndexedDB after reload. |
+| Second tab | IndexedDB is shared across tabs of the same origin. Sign-out in tab A does not delete data (logout keeps identity); account deletion in tab A deletes it via `deleteUserCryptoState`. Tab B would notice on the next read that the identity is missing and generate a new one — this is documented and the later session layer must handle multi-tab races (for v0.2: “one tab = one device” recommendation). |
 
-### 19.5 Private-Key-Protections im Detail
+### 19.5 Private-key protections in detail
 
-- Alle privaten Schluessel werden mit `extractable: false` generiert.
-- **Nachpruefung:** Nach Generierung wird (in `generateIdentity` und der SignedPreKey-/OTK-Generierung) explizit `if (key.privateKey.extractable) throw/re-generate` ausgefuehrt.
-- **Zusaetzliche Nachpruefung:** Bei jedem Laden aus IndexedDB wird `priv.extractable` erneut geprueft; wenn `true`, wird `CORRUPT_STATE` geworfen.
-- **Exports-Test:** Tests rufen `crypto.subtle.exportKey('pkcs8', key)` auf und erwarten einen `InvalidAccessError`-Fehler.
-- Private Keys werden nie als Parameter an Funktionen ausserhalb von `identity.ts`/`prekeys.ts` uebergeben (mit Ausnahme von `getIdentitySigningKey(userId)` — diese Funktion ist **nicht** im Public-Barrel von `index.ts` exportiert, also fuer UI/API-Code unzugaenglich).
-- Private Keys werden nie in einen JS-String oder ein JSON-Objekt konvertiert.
-- Auch bei `console.log` auf einem CryptoKey-Objekt gibt der Browser standardmaessig nur `CryptoKey {...}` aus, ohne Schluesselmaterial preiszugeben; wir rufen `console.log` trotzdem niemals mit Schluesseln auf.
+- All private keys are generated with `extractable: false`.
+- **Recheck:** after generation (in `generateIdentity` and signed-prekey/OTK generation) `if (key.privateKey.extractable) throw/re-generate` is executed.
+- **Additional recheck:** on every load from IndexedDB `priv.extractable` is checked again; if `true`, `CORRUPT_STATE` is thrown.
+- **Export test:** tests call `crypto.subtle.exportKey('pkcs8', key)` and expect an `InvalidAccessError`.
+- Private keys are never passed as parameters outside `identity.ts`/`prekeys.ts` (except `getIdentitySigningKey(userId)` — this function is **not** exported from the public barrel of `index.ts`, so it is unreachable for UI/API code).
+- Private keys are never converted into a JS string or JSON object.
+- Even `console.log` on a CryptoKey object typically prints only `CryptoKey {...}` without key material; we still never call `console.log` with keys.
 
-### 19.6 PreKey-Semantik (Parameter-Dokumentation)
+### 19.6 Prekey semantics (parameter documentation)
 
-Die folgenden Werte sind **genug.-Foundation-Parameter**. Sie dienen in E2EE-1 allein der Schaffung einer funktionsfaehigen Infrastruktur und sind **nicht** als endgueltige Protokollparameter zu verstehen. Sie duerfen und werden wahrscheinlich ersetzt, sobald die spaetere Protokollbibliothek (libsignal, vodozemac o.ae.) mit ihren eigenen Konstanten eingezogen wird.
+The following values are **enough. foundation parameters**. In E2EE-1 they exist only to create a working infrastructure and are **not** final protocol parameters. They may and likely will be replaced once the later protocol library (libsignal, vodozemac or similar) brings its own constants.
 
-| Konstante | Wert | Begruendung in E2EE-1 |
-|-----------|------|------------------------|
-| `DEFAULT_OTK_POOL_SIZE` | 100 | Ausreichend fuer einen asynchronen 1:1-Chat mit ueblicher Nutzungsfrequenz; kompatibel mit der Groessenordnung von Signal-Empfehlungen, aber ohne Audit. |
-| `MIN_OTK_THRESHOLD` | 20 | Pool wird nachgefuellt, wenn er unter 20 faellt; Puffer gegen Concurrent-Session-Aufbauten. |
-| `SIGNED_PREKEY_ROTATION_MS` | 30 Tage | Richtet sich an Empfehlungen fuer gewoehnliche PreKey-Rotationen; lang genug, um selten aufzutreten, kurz genug, um Kompromittierung einzudämmen. |
+| Constant | Value | Rationale in E2EE-1 |
+|---|---|---|
+| `DEFAULT_OTK_POOL_SIZE` | 100 | Enough for an asynchronous 1:1 chat with typical usage frequency; compatible with the order of magnitude of Signal recommendations, but without audit. |
+| `MIN_OTK_THRESHOLD` | 20 | Pool is refilled when it falls below 20; buffer against concurrent session setups. |
+| `SIGNED_PREKEY_ROTATION_MS` | 30 days | Aligns with recommendations for ordinary prekey rotations; long enough to be rare, short enough to contain compromise. |
 
-### 19.7 Protokollgrenze — ausdrueckliche Bestaetigung
+### 19.7 Protocol boundary — explicit confirmation
 
-Der aktuelle Crypto-Layer implementiert **keine** der folgenden Komponenten:
+The current crypto layer implements **none** of the following:
 
 - ❌ X3DH (Extended Triple Diffie-Hellman)
 - ❌ PQXDH (Post-Quantum X3DH)
 - ❌ Double Ratchet
 - ❌ Triple Ratchet
-- ❌ Session-Establishment (kryptographisch)
-- ❌ Message-Encryption
-- ❌ Message-Decryption
-- ❌ Sealed-Sender / Anonyme Absender
-- ❌ Gruppen-Chat-Verschluesselung (Megolm/Sender-Key)
+- ❌ Session establishment (cryptographic)
+- ❌ Message encryption
+- ❌ Message decryption
+- ❌ Sealed sender / anonymous sender
+- ❌ Group-chat encryption (Megolm/sender-key)
 
-Dies wird durch einen Test `crypto layer exposes NO encrypt/decrypt/session APIs in E2EE-1` abgesichert, der das Vorhandensein von Funktionsnamen wie `encryptMessage`, `decryptMessage`, `createSession`, `doubleRatchet`, `x3dh`, `pqxdh` im Public-Barrel verbietet.
+This is backed by a test `crypto layer exposes NO encrypt/decrypt/session APIs in E2EE-1` that forbids function names such as `encryptMessage`, `decryptMessage`, `createSession`, `doubleRatchet`, `x3dh`, `pqxdh` in the public barrel.
 
-### 19.8 Auth-Lifecycle — Verhalten im Detail
+### 19.8 Auth lifecycle — behaviour in detail
 
-| Ereignis | Aktion bezueglich CryptoState |
-|----------|-------------------------------|
-| Erster Login (neuer User, keine vorhandene Identity) | `initCrypto(userId)` erzeugt Ed25519-Identity, Signed PreKey, OTK-Pool (100 Stk.), alles in IndexedDB. |
-| Erneuter Login / Session Restore nach Reload | `initCrypto(userId)` findet vorhandene Identity, laedt sie aus IndexedDB, rotiert Signed PreKey bei Bedarf (nach 30d), fuellt OTK-Pool auf wenn <20. |
-| Logout (`signOut()`) | **Identity bleibt erhalten** (wie bei Signal-Desktop), keine DB-Loescheung. Cache wird nicht geleert; beim naechsten Login derselben User-ID wird dieselbe Identity wiederverwendet. |
-| Session-Expiry (Supabase-Session laeuft ab, Benutzer wird ausgeloggt) | Gleicher Zustand wie Logout — lokale Identity bleibt erhalten. |
-| Account-Deletion (`deleteAccount()`) | Vor dem Sign-Out wird `deleteUserCryptoState(userId)` aufgerufen, um Identity, Signed PreKey und OTKs dieses Users aus IndexedDB zu entfernen. Andere User-Identities im selben Browser (Multi-Account-Fall) bleiben unberuehrt. |
-| "Browserdaten loeschen" / IndexedDB geloescht | Alle Identities gehen verloren. Verhalten: wie bei neuem Geraet (dokumentierter Datenverlust). `loadIdentity()` gibt `null` zurueck; nachfolgendes `initCrypto` erzeugt eine neue Identity. |
-| Konkurrierender `initCrypto(userId)` (Race) | Per-User-Promise-Mutex serialisiert die Initialisierung; es wird nur eine Identity erzeugt. |
-| Zweiter Tab mit selbem User | IndexedDB ist geteilt; beide Tabs sehen dieselbe Identity. Kein Locking in E2EE-1 — spaetere Session-Layer muessen dies beruecksichtigen. |
+| Event | Action regarding CryptoState |
+|---|---|
+| First login (new user, no existing identity) | `initCrypto(userId)` generates Ed25519 identity, signed prekey, OTK pool (100 items), all in IndexedDB. |
+| Repeat login / session restore after reload | `initCrypto(userId)` finds existing identity, loads it from IndexedDB, rotates signed prekey if needed (after 30d), refills OTK pool if <20. |
+| Logout (`signOut()`) | **Identity remains** (as with Signal Desktop), no DB deletion. Cache is not cleared; on the next login of the same user id the same identity is reused. |
+| Session expiry (Supabase session expires, user is logged out) | Same state as logout — local identity remains. |
+| Account deletion (`deleteAccount()`) | Before sign-out, `deleteUserCryptoState(userId)` is called to remove this user’s identity, signed prekey and OTKs from IndexedDB. Other user identities in the same browser (multi-account case) stay untouched. |
+| “Clear browser data” / IndexedDB deleted | All identities are lost. Behaviour: as for a new device (documented data loss). `loadIdentity()` returns `null`; subsequent `initCrypto` generates a new identity. |
+| Concurrent `initCrypto(userId)` (race) | Per-user promise mutex serializes initialization; only one identity is generated. |
+| Second tab with the same user | IndexedDB is shared; both tabs see the same identity. No locking in E2EE-1 — later session layers must account for this. |
 
-### 19.9 Test-Ausfuehrungen
+### 19.9 Test runs
 
 ```
 $ npm run build
@@ -634,137 +634,136 @@ $ npm run test:crypto
   # fail 0
 ```
 
-### 19.10 Remaining Risks (niedrig / dokumentiert)
+### 19.10 Remaining risks (low / documented)
 
-| Risiko | Status |
-|--------|--------|
-| XSS kann auf nicht-exportierbare CryptoKeys zugreifen (gleicher JS-Kontext) | **Dokumentiert** (§13); nicht behebbar auf E2EE-Ebene — benoetigt CSP/SRI/Code-Hardening als Teil des allgemeinen App-Sicherheitsmodells. |
-| Ed25519 verfuegbar noch nicht in allen aelteren Chrome-Versionen | **Dokumentiert** (§3); `isE2eeSupported()`-Feature-Detection schaltet E2EE-Codepaths erst bei Verfuegbarkeit ein; Klartext-Fallback bleibt bestehen. |
-| Kein Key-Backup (Geraeteverlust = Schluesselverlust) | **Dokumentiert** (§14); Folgearbeit in spaeterer Phase. |
-| Kein Multi-Device | **Dokumentiert** (§10); v0.2 = ein Geraet pro Account. |
-| IndexedDB-Versionsmigrationen bei zukuenftigen Schema-Aenderungen | Es existiert noch keine Migration; Schema-Version ist `1`. Zukuenftige Aenderungen muessen Upgrade-Handler in `openDatabase()` implementieren. |
-| SharedWorker/ServiceWorker isoliert Crypto nicht | **Dokumentiert**; E2EE-1 fuehrt keine Crypto-Operationen in Workern aus. |
-| `deleteAccount()` schlaegt fehl, wenn IndexedDB gesperrt ist | Fehler wird geschluckt, um Deletion nicht zu blockieren; ein spaeterer Neu-Aufbau der IndexedDB ist akzeptabel (zurueck bleibt hoechstens eine verwaiste Identity, die keine Zuordnung mehr zu einem existierenden Supabase-Account hat). |
+| Risk | Status |
+|---|---|
+| XSS can access non-extractable CryptoKeys (same JS context) | **Documented** (§13); not fixable at the E2EE layer — needs CSP/SRI/code hardening as part of the general app security model. |
+| Ed25519 not yet available in all older Chrome versions | **Documented** (§3); `isE2eeSupported()` feature detection enables E2EE code paths only when available; plaintext fallback remains. |
+| No key backup (device loss = key loss) | **Documented** (§14); follow-up work in a later phase. |
+| No multi-device | **Documented** (§10); v0.2 = one device per account. |
+| IndexedDB version migrations on future schema changes | No migration yet; schema version is `1`. Future changes must implement upgrade handlers in `openDatabase()`. |
+| SharedWorker/ServiceWorker does not isolate crypto | **Documented**; E2EE-1 does not run crypto operations in workers. |
+| `deleteAccount()` fails if IndexedDB is locked | Error is swallowed so deletion is not blocked; a later rebuild of IndexedDB is acceptable (at most an orphaned identity remains that no longer maps to an existing Supabase account). |
 
-### 19.11 Go / No-Go fuer E2EE-2
+### 19.11 Go / no-go for E2EE-2
 
-**GO** — mit folgenden Bedingungen:
+**GO** — with the following conditions:
 
-1. E2EE-2 darf **nicht** damit beginnen, eine eigene X3DH/Double-Ratchet-Implementierung zu schreiben. Stattdessen MUSS eine der im Architektur-Dokument (§8) genannten Optionen umgesetzt werden: (a) offizielle libsignal-WASM-Bindings sobald verfuegbar, (b) offiziell von matrix-org publiziertes vodozemac-JS/WASM-Paket, oder (c) eine andere von der Security-Community auditierte, browserfaehige Signal-kompatible Bibliothek.
-2. Bevor E2EE-2 produktiv geht, muessen:
-   - die in §19.10 verbleibenen Risiken evaluiert werden,
-   - die Supabase-Migration fuer `crypto_devices`/`crypto_one_time_prekeys` (Schema-Vorschlag in §10) umgesetzt und mit RLS-Policies abgesichert werden,
-   - eine Testabdeckung fuer die Session-/Ratchet-Schicht auf dem Niveau der vorliegenden Tests (reale Export-Fehlschlag-Pruefungen, User-Isolation, Race-Conditions, Corruption) vorhanden sein,
-   - `sendMessage()`-Verschluesselung und `getMessagesPage()`-Entschluesselung hinter dem bestehenden Crypto-Layer eingefuegt werden, ohne die bestehende API-Struktur zu zerbrechen.
-3. Solange keine der in (1) genannten Bibliotheken sauber integrierbar ist, bleibt der produktive Nachrichtenfluss Klartext (wie bisher).
+1. E2EE-2 must **not** start by writing a homemade X3DH/Double Ratchet implementation. Instead it MUST implement one of the options named in the architecture document (§8): (a) official libsignal WASM bindings once available, (b) vodozemac JS/WASM package officially published by matrix-org, or (c) another security-community-audited, browser-capable Signal-compatible library.
+2. Before E2EE-2 goes productive:
+   - remaining risks in §19.10 must be evaluated,
+   - the Supabase migration for `crypto_devices`/`crypto_one_time_prekeys` (schema proposal in §10) must be implemented and secured with RLS policies,
+   - test coverage for the session/ratchet layer must exist at the level of the present tests (real export-failure checks, user isolation, race conditions, corruption),
+   - `sendMessage()` encryption and `getMessagesPage()` decryption must be inserted behind the existing crypto layer without breaking the existing API structure.
+3. As long as none of the libraries in (1) can be cleanly integrated, the productive message flow stays plaintext (as today).
 
 ---
 
-## 20. E2EE-2A — Primitive Layer
+## 20. E2EE-2A — primitive layer
 
-**Phase:** E2EE-2A (Crypto-Session-Primitives, Phase 1)
-**Status:** implementiert, **nicht produktiv angebunden**
-**Kurzfassung:** `Primitive only; not a Signal/X3DH/Double-Ratchet implementation.`
+**Phase:** E2EE-2A (crypto session primitives, phase 1)
+**Status:** implemented, **not productively wired**
+**In short:** `Primitive only; not a Signal/X3DH/Double-Ratchet implementation.`
 
-### 20.1 Zweck
+### 20.1 Purpose
 
-E2EE-2A liefert ausschliesslich die **lokale kryptografische Grundschicht**, auf
-der ein spaeteres, etabliertes Session-Protokoll (PQXDH + Double Ratchet, siehe
-[`e2ee-session-architecture.md`](./e2ee-session-architecture.md), Gate-Status in
+E2EE-2A delivers exclusively the **local cryptographic foundation** on which
+a later, established session protocol (PQXDH + Double Ratchet, see
+[`e2ee-session-architecture.md`](./e2ee-session-architecture.md), gate status in
 [`e2ee-implementation-feasibility.md`](./e2ee-implementation-feasibility.md))
-aufsetzen kann:
+can sit:
 
 ```
-   X25519 Shared Secret          key-agreement.ts   deriveSharedSecret()
+   X25519 shared secret          key-agreement.ts   deriveSharedSecret()
             |
             v
       HKDF-SHA-256                kdf.ts            deriveMessageKey() / deriveKeyBytes()
             |
             v
-     AES-256-GCM Key
+     AES-256-GCM key
             |
             v
-   lokale encrypt / decrypt       symmetric.ts      encryptBytes() / decryptBytes()
+   local encrypt / decrypt        symmetric.ts      encryptBytes() / decryptBytes()
             |
             v
-        Tests                     __tests__/primitives.test.mjs
+        tests                     __tests__/primitives.test.mjs
 ```
 
-Alle Primitive stammen aus der **nativen Web Crypto API**. Es wurde **keine
-neue Abhaengigkeit** installiert, keine eigene Kurvenarithmetik, keine eigene
-AEAD-Implementierung und kein eigenes Protokoll geschrieben.
+All primitives come from the **native Web Crypto API**. **No new dependency**
+was installed, no homemade curve arithmetic, no homemade AEAD implementation
+and no homemade protocol was written.
 
-### 20.2 Module (additiv)
+### 20.2 Modules (additive)
 
 ```
 src/lib/crypto/
-  key-agreement.ts  X25519 Diffie-Hellman -> nicht-exportierbarer HKDF-CryptoKey
+  key-agreement.ts  X25519 Diffie-Hellman -> non-extractable HKDF CryptoKey
   kdf.ts            HKDF-SHA-256: deriveMessageKey (AES-256-GCM), deriveKeyBytes, hkdfInfo, generateSalt
-  symmetric.ts      AES-256-GCM: encryptBytes/decryptBytes (96-Bit-Random-Nonce, optionale AAD)
-  primitives.ts     Barrel der Primitive-Schicht (bewusst NICHT aus index.ts re-exportiert)
+  symmetric.ts      AES-256-GCM: encryptBytes/decryptBytes (96-bit random nonce, optional AAD)
+  primitives.ts     barrel of the primitive layer (deliberately NOT re-exported from index.ts)
 ```
 
-Bestehende Helfer werden wiederverwendet, nicht dupliziert:
+Existing helpers are reused, not duplicated:
 `serialization.ts` (`bytesToBase64` / `base64ToBytes` / `toBufferSource`),
 `errors.ts` (`CryptoError`), `keys.ts` (`generateIdentityKeyPair` /
 `importPublicKey`). `identity.ts`, `prekeys.ts`, `storage.ts`, `index.ts`,
-`types.ts` und die IndexedDB-Struktur bleiben unveraendert.
+`types.ts` and the IndexedDB structure stay unchanged.
 
-### 20.3 Kryptografische Parameter
+### 20.3 Cryptographic parameters
 
-| Baustein | Parameter |
+| Building block | Parameters |
 |---|---|
-| **X25519** | Web Crypto `deriveBits`, 32-Byte Shared Secret. Privater Schluessel MUSS `extractable: false` sein (wird geprueft). Ergebnis wird sofort als **nicht-exportierbarer `HKDF`-CryptoKey** importiert; der Byte-Puffer wird genullt. All-Zero-Ergebnis (Small-Order-Punkt) wird abgelehnt. |
-| **HKDF** | SHA-256, ein Extract-and-Expand-Schritt pro Aufruf. Kein Key-Schedule, keine Chain/Root-Keys. |
-| **Salt** | **oeffentlich, nicht geheim**, pro Ableitung frisch via `generateSalt()` (32 Byte). Kein fester globaler "Geheim-Salt" — das waere Security-Theater. Leerer Salt ist nur zugelassen, weil RFC 5869 ihn definiert (Known-Answer-Tests). |
-| **Domain Separation** | ueber `info`: `hkdfInfo(label)` erzeugt `enough.e2ee.primitive.v1/<label>`. Der Namespace macht explizit, dass dies **nicht** die spaeteren Protokoll-Labels sind. |
-| **AES-256-GCM** | 256-Bit-Schluessel (`extractable: false`), 128-Bit-Tag, **96-Bit-Nonce pro Aufruf frisch** aus `crypto.getRandomValues()`. Es gibt bewusst **keine** API, um beim Verschluesseln einen Nonce vorzugeben (Nonce-Reuse-Schutz). Nonce ist oeffentlich und wird mit dem Ciphertext gefuehrt. |
-| **AAD** | optional (`aad?: Uint8Array`), authentifiziert aber nicht verschluesselt. Das **produktive AAD-Format ist noch nicht festgelegt** (spaeter z. B. `protocolVersion`, `connectionId`, `senderDeviceId`, `recipientDeviceId`). |
-| **Container** | `{ version: 1, nonce, ciphertext }` (Base64) — **nur konzeptionell/Test**, ausdruecklich **kein** `messages`-DB-Format und kein Wire-Format. |
+| **X25519** | Web Crypto `deriveBits`, 32-byte shared secret. Private key MUST be `extractable: false` (checked). Result is immediately imported as a **non-extractable `HKDF` CryptoKey**; the byte buffer is zeroed. All-zero result (small-order point) is rejected. |
+| **HKDF** | SHA-256, one extract-and-expand step per call. No key schedule, no chain/root keys. |
+| **Salt** | **public, not secret**, fresh per derivation via `generateSalt()` (32 bytes). No fixed global “secret salt” — that would be security theatre. Empty salt is only allowed because RFC 5869 defines it (known-answer tests). |
+| **Domain separation** | via `info`: `hkdfInfo(label)` produces `enough.e2ee.primitive.v1/<label>`. The namespace makes explicit that these are **not** the later protocol labels. |
+| **AES-256-GCM** | 256-bit key (`extractable: false`), 128-bit tag, **96-bit nonce fresh per call** from `crypto.getRandomValues()`. There is deliberately **no** API to supply a nonce when encrypting (nonce-reuse protection). Nonce is public and travels with the ciphertext. |
+| **AAD** | optional (`aad?: Uint8Array`), authenticated but not encrypted. The **productive AAD format is not yet fixed** (later e.g. `protocolVersion`, `connectionId`, `senderDeviceId`, `recipientDeviceId`). |
+| **Container** | `{ version: 1, nonce, ciphertext }` (Base64) — **conceptual/test only**, explicitly **not** a `messages` DB format and not a wire format. |
 
-### 20.4 Standardisierte Testvektoren
+### 20.4 Standardized test vectors
 
-- **X25519:** RFC 7748 §6.1 (Alice/Bob-Vektor, erwartetes Shared Secret
-  `4a5d9d5b…161742`) — geprueft ohne Export des Secrets, ueber Vergleich der
-  HKDF-Ableitungen.
-- **HKDF-SHA-256:** RFC 5869 Test Case 1, 2 und 3.
-- **AES-256-GCM:** McGrew/Viega GCM-Spezifikation, AES-256 Test Case 13, 14
-  und 16 (Test Case 16 inklusive AAD) — jeweils gegen `decryptBytes()`.
+- **X25519:** RFC 7748 §6.1 (Alice/Bob vector, expected shared secret
+  `4a5d9d5b…161742`) — checked without exporting the secret, by comparing
+  HKDF derivations.
+- **HKDF-SHA-256:** RFC 5869 test cases 1, 2 and 3.
+- **AES-256-GCM:** McGrew/Viega GCM specification, AES-256 test cases 13, 14
+  and 16 (test case 16 including AAD) — each against `decryptBytes()`.
 
-Es wurden keine eigenen "Expected Values" erfunden.
+No homemade “expected values” were invented.
 
-### 20.5 Security-Grenzen dieser Phase
+### 20.5 Security limits of this phase
 
-- Private Keys, Shared Secrets und AES-Keys existieren ausschliesslich als
-  **nicht-exportierbare `CryptoKey`-Objekte** im Browser. `exportKey()` wird in
-  der Primitive-Schicht nirgends aufgerufen.
-- Kein `console.*` in den neuen Modulen; `CryptoError`-Meldungen enthalten kein
-  Schluessel-, Nonce- oder Klartextmaterial.
-- Kein Zugriff auf Supabase, Netzwerk, IndexedDB, `localStorage`,
-  `sessionStorage`, Cookies, URLs oder React-State aus der Primitive-Schicht.
-- **Keine produktive Integration:** `src/lib/api.ts` (inkl. `sendMessage()` /
+- Private keys, shared secrets and AES keys exist exclusively as
+  **non-extractable `CryptoKey` objects** in the browser. `exportKey()` is
+  never called in the primitive layer.
+- No `console.*` in the new modules; `CryptoError` messages contain no
+  key, nonce or plaintext material.
+- No access to Supabase, network, IndexedDB, `localStorage`,
+  `sessionStorage`, cookies, URLs or React state from the primitive layer.
+- **No productive integration:** `src/lib/api.ts` (incl. `sendMessage()` /
   `getMessagesPage()`), `Chat.tsx`, `MessageBubble.tsx`, `MessageComposer.tsx`,
-  das `messages`-Schema, die RLS-Struktur und die Supabase-Migrationen sind
-  unveraendert. Die neuen Funktionen werden ausschliesslich von Tests benutzt
-  und landen (mangels Import) nicht im Produktions-Bundle.
+  the `messages` schema, the RLS structure and the Supabase migrations are
+  unchanged. The new functions are used only by tests and (for lack of
+  import) do not land in the production bundle.
 
-### 20.6 Ausdruecklich NICHT implementiert
+### 20.6 Explicitly NOT implemented
 
-X3DH · PQXDH · Double Ratchet · Triple Ratchet · Session Establishment ·
-Forward Secrecy · Post-Compromise Security · Replay-Schutz auf
-Protokollebene · Key Verification / Safety Numbers · Multi-Device ·
-Offline Session Negotiation · Key-Backup/Recovery · produktive
-Nachrichtenverschluesselung.
+X3DH · PQXDH · Double Ratchet · Triple Ratchet · session establishment ·
+forward secrecy · post-compromise security · replay protection at
+protocol level · key verification / safety numbers · multi-device ·
+offline session negotiation · key backup/recovery · productive
+message encryption.
 
-Keine dieser Eigenschaften entsteht als Nebenprodukt der Primitive-Schicht.
-Ein einzelnes X25519-DH mit statischen Identity-Keys liefert insbesondere
-**keine** Forward Secrecy — dafuer ist zwingend ein Ratchet-Protokoll noetig
-(E2EE-2B+).
+None of these properties arises as a by-product of the primitive layer.
+A single X25519 DH with static identity keys in particular yields
+**no** forward secrecy — that requires a ratchet protocol (E2EE-2B+).
 
-### 20.7 Validierung
+### 20.7 Validation
 
 ```
-npm run test:crypto   -> 87 Tests (46 bestehend + 41 neu), 0 Fehler
+npm run test:crypto   -> 87 tests (46 existing + 41 new), 0 failures
 npm run build         -> tsc --noEmit + vite build: PASS
 npm run smoke         -> PASS
 ```
