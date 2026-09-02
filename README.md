@@ -56,10 +56,11 @@ production UI and should not be modified or turned into the app.
 - Opening a chat lands on the newest message. Initial anchoring waits for the
   rendered tail (including async E2EE plaintext) and stops as soon as the user
   scrolls
-- Home previews of messages deleted for everyone name the deletion actor —
-  "You deleted this message" for own deletions, "@peer deleted this
-  message" otherwise (only the sender can delete for everyone, enforced by
-  RLS; "delete for me" never shows a tombstone)
+- Home previews of deleted messages name the deletion actor — "You deleted
+  this message" for own deletions (including a peer message hidden with
+  "delete for me"), "@peer deleted this message" for peer delete-for-everyone
+  tombstones (only the sender can delete for everyone, enforced by RLS;
+  "delete for me" hides the row only for the deleting user)
 - Read state: monotonic per user, survives reloads. Scrolling up never creates
   unread. Leaving a chat marks messages already present in that session as
   read; only messages that arrive afterwards raise the Home badge. `↓ N`
@@ -199,9 +200,10 @@ fallback for auto-confirm setups.
 - `npm run build` — TypeScript check + production build
 - `npm run test:crypto` / `npm run test:crypto:engine` — Node crypto and
   Signal-engine suites (no database)
-- `npm run test:preview` — Home chat-overview preview: a message deleted for
-  everyone is attributed to the actual deletion actor, while "delete for me"
-  keeps producing no tombstone
+- `npm run test:preview` — Home chat-overview preview: deleted messages are
+  attributed to the actual deletion actor; "delete for me" shows the
+  "You deleted this message" placeholder in the deleting user's Home and
+  never exposes the original content
 - `npm run test:unread` / `npm run test:read` / `npm run test:scroll` /
   `npm run test:contrast` — unread, monotonic read position, initial chat
   anchoring, and scroll-down contrast regressions

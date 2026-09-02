@@ -47,14 +47,15 @@ function previewOf(
   lang: string,
   peerUsername: string,
   me: string,
+  deletedForMe: ReadonlySet<string>,
 ): string | null {
   if (!last) return null;
-  if (last.deleted_at) {
-    // Attribute the tombstone to the deletion actor: only the sender may
-    // delete a message for everyone (RLS + trigger, migration 0009), so the
-    // actor is the sender — "You" for own messages, the peer otherwise.
-    return deletedMessagePreview(last, me, peerUsername);
-  }
+  // Deleted (for me or for everyone) never reveals the original content.
+  // For "delete for me" the actor is always the current user; for
+  // "delete for everyone" only the sender may delete (RLS + trigger,
+  // migration 0009), so the tombstone actor is the sender.
+  const deleted = deletedMessagePreview(last, me, peerUsername, deletedForMe);
+  if (deleted !== null) return deleted;
   if (last.kind === 'name_change') {
     return t('chat.nameChange', {
       old: last.meta?.old_name ?? '',
@@ -80,6 +81,7 @@ export default function Home() {
   const [others, setOthers] = useState<Record<string, Profile>>({});
   const [lastMessages, setLastMessages] = useState<Record<string, Message>>({});
   const [unread, setUnread] = useState<Record<string, number>>({});
+  const [deletedForMe, setDeletedForMe] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +133,7 @@ export default function Home() {
       return !isHiddenByChatDeletion(c.created_at, until);
     });
     setConnections(visible);
+    setDeletedForMe(deletions.messages);
 
     const ids = visible.map((c) => otherUserId(c, me));
     const profilesResult = await getProfiles(ids);
@@ -443,6 +446,7 @@ export default function Home() {
                                 getLang(),
                                 other?.username ?? '',
                                 me,
+                                deletedForMe,
                               ) ?? ''}
                             </span>
                           )}
