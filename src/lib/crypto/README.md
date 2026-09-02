@@ -1,6 +1,41 @@
-# enough. Crypto Layer — E2EE-1 Foundation
+# enough. Crypto Layer — E2EE-1 Foundation (historical) & Shared Primitives
 
-End-to-end encryption **foundation** for enough. (E2EE-1) — **NOT yet E2EE**.
+> **⚠️ Scope — read this first**
+>
+> `src/lib/crypto/` is the **legacy/foundation crypto layer** (development
+> phases E2EE-1 and E2EE-2A) plus the lower-level shared primitives that the
+> production Signal layer builds on (`ratchet-session.ts`, `ratchet-state.ts`,
+> `sealed-state.ts`, `storage.ts`, `serialization.ts`, `errors.ts`,
+> `prekeys.ts`, `types.ts`). It is **NOT** the production E2EE
+> implementation.
+>
+> The **current production E2EE implementation lives in
+> [`src/lib/e2ee/`](../e2ee/)** — Signal Protocol (PQXDH + Double Ratchet)
+> via `@getmaapp/signal-wasm`, orchestrated by
+> [`session-manager.ts`](../e2ee/session-manager.ts) on top of
+> [`engine-adapter.ts`](../e2ee/engine-adapter.ts). As of v0.3.0, 1:1 peer
+> messages **are** end-to-end encrypted:
+>
+> ```
+> send:    plaintext → session-manager.encrypt() → envelope/ciphertext → Supabase
+> receive: ciphertext → session-manager.decrypt() → plaintext → UI
+> ```
+>
+> Supabase stores opaque ciphertext envelopes for peer messages;
+> `sendMessage()` is a pure transport boundary that inserts the
+> already-prepared envelope and never receives peer plaintext. (Documented
+> exceptions — My Notes self-chats, legacy pre-E2EE rows, and system
+> messages — are listed in the root [`README.md`](../../../README.md).)
+>
+> Statements below such as "NOT yet E2EE", "no encrypt APIs", or
+> "`sendMessage()` writes plaintext" are **historical**: they were accurate
+> during the E2EE-1 / E2EE-2A development phases documented here and are
+> preserved for the record. They do **not** describe current v0.3.0
+> production behavior.
+
+End-to-end encryption **foundation** for enough. (E2EE-1) — at the time this
+phase was delivered it was **not yet E2EE** (see the scope banner above for
+the current production state).
 
 > **Status update (audit finding F2):** the E2EE-1 login initialization
 > (`AuthContext.ensureCryptoReady` → `initCrypto`, including the publish of an
@@ -13,14 +48,21 @@ End-to-end encryption **foundation** for enough. (E2EE-1) — **NOT yet E2EE**.
 > any production path; the column and migration `0010` stay in place
 > unchanged.
 
-## Status — Explicitly NOT yet E2EE
+## Historical status (E2EE-1 phase) — explicitly NOT yet E2EE *at that time*
+
+> **Historical section.** The paragraphs below describe the repository as it
+> was during the E2EE-1 foundation phase. Since E2EE-v0.2 / v0.3.0, peer
+> messages are encrypted by `src/lib/e2ee/session-manager.ts` **before**
+> `sendMessage()` is called; current peer messages are **not** stored as
+> plaintext.
 
 This directory contains **identity and prekey infrastructure only**.
-It does **not** yet encrypt messages. `sendMessage()` continues to write
-plaintext to `messages.ciphertext` — this is intentional and documented in
-[`docs/e2ee-architecture.md`](../../../docs/e2ee-architecture.md).
+At the E2EE-1 stage it did **not** yet encrypt messages: `sendMessage()`
+still wrote plaintext to `messages.ciphertext` — intentional at the time and
+documented in [`docs/e2ee-architecture.md`](../../../docs/e2ee-architecture.md).
+**This is no longer the current behavior** (see the scope banner above).
 
-**E2EE-1 scope (this PR) — what IS done:**
+**E2EE-1 scope (the original E2EE-1 PR, historical) — what WAS done:**
 - X25519 identity keypairs are generated client-side via `crypto.subtle`.
 - Private keys remain as **non-extractable `CryptoKey` objects in IndexedDB**,
   scoped per Supabase user id (`${userId}:recordKey`). No private material
@@ -41,18 +83,24 @@ plaintext to `messages.ciphertext` — this is intentional and documented in
   complete E2EE identity verification** (no fingerprint/safety-number
   verification, no trust-on-first-use UI).
 
-**Explicitly NOT implemented in E2EE-1:**
-- **Message Encryption NOT implemented** — `messages.ciphertext` stays
-  plaintext until a future PR wires `X25519 → HKDF-SHA256 → AES-256-GCM`.
-- **Forward Secrecy NOT implemented**
-- **Message Ratcheting (Double Ratchet) NOT implemented**
+**Explicitly NOT implemented in E2EE-1 (historical — since delivered by
+`src/lib/e2ee/`):**
+- **Message Encryption NOT implemented in E2EE-1** — `messages.ciphertext`
+  stayed plaintext during this phase. (Now delivered: peer messages are
+  encrypted via the Signal engine in `src/lib/e2ee/`.)
+- **Forward Secrecy NOT implemented in E2EE-1** (now provided by the Double
+  Ratchet in the production layer)
+- **Message Ratcheting (Double Ratchet) NOT implemented in E2EE-1** (now
+  provided by `@getmaapp/signal-wasm` behind `src/lib/e2ee/engine-adapter.ts`)
 - **No Signal-compatible session protocol (X3DH / PQXDH / Double Ratchet)
-  is implemented** — the next PR will plug an audited library behind this
-  layer (see architecture doc §8).
+  was implemented in E2EE-1** — the plan was to plug an audited library
+  behind this layer (see architecture doc §8).
 
-Future encryption (next PR) will use:
-`X25519 (key agreement) → HKDF-SHA256 (key derivation) → AES-256-GCM (AEAD)`,
-but only after an audited session library is integrated.
+The encryption planned at the time
+(`X25519 (key agreement) → HKDF-SHA256 (key derivation) → AES-256-GCM (AEAD)`)
+was superseded: the shipped production protocol is **Signal PQXDH + Double
+Ratchet** through the audited `@getmaapp/signal-wasm` engine (see
+`src/lib/e2ee/engine-adapter.ts` and the root `README.md`).
 
 The code here establishes:
 
@@ -132,9 +180,11 @@ from an **X25519** key — Ed25519 must never be written there.
 - `identity_public_key` is **only public-key material**; its presence alone
   does NOT yet constitute complete E2EE identity verification.
 - Do not implement your own Double Ratchet, X3DH, PQXDH, or AES-GCM message
-  transport. The ratchet engine will be plugged in later (see architecture
-  doc, §8). **Forward secrecy, message ratcheting and Signal-compatible
-  sessions are explicitly NOT implemented in E2EE-1.**
+  transport. The ratchet engine has since been plugged in as planned
+  (see architecture doc, §8): production uses `@getmaapp/signal-wasm` behind
+  `src/lib/e2ee/engine-adapter.ts`. **Forward secrecy, message ratcheting and
+  Signal-compatible sessions were explicitly NOT implemented in E2EE-1** —
+  they are provided today by the production layer in `src/lib/e2ee/`.
 - Storage is **IndexedDB only** (`enough-crypto` DB, stores `state` and
   `prekeys`). Do not use `localStorage` for any key material.
 - Logout does NOT delete the crypto identity. Account deletion MUST call
@@ -149,14 +199,20 @@ from an **X25519** key — Ed25519 must never be written there.
 
 ---
 
-# E2EE-2A — Primitive Layer (additive, NOT wired into the app)
+# E2EE-2A — Primitive Layer (historical phase; additive, NOT wired into the app)
 
 > **Primitive only; not a Signal/X3DH/PQXDH/Double-Ratchet implementation.**
 
+> **Historical section.** E2EE-2A predates the production Signal integration.
+> The sentence about `sendMessage()` writing plaintext below described the
+> repository at that time; current v0.3.0 peer messages are encrypted in
+> `src/lib/e2ee/` before storage (see the scope banner at the top).
+
 E2EE-2A adds the local cryptographic building blocks that a future, vetted
-session protocol can sit on top of. It changes nothing about the existing
-E2EE-1 identity/prekey infrastructure and nothing about the message flow:
-`sendMessage()` still writes plaintext to `messages.ciphertext`.
+session protocol can sit on top of. It changed nothing about the existing
+E2EE-1 identity/prekey infrastructure and nothing about the message flow at
+the time: during this phase `sendMessage()` still wrote plaintext to
+`messages.ciphertext`.
 
 ```
 X25519 shared secret  →  HKDF-SHA-256  →  AES-256-GCM key  →  local encrypt/decrypt  →  tests
@@ -208,7 +264,9 @@ No hand-invented expected values.
 ## Boundary (enforced by tests in `__tests__/primitives.test.mjs`)
 
 - `index.ts` exposes **none** of the primitives; `src/lib/api.ts` references
-  none of them; `sendMessage()` keeps its plaintext insert.
+  none of them; `sendMessage()` stays a pure transport boundary — it inserts
+  the already-prepared `ciphertext` value (an E2EE envelope for peer
+  conversations since E2EE-v0.2) and performs no cryptography itself.
 - No `console.*`, no `localStorage`/`sessionStorage`/cookies/URLs, no Supabase,
   no network, no IndexedDB in the primitive modules.
 - No `exportKey()` anywhere in the primitive layer; every key is created
