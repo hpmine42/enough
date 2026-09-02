@@ -5,6 +5,7 @@ import {
   acceptConnection,
   cancelConnectionRequest,
   declineConnection,
+  getConnection,
   getLastMessages,
   getMyConnections,
   getProfiles,
@@ -25,7 +26,22 @@ import {
 import { supabase } from '../lib/supabase';
 import { getLang, t } from '../i18n';
 import { Connection, Message, Profile } from '../lib/types';
-import { mergeLastMessage, unreadAfterInsert } from '../lib/homeRealtime';
+import {
+  computeReconcileState,
+  createConversationEventGate,
+  createHomeRealtimeBridge,
+  createReconcileScheduler,
+  isConversationVisible,
+  mergeLastMessage,
+  removeConnectionById,
+  removeHiddenLastMessage,
+  unreadAfterInsert,
+  upsertConnectionById,
+  withoutKey,
+  withTombstone,
+  type ConversationEventGate,
+  type RealtimeEventPayloadLike,
+} from '../lib/homeRealtime';
 import { deletedMessagePreview } from '../lib/homePreview';
 import { getCachedPlaintextSync, warmMessageCache } from '../lib/e2ee/message-cache';
 import { isEnvelope } from '../lib/e2ee/message-flow';
@@ -41,6 +57,16 @@ interface RowData {
   last: Message | null;
   unread: number;
 }
+
+/**
+ * P1-5: if MORE than this many conversations changed while a full load()
+ * was running, re-loading the whole Home dataset once is cheaper than one
+ * narrow reconciliation per conversation. This is the ONLY remaining path
+ * where a realtime event burst can lead to a full reload — it is bounded to
+ * at most one extra load() per drain and cannot be triggered by a single
+ * event (a single event queues a single narrow reconciliation instead).
+ */
+const LOAD_DRAIN_RECONCILE_CAP = 6;
 
 function previewOf(
   last: Message | undefined,
@@ -91,76 +117,126 @@ export default function Home() {
 
   const me = user?.id ?? '';
 
-  // Mirrors the visible connection ids so the realtime handlers can decide
-  // between an incremental update and a full reconciliation without
-  // re-subscribing on every list change.
+  // Mirrors the rendered state so the realtime bridge can decide between an
+  // incremental update and a narrow reconciliation without re-subscribing on
+  // every list change. (Writes are merge-safe, so the one-commit lag of
+  // these mirrors is absorbed by upsert-dedupe and the retrying scheduler.)
   const visibleIdsRef = useRef<Set<string>>(new Set());
+  const lastMessagesRef = useRef<Record<string, Message>>({});
+  const othersRef = useRef<Record<string, Profile>>({});
   useEffect(() => {
     visibleIdsRef.current = new Set(connections.map((c) => c.id));
-  }, [connections]);
+    lastMessagesRef.current = lastMessages;
+    othersRef.current = others;
+  }, [connections, lastMessages, others]);
+
+  /* Reconciliation bookkeeping (P1-5). */
+  const loadingRef = useRef(false);
+  const aliveRef = useRef(true);
+  const meRef = useRef(me);
+  const eventGateRef = useRef<ConversationEventGate | null>(null);
+  const pendingReconcileRef = useRef<Set<string>>(new Set());
+  const schedulerRef = useRef<ReturnType<typeof createReconcileScheduler> | null>(null);
+  const drainRef = useRef<(() => void) | null>(null);
+  // The per-conversation event counter used to detect realtime events that
+  // raced an in-flight reconciliation (stale-snapshot guard).
+  function eventGate(): ConversationEventGate {
+    if (!eventGateRef.current) eventGateRef.current = createConversationEventGate();
+    return eventGateRef.current;
+  }
+  // Local mirror of the chat-deletion windows, kept in sync by load() and
+  // by every narrow reconciliation; the incremental connection-row branch
+  // uses it to decide visibility without another fetch.
+  const deletionsRef = useRef<{ chatUntil: Map<string, string>; revealed: Set<string> }>({
+    chatUntil: new Map(),
+    revealed: new Set(),
+  });
+
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Account change: drop cross-account bookkeeping immediately.
+    meRef.current = me;
+    eventGateRef.current = createConversationEventGate();
+    pendingReconcileRef.current = new Set();
+  }, [me]);
 
   const load = useCallback(async () => {
     if (!me) return;
     setLoadError(null);
-    await warmMessageCache(me);
-    const connsResult = await getMyConnections(me);
-    if (connsResult.error) {
-      setLoadError(connsResult.error);
-      setLoading(false);
-      return;
-    }
-    const conns = connsResult.data;
-    const deletions = await loadDeletionsForUser(me);
-    const lastAllResult = await getLastMessages(conns.map((c) => c.id));
-    if (lastAllResult.error) {
-      setLoadError(lastAllResult.error);
-      setLoading(false);
-      return;
-    }
-    const lastAll = lastAllResult.data;
-    const visible = conns.filter((c) => {
-      const until = deletions.chatUntil.get(c.id);
-      if (!until) return true;
-      // A revealed chat reappears in the list (empty for the deleter,
-      // old history stays hidden behind hidden_until).
-      if (deletions.revealed.has(c.id)) return true;
-      const status = effectiveStatus(c);
-      if (status === 'pending' || status === 'declined' || status === 'expired') {
-        return true;
+    loadingRef.current = true;
+    try {
+      await warmMessageCache(me);
+      const connsResult = await getMyConnections(me);
+      if (connsResult.error) {
+        setLoadError(connsResult.error);
+        return;
       }
-      const last = lastAll[c.id];
-      if (last && !isHiddenByChatDeletion(last.created_at, until)) return true;
-      return !isHiddenByChatDeletion(c.created_at, until);
-    });
-    setConnections(visible);
-    setDeletedForMe(deletions.messages);
+      const conns = connsResult.data;
+      const deletions = await loadDeletionsForUser(me);
+      deletionsRef.current = {
+        chatUntil: deletions.chatUntil,
+        revealed: deletions.revealed,
+      };
+      const lastAllResult = await getLastMessages(conns.map((c) => c.id));
+      if (lastAllResult.error) {
+        setLoadError(lastAllResult.error);
+        return;
+      }
+      const lastAll = lastAllResult.data;
+      // P1-5: the visibility filter is the shared `isConversationVisible`
+      // predicate, so an incrementally applied row and a freshly loaded one
+      // can never disagree about whether the conversation belongs in the list.
+      const visible = conns.filter((c) =>
+        isConversationVisible(
+          c,
+          effectiveStatus(c),
+          lastAll[c.id],
+          deletions.chatUntil.get(c.id),
+          // A revealed chat reappears in the list (empty for the deleter,
+          // old history stays hidden behind hidden_until).
+          deletions.revealed.has(c.id),
+        ),
+      );
+      setConnections(visible);
+      setDeletedForMe(deletions.messages);
 
-    const ids = visible.map((c) => otherUserId(c, me));
-    const profilesResult = await getProfiles(ids);
-    if (profilesResult.error) {
-      setLoadError(profilesResult.error);
+      const ids = visible.map((c) => otherUserId(c, me));
+      const profilesResult = await getProfiles(ids);
+      if (profilesResult.error) {
+        setLoadError(profilesResult.error);
+        return;
+      }
+      setOthers(profilesResult.data);
+
+      const last: Record<string, Message> = {};
+      for (const c of visible) {
+        const msg = lastAll[c.id];
+        const until = deletions.chatUntil.get(c.id);
+        if (msg && !isHiddenByChatDeletion(msg.created_at, until)) last[c.id] = msg;
+      }
+      setLastMessages(last);
+
+      const readState = await getReadState(me);
+      const counts = await getUnreadCounts(
+        me,
+        visible.map((c) => c.id),
+        readState,
+      );
+      setUnread(counts);
+    } finally {
       setLoading(false);
-      return;
+      loadingRef.current = false;
+      // Realtime events that arrived while this reload was in flight had
+      // their conversations queued instead of being applied to state that is
+      // about to be replaced; now re-derive exactly those, narrowly (P1-5).
+      drainRef.current?.();
     }
-    setOthers(profilesResult.data);
-
-    const last: Record<string, Message> = {};
-    for (const c of visible) {
-      const msg = lastAll[c.id];
-      const until = deletions.chatUntil.get(c.id);
-      if (msg && !isHiddenByChatDeletion(msg.created_at, until)) last[c.id] = msg;
-    }
-    setLastMessages(last);
-
-    const readState = await getReadState(me);
-    const counts = await getUnreadCounts(
-      me,
-      visible.map((c) => c.id),
-      readState,
-    );
-    setUnread(counts);
-
-    setLoading(false);
   }, [me]);
 
   useEffect(() => {
@@ -183,88 +259,268 @@ export default function Home() {
     }
   }, [route, me, load]);
 
-  /* Realtime: connections, messages, profiles, deletions — one channel. */
+  /* Incrementally apply a connection row carried by a Realtime INSERT or
+     UPDATE. The row only replaces data for a conversation already scoped to
+     the current user (membership is re-checked client-side, mirroring RLS —
+     the payload is never trusted as authorization). A profile for a
+     previously unknown peer is fetched through the RLS-scoped profile query,
+     never taken from the Realtime payload. */
+  const applyConnectionRow = useCallback(
+    (row: Connection) => {
+      const deletions = deletionsRef.current;
+      const until = deletions.chatUntil.get(row.id);
+      const last = lastMessagesRef.current[row.id];
+      const visible = isConversationVisible(
+        row,
+        effectiveStatus(row),
+        last,
+        until,
+        deletions.revealed.has(row.id),
+      );
+      const isNew = !visibleIdsRef.current.has(row.id);
+      setConnections((prev) =>
+        visible
+          ? upsertConnectionById(prev, row)
+          : removeConnectionById(prev, row.id),
+      );
+      if (visible) {
+        setLastMessages((prev) => removeHiddenLastMessage(prev, row.id, until));
+      } else {
+        // The row no longer belongs in the list: drop it together with its
+        // preview/unread entries — exactly what a full load() rebuild does.
+        setLastMessages((prev) => withoutKey(prev, row.id));
+        setUnread((prev) => withoutKey(prev, row.id));
+      }
+      if (visible && isNew && row.user_a !== row.user_b) {
+        const peerId = otherUserId(row, me);
+        if (peerId && !(peerId in othersRef.current)) {
+          void getProfiles([peerId]).then((res) => {
+            const profile = res.data[peerId];
+            if (!aliveRef.current || meRef.current !== me || res.error || !profile) return;
+            // Attach only while the conversation is still rendered: a row
+            // removed in the meantime never gains profile data, and a
+            // profile fetch failure leaves the previous fallback display
+            // (corrected by the next load()).
+            if (!visibleIdsRef.current.has(row.id)) return;
+            setOthers((prev) => (peerId in prev ? prev : { ...prev, [peerId]: profile }));
+          });
+        }
+      }
+    },
+    [me],
+  );
+
+  const applyConnectionGone = useCallback((connectionId: string) => {
+    setConnections((prev) => removeConnectionById(prev, connectionId));
+    setLastMessages((prev) => withoutKey(prev, connectionId));
+    setUnread((prev) => withoutKey(prev, connectionId));
+  }, []);
+
+  /* Narrow single-conversation reconciliation — the fallback for realtime
+     events whose effect on the list cannot be reconstructed from the
+     payload alone (message for a new/hidden conversation, chat-deletion
+     window change). Every fetch goes through the same RLS-scoped API
+     functions `load()` uses, bounded to this ONE conversation: at most a
+     constant number of queries per event regardless of list size, so the
+     P1-4 no-N+1 invariant stays intact. Returns whether a re-fetch is
+     preferred (concurrent events, or a transient fetch failure); the
+     scheduler retries a bounded number of times and the next full load
+     converges anything left over. */
+  const runReconcile = useCallback(
+    async (connectionId: string, isFinalPass: boolean): Promise<boolean> => {
+      if (!supabase || !me) return false;
+      const seqAtStart = eventGate().read(connectionId);
+      const result = await computeReconcileState(
+        {
+          fetchConnection: async (id) => (await getConnection(id)) ?? null,
+          fetchLastMessage: async (id) => {
+            const res = await getLastMessages([id]);
+            return { message: res.data[id] ?? null, failed: Boolean(res.error) };
+          },
+          fetchChatDeletion: async (id) => {
+            const deletions = await loadDeletionsForUser(me);
+            deletionsRef.current = {
+              chatUntil: deletions.chatUntil,
+              revealed: deletions.revealed,
+            };
+            return {
+              hiddenUntil: deletions.chatUntil.get(id) ?? null,
+              revealed: deletions.revealed.has(id),
+            };
+          },
+          fetchUnread: async (id) => {
+            const readState = await getReadState(me);
+            const counts = await getUnreadCounts(me, [id], readState);
+            return id in counts ? counts[id] : null;
+          },
+          fetchPeerProfile: async (peerId) => {
+            const res = await getProfiles([peerId]);
+            if (res.error) return undefined;
+            return res.data[peerId] ?? null;
+          },
+        },
+        me,
+        connectionId,
+      );
+      if (!aliveRef.current || meRef.current !== me) return false;
+      const concurrent = eventGate().read(connectionId) !== seqAtStart;
+      if (concurrent && !isFinalPass) return true;
+      if (result.kind === 'transient') return !isFinalPass;
+      if (result.kind === 'gone') {
+        // With concurrent events the row may have re-appeared since the
+        // fetch; never act on a stale removal — the retry/next load settles
+        // it. A removal only ever narrows local display, so it cannot
+        // expose data.
+        if (!concurrent) applyConnectionGone(connectionId);
+        return false;
+      }
+      setConnections((prev) =>
+        result.visible
+          ? upsertConnectionById(prev, result.conn)
+          : removeConnectionById(prev, connectionId),
+      );
+      if (result.visible) {
+        if (result.last) {
+          const last = result.last;
+          setLastMessages((prev) => mergeLastMessage(prev, last));
+        }
+        setLastMessages((prev) =>
+          removeHiddenLastMessage(prev, connectionId, result.hiddenUntil),
+        );
+        if (result.unread !== null) {
+          const unreadNow = result.unread;
+          setUnread((prev) =>
+            prev[connectionId] === unreadNow
+              ? prev
+              : { ...prev, [connectionId]: unreadNow },
+          );
+        }
+        if (result.profile) {
+          const profile = result.profile;
+          const peerId = result.peerId;
+          setOthers((prev) =>
+            prev[peerId] === profile ? prev : { ...prev, [peerId]: profile },
+          );
+        }
+      } else {
+        setLastMessages((prev) => withoutKey(prev, connectionId));
+        setUnread((prev) => withoutKey(prev, connectionId));
+      }
+      return false;
+    },
+    [me, applyConnectionGone],
+  );
+
+  /* Drain of conversations that changed WHILE a full load() was running:
+     instead of applying state the reload is about to replace, their events
+     were queued; re-derive exactly those narrowly once the reload landed.
+     This is what makes a late event lose to fresh data instead of the
+     reload overwriting it with a stale snapshot. */
+  useEffect(() => {
+    drainRef.current = () => {
+      const ids = Array.from(pendingReconcileRef.current);
+      pendingReconcileRef.current.clear();
+      if (ids.length === 0) return;
+      if (ids.length > LOAD_DRAIN_RECONCILE_CAP) {
+        // Documented P1-5 fallback: MANY conversations changed mid-reload →
+        // one full reload is cheaper than one narrow reconciliation each.
+        // A single event can never reach this branch.
+        void load();
+        return;
+      }
+      for (const id of ids) schedulerRef.current?.request(id);
+    };
+  }, [load]);
+
+  /* Realtime: connections, messages, profiles, deletions — one channel.
+     P1-5 invariant: a realtime event never unconditionally reloads Home.
+     Each payload routes through `createHomeRealtimeBridge` to the narrowest
+     safe update — purely local application when the payload carries
+     everything that changed, narrow per-conversation reconciliation when
+     visibility/unread/profile must be re-derived through the RLS-scoped
+     API, and load() is NOT referenced in any handler below. */
   useEffect(() => {
     if (!supabase || !me) return;
     const client = supabase;
+    const scheduler = createReconcileScheduler((id, finalPass) =>
+      runReconcile(id, finalPass),
+    );
+    schedulerRef.current = scheduler;
+    const bridge = createHomeRealtimeBridge({
+      me: () => me,
+      isLoading: () => loadingRef.current,
+      hasConnection: (id) => visibleIdsRef.current.has(id),
+      noteEvent: (id) => {
+        eventGate().bump(id);
+        if (loadingRef.current) pendingReconcileRef.current.add(id);
+      },
+      onConnectionRow: applyConnectionRow,
+      onConnectionGone: applyConnectionGone,
+      onMessage: (msg, countUnread) => {
+        // Hot path: the list order and the preview are derived from
+        // `lastMessages`, so replacing the newest message of exactly this
+        // conversation is enough to re-render and re-sort the row.
+        setLastMessages((prev) => mergeLastMessage(prev, msg));
+        // A peer message is unread while Home is on screen; own messages
+        // (sent from another device) and non-text system events are never
+        // counted (matches the connection_unread view, migration 0013).
+        if (countUnread) {
+          setUnread((prev) => unreadAfterInsert(prev, msg.connection_id, true));
+        }
+      },
+      onTombstone: (messageId, added) =>
+        setDeletedForMe((prev) => withTombstone(prev, messageId, added)),
+      onProfile: (row) =>
+        setOthers((prev) =>
+          row.id in prev ? { ...prev, [row.id]: row } : prev,
+        ),
+      onReconcile: (id) => scheduler.request(id),
+    });
     const channel = client
       .channel('home')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'connections' },
-        (payload) => {
-          const row = payload.new as Connection | undefined;
-          if (row && (row.user_a === me || row.user_b === me)) load();
-        },
+        (payload) =>
+          bridge.connections(payload as unknown as RealtimeEventPayloadLike),
       )
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload) => {
-          const msg = payload.new as Message | undefined;
-          if (!msg) return;
-          // A conversation that is not currently in the list (new, or hidden
-          // behind a chat deletion) needs a full reconciliation so its
-          // profile, visibility and unread state are re-derived.
-          if (!visibleIdsRef.current.has(msg.connection_id)) {
-            load();
-            return;
-          }
-          // Incremental hot path: update only the affected row. The list
-          // order and preview are derived from `lastMessages`, so replacing
-          // the newest message is enough to re-render and re-sort the row.
-          setLastMessages((prev) => mergeLastMessage(prev, msg));
-          // A peer message is unread while Home is on screen; own messages
-          // (sent from another device) are never counted.
-          setUnread((prev) =>
-            unreadAfterInsert(prev, msg.connection_id, msg.sender_id !== me),
-          );
-        },
+        (payload) =>
+          bridge.messageInsert(payload as unknown as RealtimeEventPayloadLike),
       )
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'messages' },
-        (payload) => {
-          const msg = payload.new as Message | undefined;
-          if (!msg || !visibleIdsRef.current.has(msg.connection_id)) return;
-          // E.g. delete-for-everyone: the newest message's content/preview
-          // changes in place. Updates to non-last messages are ignored
-          // because they cannot affect the rendered row.
-          setLastMessages((prev) => mergeLastMessage(prev, msg));
-        },
+        (payload) =>
+          bridge.messageUpdate(payload as unknown as RealtimeEventPayloadLike),
       )
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'profiles' },
-        (payload) => {
-          const row = payload.new as Profile | undefined;
-          if (!row) return;
-          setOthers((prev) => (row.id in prev ? { ...prev, [row.id]: row } : prev));
-        },
+        (payload) =>
+          bridge.profileUpdate(payload as unknown as RealtimeEventPayloadLike),
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'message_deletions' },
-        (payload) => {
-          const row = payload.new as { user_id?: string } | undefined;
-          if (row && row.user_id === me) load();
-        },
+        (payload) =>
+          bridge.messageDeletions(payload as unknown as RealtimeEventPayloadLike),
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'chat_deletions' },
-        (payload) => {
-          const row = payload.new as { user_id?: string } | undefined;
-          if (row && row.user_id === me) load();
-        },
+        (payload) =>
+          bridge.chatDeletions(payload as unknown as RealtimeEventPayloadLike),
       )
       .subscribe();
 
     return () => {
+      if (schedulerRef.current === scheduler) schedulerRef.current = null;
       client.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me, load]);
+  }, [me, applyConnectionRow, applyConnectionGone, runReconcile]);
 
   /* Rows sorted by latest activity (message time, else connection time). */
   const rows = useMemo<RowData[]>(() => {
