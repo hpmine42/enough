@@ -1094,23 +1094,29 @@ assert(
   'no language switch on home',
 );
 
-/* settings opens as overlay */
+/* settings opens as overlay with a category overview (R4) */
 click('[aria-label="Settings"]');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
   'settings overlay opens',
 );
-assert(text('.settings-section-title') === 'Profile', 'settings shows Profile section');
-await waitFor(() => text('.settings-static-value') === '@anna', 'profile username shown');
-{
-  const displayNameInput = dom.window.document.querySelector('#display-name');
-  assert(displayNameInput?.value === 'Anna Müller', 'display name shown');
-  const rows = [...dom.window.document.querySelectorAll('.settings-static-row')].map((r) => r.textContent);
-  assert(rows.some((r) => r.includes('anna@example.com')), 'email shown');
-}
 assert(
-  dom.window.document.querySelectorAll('.settings-section').length >= 6,
-  'settings sections (profile/search/language/appearance/chat/account)',
+  text('.settings-section-title') === 'Settings',
+  'settings overview shows the Settings category heading',
+);
+// R4: the overview renders one selectable row per category (blocked is a
+// third-level subpage, so the overview shows the six top-level categories).
+const categoryRows = () =>
+  [...dom.window.document.querySelectorAll('.settings-category-row')];
+await waitFor(() => categoryRows().length === 6, 'six category rows render');
+assert(
+  categoryRows().map((r) => r.getAttribute('data-category')).join(',') ===
+    'profile,people,language,appearance,chat,account',
+  'category rows are ordered profile/people/language/appearance/chat/account',
+);
+assert(
+  categoryRows().every((r) => r.tagName === 'BUTTON' && r.getAttribute('type') === 'button'),
+  'category rows are real buttons',
 );
 // APP_VERSION is injected from package.json at build time (P3-1), so the
 // Settings footer must show exactly the released version.
@@ -1123,10 +1129,125 @@ assert(
   );
 }
 assert(
+  dom.window.document.querySelector('.settings-legal-link') !== null,
+  'imprint link stays reachable from the overview',
+);
+
+/* R4: opening a category opens its subpage; back returns to the overview */
+click('.settings-category-row[data-category="profile"]');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open'),
+  'profile subpage slides in',
+);
+await waitFor(
+  () => text('.settings-subpanel-title') === 'Profile',
+  'profile subpage has its own title',
+);
+await waitFor(() => text('.settings-static-value') === '@anna', 'profile username shown');
+{
+  const displayNameInput = dom.window.document.querySelector('#display-name');
+  assert(displayNameInput?.value === 'Anna Müller', 'display name shown');
+  const rows = [...dom.window.document.querySelectorAll('.settings-static-row')].map((r) => r.textContent);
+  assert(rows.some((r) => r.includes('anna@example.com')), 'email shown');
+}
+assert(
+  text('.settings-subpanel .settings-section-title') === 'Profile',
+  'profile subpage keeps its section heading',
+);
+// Back to the overview.
+click('.settings-subpanel .icon-button');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') === false,
+  'back button returns to the settings overview',
+);
+assert(
+  categoryRows().length === 6,
+  'overview rows are visible again after returning',
+);
+assert(
+  dom.window.document.querySelector('.settings-footer') !== null,
+  'overview footer remains after returning',
+);
+
+/* R4: each category still exposes every existing option on its subpage */
+const categoryExpectations = [
+  { category: 'profile', selector: '#display-name', name: 'display name input' },
+  { category: 'people', selector: '.settings-subpanel .at-input', name: 'person search' },
+  { category: 'language', selector: '.settings-subpanel .option', name: 'language radio' },
+  { category: 'appearance', selector: '.settings-subpanel .option', name: 'appearance radio' },
+  { category: 'chat', selector: '.settings-subpanel .toggle', name: 'chat toggles' },
+  { category: 'account', selector: '.settings-subpanel .settings-row', name: 'account rows' },
+];
+for (const { category, selector, name } of categoryExpectations) {
+  click(`.settings-category-row[data-category="${category}"]`);
+  await waitFor(
+    () =>
+      dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') &&
+      text(`.settings-subpanel-title`) !== null,
+    `${category} subpage opens from the overview`,
+  );
+  await waitFor(
+    () => dom.window.document.querySelector(selector) !== null,
+    `${category} subpage keeps its ${name}`,
+  );
+  click('.settings-subpanel .icon-button');
+  await waitFor(
+    () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') === false,
+    `back to overview after ${category}`,
+  );
+}
+
+/* R4: the blocked list is reachable from the People subpage */
+click('.settings-category-row[data-category="people"]');
+await waitFor(
+  () => text('.settings-subpanel-title') === 'People',
+  'people subpage opens for blocked entry',
+);
+click('.settings-subpanel .settings-row.clickable');
+await waitFor(
+  () =>
+    text('.settings-subpanel-title') === 'Blocked users' &&
+    dom.window.document.querySelector('.settings-subpanel .settings-blocked-empty') !== null,
+  'blocked list opens from the People subpage and renders its empty state',
+);
+click('.settings-subpanel .icon-button');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') === false,
+  'blocked list back button returns to the overview',
+);
+
+/* R4: deep links open the matching subpage directly */
+setHash('#/settings/appearance');
+await waitFor(
+  () =>
+    dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') &&
+    text('.settings-subpanel-title') === 'Appearance',
+  'deep link #/settings/appearance opens the appearance subpage',
+);
+setHash('#/settings/blocked');
+await waitFor(
+  () =>
+    dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') &&
+    text('.settings-subpanel-title') === 'Blocked users',
+  'legacy deep link #/settings/blocked still opens the blocked subpage',
+);
+setHash('#/settings');
+await waitFor(
+  () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') === false,
+  'returning to #/settings shows the overview',
+);
+
+/* no notifications setting remains anywhere in Settings */
+assert(
   ![...dom.window.document.querySelectorAll('.settings-row')].some((r) =>
     /notifications|benachrichtigungen/i.test(r.textContent ?? ''),
   ),
   'no notifications setting remains in Settings',
+);
+setHash('#/settings/chat');
+await waitFor(
+  () => text('.settings-subpanel-title') === 'Chat',
+  'chat subpage opens for notifications check',
 );
 assert(
   ![...dom.window.document.querySelectorAll('.toggle')].some(
@@ -1136,6 +1257,11 @@ assert(
       ),
   ),
   'no notifications toggle remains',
+);
+setHash('#/settings/account');
+await waitFor(
+  () => text('.settings-subpanel-title') === 'Account',
+  'account subpage opens for password change',
 );
 
 /* password change starts with an in-app confirmation */
@@ -1246,15 +1372,23 @@ await waitFor(
   'email change reports a pending confirmation, not an instant change',
 );
 
-/* language control inside settings */
-const languageSection = [...dom.window.document.querySelectorAll('.settings-section')].find((s) =>
+/* language control inside settings (Language subpage) */
+setHash('#/settings/language');
+await waitFor(
+  () => text('.settings-subpanel-title') === 'Language',
+  'language subpage opens',
+);
+const languageSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find((s) =>
   s.querySelector('.settings-section-title')?.textContent === 'Language',
 );
 const deutschOption = [...languageSection.querySelectorAll('.option')].find((o) => o.textContent.includes('Deutsch'));
 deutschOption.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-await waitFor(() => text('.settings-section-title') === 'Profil', 'settings language switch → German');
+await waitFor(() => text('.settings-subpanel-title') === 'Sprache', 'settings language switch → German');
 assert(window.localStorage.getItem('enough-lang') === 'de', 'settings language persists');
-// The email-change confirmation must also exist in German.
+// The email-change confirmation must also exist in German. It lives on the
+// Account subpage, so navigate there (labels are German now).
+setHash('#/settings/account');
+await waitFor(() => text('.settings-subpanel-title') === 'Konto', 'account subpage in German');
 const germanEmailRow = [...dom.window.document.querySelectorAll('.settings-row.clickable')].find(
   (r) => r.textContent.includes('E-Mail ändern'),
 );
@@ -1268,13 +1402,20 @@ assert(
   'German email dialog explains the confirmation-link flow',
 );
 click('.dialog .btn-plain');
-// Back to English for the remaining assertions.
-const englishOption = [...languageSection.querySelectorAll('.option')].find((o) => o.textContent.includes('English'));
+// Back to English for the remaining assertions (Language subpage again).
+setHash('#/settings/language');
+await waitFor(() => text('.settings-subpanel-title') === 'Sprache', 'language subpage (German)');
+const englishOption = [...dom.window.document.querySelectorAll('.settings-subpanel .option')].find((o) => o.textContent.includes('English'));
 englishOption.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-await waitFor(() => text('.settings-section-title') === 'Profile', 'settings language switch back → English');
+await waitFor(() => text('.settings-subpanel-title') === 'Language', 'settings language switch back → English');
 
-/* appearance control */
-const appearanceSection = [...dom.window.document.querySelectorAll('.settings-section')].find((s) =>
+/* appearance control (Appearance subpage) */
+setHash('#/settings/appearance');
+await waitFor(
+  () => text('.settings-subpanel-title') === 'Appearance',
+  'appearance subpage opens',
+);
+const appearanceSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find((s) =>
   s.querySelector('.settings-section-title')?.textContent === 'Appearance',
 );
 const lightOption = [...appearanceSection.querySelectorAll('.option')].find((o) => o.textContent.includes('Light'));
@@ -1325,8 +1466,13 @@ await waitFor(
   'header icon follows the Settings radio selection',
 );
 
-/* person search inside settings */
-const searchSection = [...dom.window.document.querySelectorAll('.settings-section')].find((s) =>
+/* person search inside settings (People subpage) */
+setHash('#/settings/people');
+await waitFor(
+  () => text('.settings-subpanel-title') === 'People',
+  'people subpage opens',
+);
+const searchSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find((s) =>
   s.querySelector('.settings-section-title')?.textContent === 'Search people',
 );
 const searchInput = searchSection.querySelector('input');
@@ -1635,12 +1781,12 @@ assert(
   db.messages.some((message) => message.ciphertext === 'Hey Benno!' || message.ciphertext === ''),
   'chat delete does not remove messages globally',
 );
-setHash('#/settings');
+setHash('#/settings/people');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
   'settings opens to reopen deleted chat',
 );
-const restoreSearchSection = [...dom.window.document.querySelectorAll('.settings-section')].find((section) =>
+const restoreSearchSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find((section) =>
   section.querySelector('.settings-section-title')?.textContent === 'Search people',
 );
 setInputValue(restoreSearchSection.querySelector('input'), 'benno');
@@ -1908,12 +2054,12 @@ assert(
 );
 
 /* scenario C: blocked user is visible in search (by-you direction) */
-setHash('#/settings');
+setHash('#/settings/people');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
   'settings open for block checks',
 );
-const blockSearchSection = [...dom.window.document.querySelectorAll('.settings-section')].find(
+const blockSearchSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find(
   (section) => section.querySelector('.settings-section-title')?.textContent === 'Search people',
 );
 setInputValue(blockSearchSection.querySelector('input'), 'benno');
@@ -1982,22 +2128,26 @@ assert(
 );
 
 /* localization: the blocked-users page exists in German */
-setHash('#/settings');
+setHash('#/settings/language');
 await waitFor(
-  () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') === false,
-  'back to the main settings page',
+  () => text('.settings-subpanel-title') === 'Language',
+  'language subpage opens before switching to German',
 );
-const germanLangSection = [...dom.window.document.querySelectorAll('.settings-section')].find(
+const germanLangSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find(
   (s) => s.querySelector('.settings-section-title')?.textContent === 'Language',
 );
 [...germanLangSection.querySelectorAll('.option')]
   .find((o) => o.textContent.includes('Deutsch'))
   .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(
-  () => text('.settings-subpanel-title') === 'Blockierte Nutzer',
-  'subpage title in German',
+  () => text('.settings-subpanel-title') === 'Sprache',
+  'language subpage title in German',
 );
 setHash('#/settings/blocked');
+await waitFor(
+  () => text('.settings-subpanel-title') === 'Blockierte Nutzer',
+  'blocked subpage title in German',
+);
 await waitFor(
   () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open'),
   'German subpage opens',
@@ -2015,15 +2165,19 @@ assert(
   ),
   'blocked badge in German',
 );
-setHash('#/settings');
-const enLangSection = [...dom.window.document.querySelectorAll('.settings-section')].find(
+setHash('#/settings/language');
+await waitFor(
+  () => text('.settings-subpanel-title') === 'Sprache',
+  'language subpage (German) for switching back',
+);
+const enLangSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find(
   (s) => s.querySelector('.settings-section-title')?.textContent === 'Sprache',
 );
 [...enLangSection.querySelectorAll('.option')]
   .find((o) => o.textContent.includes('English'))
   .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(
-  () => text('.settings-subpanel-title') === 'Blocked users',
+  () => text('.settings-subpanel-title') === 'Language',
   'back to English',
 );
 
@@ -2050,12 +2204,12 @@ await waitFor(
 );
 
 /* scenario E (continued): after unblocking, requests work again */
-setHash('#/settings');
+setHash('#/settings/people');
 await waitFor(
-  () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') === false,
-  'back to main settings after unblock',
+  () => text('.settings-subpanel-title') === 'People',
+  'people subpage opens after unblock',
 );
-const afterUnblockSection = [...dom.window.document.querySelectorAll('.settings-section')].find(
+const afterUnblockSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find(
   (section) => section.querySelector('.settings-section-title')?.textContent === 'Search people',
 );
 setInputValue(afterUnblockSection.querySelector('input'), 'benno');
@@ -2105,12 +2259,12 @@ db.user_blocks.push({
 });
 setHash('#/');
 await waitFor(() => dom.window.document.querySelector('.home-screen') !== null, 'leave settings');
-setHash('#/settings');
+setHash('#/settings/people');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
   'settings reopen for blocked-by-them check',
 );
-const byThemSection = [...dom.window.document.querySelectorAll('.settings-section')].find(
+const byThemSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find(
   (section) => section.querySelector('.settings-section-title')?.textContent === 'Search people',
 );
 setInputValue(byThemSection.querySelector('input'), 'benno');
@@ -2286,9 +2440,9 @@ db.connections = db.connections.filter((c) => c.id !== 'conn-chatblock');
 setHash('#/');
 
 /* my notes: enabling shows the row immediately after leaving settings */
-setHash('#/settings');
-await waitFor(() => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'), 'settings reopens');
-const chatSection = [...dom.window.document.querySelectorAll('.settings-section')].find((s) =>
+setHash('#/settings/chat');
+await waitFor(() => text('.settings-subpanel-title') === 'Chat', 'chat subpage reopens');
+const chatSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find((s) =>
   s.querySelector('.settings-section-title')?.textContent === 'Chat',
 );
 const notesToggle = [...chatSection.querySelectorAll('.toggle')].find((t) => t.getAttribute('aria-label') === 'Meine Notizen' || t.getAttribute('aria-label') === 'My Notes');
@@ -2379,9 +2533,9 @@ assert(
 );
 
 /* account deletion (type-to-confirm) */
-setHash('#/settings');
-await waitFor(() => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'), 'settings open for delete account');
-const reopenedChatSection = [...dom.window.document.querySelectorAll('.settings-section')].find((s) =>
+setHash('#/settings/chat');
+await waitFor(() => text('.settings-subpanel-title') === 'Chat', 'chat subpage opens for delete account');
+const reopenedChatSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find((s) =>
   s.querySelector('.settings-section-title')?.textContent === 'Chat',
 );
 const reopenedNotesToggle = [...reopenedChatSection.querySelectorAll('.toggle')].find(
@@ -2417,9 +2571,9 @@ if (!notesRowAgain) {
     'My Notes is empty after re-enabling',
   );
 }
-setHash('#/settings');
-await waitFor(() => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'), 'settings open for delete account');
-const deleteAccountBtn = [...dom.window.document.querySelectorAll('.settings-row')].find((r) =>
+setHash('#/settings/account');
+await waitFor(() => text('.settings-subpanel-title') === 'Account', 'account subpage open for delete account');
+const deleteAccountBtn = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-row')].find((r) =>
   r.textContent.includes('Delete account'),
 );
 deleteAccountBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
@@ -2448,9 +2602,9 @@ dom.window.document.querySelector('.form').dispatchEvent(
   new dom.window.Event('submit', { bubbles: true, cancelable: true }),
 );
 await waitFor(() => text('.home-screen .empty-title') === 'Nothing here yet.', 're-sign-in → home empty state');
-setHash('#/settings');
-await waitFor(() => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'), 'settings open again');
-const signOutBtn = [...dom.window.document.querySelectorAll('.settings-row')].find((r) => r.textContent.includes('Sign out'));
+setHash('#/settings/account');
+await waitFor(() => text('.settings-subpanel-title') === 'Account', 'account subpage open for sign out');
+const signOutBtn = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-row')].find((r) => r.textContent.includes('Sign out'));
 signOutBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => text('.dialog-title') === 'Sign out?', 'sign out confirmation dialog');
 click('.dialog .btn-primary');

@@ -1019,6 +1019,14 @@ textarea {
   padding: 16px 0;
 }
 
+/* settings category overview — rows open the matching subpage */
+.settings-category-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
 .blocked-row-control {
   display: flex;
   align-items: center;

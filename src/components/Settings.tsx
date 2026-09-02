@@ -19,11 +19,10 @@ import {
 } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { displayName, normalizeUsername } from '../lib/helpers';
-import { MAX_DISPLAY_NAME_LENGTH, sanitizeDisplayName } from '../lib/input';
-import { setLang, t, useLang } from '../i18n';
-import { Lang } from '../i18n/translations';
+import { sanitizeDisplayName } from '../lib/input';
+import { t, useLang } from '../i18n';
+import type { TranslationKey } from '../i18n/translations';
 import {
-  applyMode,
   getStoredMode,
   prefersReducedMotion,
   THEME_CHANGE_EVENT,
@@ -31,85 +30,97 @@ import {
 } from '../lib/theme';
 import { Connection, Profile } from '../lib/types';
 import Dialog from './Dialog';
-import Toggle from './Toggle';
 import ThemeButton from './ThemeButton';
 import {
   BackIcon,
-  CheckIcon,
+  ChevronIcon,
   GithubIcon,
-  MoonIcon,
-  SearchIcon,
-  SunIcon,
-  SystemIcon,
 } from './icons';
+import { Section } from './settings/settings-ui';
+import ProfileSettings from './settings/ProfileSettings';
+import PeopleSettings from './settings/PeopleSettings';
+import BlockedUsersPage from './settings/BlockedUsersPage';
+import LanguageSettings from './settings/LanguageSettings';
+import AppearanceSettings from './settings/AppearanceSettings';
+import ChatSettings from './settings/ChatSettings';
+import AccountSettings from './settings/AccountSettings';
 
 const GITHUB_URL = 'https://github.com/hpmine42/enough';
 
+export type SettingsCategory =
+  | 'profile'
+  | 'people'
+  | 'blocked'
+  | 'language'
+  | 'appearance'
+  | 'chat'
+  | 'account';
+
+/** Every valid subpage route, including the third-level blocked list. */
+const SETTINGS_CATEGORIES: SettingsCategory[] = [
+  'profile',
+  'people',
+  'blocked',
+  'language',
+  'appearance',
+  'chat',
+  'account',
+];
+
+/** The six top-level categories shown on the overview (blocked lives inside People). */
+const OVERVIEW_CATEGORIES: SettingsCategory[] = [
+  'profile',
+  'people',
+  'language',
+  'appearance',
+  'chat',
+  'account',
+];
+
+/** Category subpage title key (blocked is its own third-level subpage). */
+const CATEGORY_TITLE_KEYS: Record<SettingsCategory, TranslationKey> = {
+  profile: 'settingsScreen.profile',
+  people: 'settingsScreen.people',
+  blocked: 'block.title',
+  language: 'settingsScreen.language',
+  appearance: 'settingsScreen.appearance',
+  chat: 'settingsScreen.chat',
+  account: 'settingsScreen.account',
+};
+
 /* ------------------------------------------------------------------ */
-/* collapse helper: keep a toggled form mounted just long enough to    */
-/* animate out, instead of disappearing instantly (which felt janky).  */
+/* overview row                                                        */
 /* ------------------------------------------------------------------ */
 
-function useCollapse(open: boolean, duration = 200) {
-  const [render, setRender] = useState(open);
-  const [closing, setClosing] = useState(false);
-  useEffect(() => {
-    if (open) {
-      setRender(true);
-      setClosing(false);
-    } else if (render) {
-      setClosing(true);
-      const t = window.setTimeout(() => {
-        setRender(false);
-        setClosing(false);
-      }, duration);
-      return () => window.clearTimeout(t);
-    }
-  }, [open, render, duration]);
-  return { render, closing };
-}
-
-/* ------------------------------------------------------------------ */
-/* section primitives                                                  */
-/* ------------------------------------------------------------------ */
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="settings-section">
-      <h2 className="settings-section-title">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function Row({
+/** One tappable row of the category overview. */
+function CategoryRow({
+  category,
   label,
   sub,
-  children,
-  onClick,
+  badge,
 }: {
+  category: SettingsCategory;
   label: string;
   sub?: string;
-  children?: React.ReactNode;
-  onClick?: () => void;
+  badge?: number;
 }) {
-  const content = (
-    <>
+  return (
+    <button
+      type="button"
+      className="settings-row clickable settings-category-row"
+      data-category={category}
+      onClick={() => navigate(`#/settings/${category}`)}
+    >
       <div className="settings-row-main">
         <div className="settings-row-label">{label}</div>
         {sub && <div className="settings-row-sub">{sub}</div>}
       </div>
-      {children && <div className="settings-row-control">{children}</div>}
-    </>
+      <div className="settings-row-control settings-category-control">
+        {badge !== undefined && badge > 0 && <span className="badge-soft">{badge}</span>}
+        <ChevronIcon size={16} />
+      </div>
+    </button>
   );
-  if (onClick) {
-    return (
-      <button type="button" className="settings-row clickable" onClick={onClick}>
-        {content}
-      </button>
-    );
-  }
-  return <div className="settings-row">{content}</div>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -119,7 +130,20 @@ function Row({
 export default function Settings() {
   const route = useHashRoute();
   const open = route.startsWith('#/settings');
-  const blockedView = route.startsWith('#/settings/blocked');
+  // The category is the first segment after "#/settings/"; any deeper path
+  // (e.g. "#/settings/blocked") is preserved by treating the first segment
+  // as the category — "#/settings/blocked" stays the blocked subpage.
+  const parts = route.split('/');
+  const categorySegment =
+    parts.length >= 3 && parts[0] === '#' && parts[1] === 'settings'
+      ? parts[2]
+      : null;
+  const category =
+    categorySegment !== null && (SETTINGS_CATEGORIES as string[]).includes(categorySegment)
+      ? (categorySegment as SettingsCategory)
+      : null;
+  const subpageOpen = open && category !== null;
+
   const {
     user,
     profile,
@@ -637,379 +661,18 @@ export default function Settings() {
         <ThemeButton />
       </header>
 
-      <div className="settings-scroll">
-        {/* PROFILE */}
-        <Section title={t('settingsScreen.profile')}>
-          <div className="settings-profile">
-            <label className="settings-field-label" htmlFor="display-name">
-              {t('settingsScreen.displayName')}
-            </label>
-            <div className="settings-edit-row">
-              <input
-                id="display-name"
-                className="input"
-                type="text"
-                value={nameDraft}
-                maxLength={MAX_DISPLAY_NAME_LENGTH}
-                onChange={(e) => {
-                  setNameDraft(e.target.value);
-                  setNameSaved(false);
-                }}
-                onBlur={saveDisplayName}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') saveDisplayName();
-                }}
-                aria-label={t('settingsScreen.displayName')}
-              />
-              {nameDraft.trim() !== displayName(profile) && (
-                <button
-                  type="button"
-                  className="btn-small"
-                  disabled={nameBusy}
-                  onClick={saveDisplayName}
-                >
-                  {nameBusy ? t('loading') : t('save')}
-                </button>
-              )}
-            </div>
-            {nameSaved && <p className="field-hint ok">{t('saved')}</p>}
-            {nameError && (
-              <p className="error" role="alert">
-                {nameError}
-              </p>
-            )}
-            <div className="settings-static-row">
-              <span className="settings-static-label">{t('settingsScreen.username')}</span>
-              <span className="settings-static-value">@{profile?.username ?? '…'}</span>
-            </div>
-            <button
-              type="button"
-              className="settings-static-row settings-email-row"
-              onClick={openEmailChange}
-            >
-              <span className="settings-static-label">{t('settingsScreen.email')}</span>
-              <span className="settings-static-value">{user?.email ?? '…'}</span>
-            </button>
-          </div>
-        </Section>
-
-        {/* SEARCH PEOPLE */}
-        <Section title={t('settingsScreen.searchPeople')}>
-          <div className="at-field search-field">
-            <span className="at-prefix" aria-hidden="true">
-              @
-            </span>
-            <input
-              className="input at-input"
-              type="text"
-              placeholder={t('settingsScreen.searchPlaceholder')}
-              value={query}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              aria-label={t('settingsScreen.searchPeople')}
-              spellCheck={false}
-              autoCapitalize="none"
-              autoComplete="off"
+      {/* CATEGORY OVERVIEW */}
+      <div className="settings-scroll settings-overview">
+        <Section title={t('settingsScreen.title')}>
+          {OVERVIEW_CATEGORIES.map((cat) => (
+            <CategoryRow
+              key={cat}
+              category={cat}
+              label={t(CATEGORY_TITLE_KEYS[cat])}
+              badge={cat === 'people' ? blockedIds.size : undefined}
             />
-            {searchActive && !searching && (
-              <SearchIcon className="at-status" size={18} />
-            )}
-          </div>
-          {searchActive && (
-            <div className="settings-search-results">
-              {searching && <p className="muted">{t('loading')}</p>}
-              {!searching && searchError && (
-                <p className="error" role="alert">
-                  {searchError}
-                </p>
-              )}
-              {!searching && !searchError && results.length === 0 && (
-                <p className="muted">{t('settingsScreen.searchNoResults')}</p>
-              )}
-              {!searching &&
-                results.map((r) => {
-                  const conn = statusOf(r.id);
-                  const blockedByMe = blockedIds.has(r.id);
-                  const blockedByThem = blockedByIds.has(r.id);
-                  if (blockedByMe || blockedByThem) {
-                    // A block overrides the normal request affordance.
-                    return (
-                      <div
-                        key={r.id}
-                        className="chat settings-search-row blocked-search-row"
-                      >
-                        <div className="chat-text">
-                          <div className="chat-name">{displayName(r)}</div>
-                          <div className="chat-preview">
-                            {blockedByMe ? t('block.byYou') : t('block.byThem')}
-                          </div>
-                        </div>
-                        <div className="chat-trailing">
-                          <span className="badge-soft">{t('block.status')}</span>
-                          {blockedByMe && (
-                            <button
-                              type="button"
-                              className="btn-small"
-                              disabled={blockBusyId === r.id}
-                              onClick={() => handleUnblock(r)}
-                            >
-                              {t('block.unblock')}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  }
-                  return (
-                    <button
-                      key={r.id}
-                      type="button"
-                      className="chat settings-search-row"
-                      onClick={() => openConversation(r)}
-                      disabled={actionBusyId === r.id}
-                    >
-                      <div className="chat-text">
-                        <div className="chat-name">{displayName(r)}</div>
-                        <div className="chat-preview">@{r.username}</div>
-                      </div>
-                      <div className="chat-trailing">
-                        {conn?.status === 'accepted' && (
-                          <span className="badge-soft">{t('connection.accepted')}</span>
-                        )}
-                        {conn?.status === 'pending' &&
-                          (conn.user_a === me
-                            ? t('connection.requestSent')
-                            : t('connection.requestTitle'))}
-                        {conn?.status === 'declined' && t('connection.requestDeclined')}
-                        {conn?.status === 'expired' && t('connection.requestExpired')}
-                      </div>
-                    </button>
-                  );
-                })}
-            </div>
-          )}
+          ))}
         </Section>
-
-        {/* BLOCKED USERS */}
-        <Section title={t('block.title')}>
-          <Row
-            label={t('block.title')}
-            sub={t('block.hint')}
-            onClick={() => navigate('#/settings/blocked')}
-          >
-            {blockedIds.size > 0 && (
-              <span className="badge-soft">{blockedIds.size}</span>
-            )}
-          </Row>
-        </Section>
-
-        {/* LANGUAGE */}
-        <Section title={t('settingsScreen.language')}>
-          <div className="option-list" role="radiogroup" aria-label={t('settingsScreen.language')}>
-            {(['en', 'de'] as Lang[]).map((l) => (
-              <button
-                key={l}
-                type="button"
-                role="radio"
-                aria-checked={lang === l}
-                className={`option${lang === l ? ' selected' : ''}`}
-                onClick={() => setLang(l)}
-              >
-                {l === 'en' ? 'English' : 'Deutsch'}
-                {lang === l && <CheckIcon size={16} />}
-              </button>
-            ))}
-          </div>
-        </Section>
-
-        {/* APPEARANCE */}
-        <Section title={t('settingsScreen.appearance')}>
-          <div className="option-list" role="radiogroup" aria-label={t('settingsScreen.appearance')}>
-            {(['light', 'dark', 'system'] as ThemeMode[]).map((m) => (
-              <button
-                key={m}
-                type="button"
-                role="radio"
-                aria-checked={appearanceMode === m}
-                className={`option${appearanceMode === m ? ' selected' : ''}`}
-                onClick={() => {
-                  applyMode(m);
-                  setAppearanceMode(m);
-                }}
-              >
-                <span className="option-label">
-                  {m === 'light' ? (
-                    <SunIcon size={17} />
-                  ) : m === 'dark' ? (
-                    <MoonIcon size={17} />
-                  ) : (
-                    <SystemIcon size={17} />
-                  )}
-                  {t(
-                    m === 'light'
-                      ? 'settingsScreen.light'
-                      : m === 'dark'
-                        ? 'settingsScreen.dark'
-                        : 'settingsScreen.system',
-                  )}
-                </span>
-                {appearanceMode === m && <CheckIcon size={16} />}
-              </button>
-            ))}
-          </div>
-        </Section>
-
-        {/* CHAT */}
-        <Section title={t('settingsScreen.chat')}>
-          <Row label={t('settingsScreen.enterToSend')} sub={t('settingsScreen.enterToSendHint')}>
-            <Toggle
-              checked={enterToSend}
-              onChange={setEnterToSend}
-              label={t('settingsScreen.enterToSend')}
-            />
-          </Row>
-          <Row label={t('settingsScreen.myNotes')} sub={t('settingsScreen.myNotesHint')}>
-            <Toggle
-              checked={myNotes}
-              onChange={toggleMyNotes}
-              disabled={notesBusy || notesLoading}
-              label={t('settingsScreen.myNotes')}
-            />
-          </Row>
-          {notesError && (
-            <p className="error" role="alert">
-              {notesError}
-            </p>
-          )}
-        </Section>
-
-        {/* ACCOUNT */}
-        <div ref={accountRef}>
-          <Section title={t('settingsScreen.account')}>
-            <button
-              type="button"
-              className="settings-row clickable"
-              onClick={openEmailChange}
-            >
-              <div className="settings-row-main">
-                <div className="settings-row-label">{t('settingsScreen.editEmail')}</div>
-              </div>
-            </button>
-            {emailCollapse.render && (
-              <form
-                className={`settings-inline-form${emailCollapse.closing ? ' closing' : ''}`}
-                onSubmit={handleEmailChange}
-              >
-                <input
-                  className="input"
-                  type="email"
-                  placeholder={t('settingsScreen.newEmail')}
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  autoComplete="email"
-                  required
-                  aria-label={t('settingsScreen.newEmail')}
-                />
-                <button className="btn-small" type="submit" disabled={emailBusy}>
-                  {emailBusy ? t('loading') : t('settingsScreen.changeEmailSubmit')}
-                </button>
-                {emailError && (
-                  <p className="error" role="alert">
-                    {emailError}
-                  </p>
-                )}
-              </form>
-            )}
-            {emailNotice && <p className="field-hint ok">{emailNotice}</p>}
-            <button
-              type="button"
-              className="settings-row clickable"
-              onClick={() => {
-                setPwNotice(null);
-                setPwError(null);
-                if (pwEditing) {
-                  setPwEditing(false);
-                } else {
-                  setPwConfirmOpen(true);
-                }
-              }}
-            >
-              <div className="settings-row-main">
-                <div className="settings-row-label">{t('settingsScreen.changePassword')}</div>
-              </div>
-            </button>
-          {pwCollapse.render && (
-            <form
-              className={`settings-inline-form${pwCollapse.closing ? ' closing' : ''}`}
-              onSubmit={handlePasswordChange}
-            >
-              <input
-                className="input"
-                type="password"
-                placeholder={t('settingsScreen.currentPassword')}
-                value={currentPw}
-                onChange={(e) => setCurrentPw(e.target.value)}
-                autoComplete="current-password"
-                required
-                aria-label={t('settingsScreen.currentPassword')}
-              />
-              <input
-                className="input"
-                type="password"
-                placeholder={t('settingsScreen.newPassword')}
-                value={newPw}
-                onChange={(e) => setNewPw(e.target.value)}
-                autoComplete="new-password"
-                minLength={6}
-                required
-                aria-label={t('settingsScreen.newPassword')}
-              />
-              <input
-                className="input"
-                type="password"
-                placeholder={t('auth.confirmPassword')}
-                value={confirmPw}
-                onChange={(e) => setConfirmPw(e.target.value)}
-                autoComplete="new-password"
-                required
-                aria-label={t('auth.confirmPassword')}
-              />
-              {pwError && (
-                <p className="error" role="alert">
-                  {pwError}
-                </p>
-              )}
-              <button className="btn-small" type="submit" disabled={pwBusy}>
-                {pwBusy ? t('loading') : t('settingsScreen.changePasswordSubmit')}
-              </button>
-            </form>
-          )}
-          {pwNotice && <p className="field-hint ok">{pwNotice}</p>}
-          <button
-            type="button"
-            className="settings-row clickable danger-text"
-            onClick={() => setSignOutOpen(true)}
-          >
-            <div className="settings-row-main">
-              <div className="settings-row-label">{t('settingsScreen.signOut')}</div>
-            </div>
-          </button>
-          <div className="settings-delete-separator" aria-hidden="true" />
-          <button
-            type="button"
-            className="settings-row clickable danger-text delete-spaced"
-            onClick={() => {
-              setDeleteError(null);
-              setDeleteConfirm('');
-              setDeleteOpen(true);
-            }}
-          >
-            <div className="settings-row-main">
-              <div className="settings-row-label">{t('settingsScreen.deleteAccount')}</div>
-              <div className="settings-row-sub">{t('settingsScreen.deleteAccountHint')}</div>
-            </div>
-          </button>
-          </Section>
-        </div>
 
         {/* FOOTER */}
         <footer className="settings-footer">
@@ -1034,10 +697,10 @@ export default function Settings() {
         </footer>
       </div>
 
-      {/* BLOCKED USERS SUBPAGE — slides in like the settings overlay */}
+      {/* CATEGORY SUBPAGE — slides in like the settings overlay */}
       <div
-        className={`settings-subpanel${blockedView ? ' open' : ''}`}
-        aria-hidden={!blockedView}
+        className={`settings-subpanel${subpageOpen ? ' open' : ''}`}
+        aria-hidden={!subpageOpen}
       >
         <header className="settings-header">
           <button
@@ -1048,32 +711,113 @@ export default function Settings() {
           >
             <BackIcon size={22} />
           </button>
-          <div className="settings-subpanel-title">{t('block.title')}</div>
+          <div className="settings-subpanel-title">
+            {category ? t(CATEGORY_TITLE_KEYS[category]) : ''}
+          </div>
           <ThemeButton />
         </header>
         <div className="settings-scroll">
-          {blockedUsers.length === 0 ? (
-            <p className="muted settings-blocked-empty">{t('block.empty')}</p>
-          ) : (
-            blockedUsers.map((p) => (
-              <div key={p.id} className="settings-row">
-                <div className="settings-row-main">
-                  <div className="settings-row-label">{displayName(p)}</div>
-                  <div className="settings-row-sub">@{p.username}</div>
-                </div>
-                <div className="settings-row-control blocked-row-control">
-                  <span className="badge-soft">{t('block.status')}</span>
-                  <button
-                    type="button"
-                    className="btn-small"
-                    disabled={blockBusyId === p.id}
-                    onClick={() => handleUnblock(p)}
-                  >
-                    {t('block.unblock')}
-                  </button>
-                </div>
-              </div>
-            ))
+          {category === 'profile' && (
+            <ProfileSettings
+              nameDraft={nameDraft}
+              nameBusy={nameBusy}
+              nameError={nameError}
+              nameSaved={nameSaved}
+              setNameDraft={setNameDraft}
+              setNameSaved={setNameSaved}
+              saveDisplayName={saveDisplayName}
+              displayNameValue={displayName(profile)}
+              username={profile?.username ?? ''}
+              email={user?.email ?? ''}
+              onEmailClick={openEmailChange}
+            />
+          )}
+          {category === 'people' && (
+            <PeopleSettings
+              query={query}
+              onSearchChange={handleSearchChange}
+              searchActive={searchActive}
+              searching={searching}
+              searchError={searchError}
+              results={results}
+              statusOf={statusOf}
+              blockedIds={blockedIds}
+              blockedByIds={blockedByIds}
+              blockBusyId={blockBusyId}
+              onUnblock={handleUnblock}
+              onOpenConversation={openConversation}
+              actionBusyId={actionBusyId}
+              blockedCount={blockedIds.size}
+              me={me}
+            />
+          )}
+          {category === 'blocked' && (
+            <BlockedUsersPage
+              blockedUsers={blockedUsers}
+              blockBusyId={blockBusyId}
+              onUnblock={handleUnblock}
+            />
+          )}
+          {category === 'language' && (
+            <LanguageSettings />
+          )}
+          {category === 'appearance' && (
+            <AppearanceSettings
+              appearanceMode={appearanceMode}
+              setAppearanceMode={setAppearanceMode}
+            />
+          )}
+          {category === 'chat' && (
+            <ChatSettings
+              enterToSend={enterToSend}
+              setEnterToSend={setEnterToSend}
+              myNotes={myNotes}
+              onToggleMyNotes={toggleMyNotes}
+              notesBusy={notesBusy}
+              notesLoading={notesLoading}
+              notesError={notesError}
+            />
+          )}
+          {category === 'account' && (
+            <div ref={accountRef}>
+              <AccountSettings
+                emailEditing={emailEditing}
+                emailCollapseRender={emailCollapse.render}
+                emailCollapseClosing={emailCollapse.closing}
+                newEmail={newEmail}
+                setNewEmail={setNewEmail}
+                emailBusy={emailBusy}
+                emailError={emailError}
+                emailNotice={emailNotice}
+                onEmailChange={handleEmailChange}
+                onOpenEmailChange={openEmailChange}
+                pwEditing={pwEditing}
+                setPwEditing={setPwEditing}
+                pwCollapseRender={pwCollapse.render}
+                pwCollapseClosing={pwCollapse.closing}
+                currentPw={currentPw}
+                setCurrentPw={setCurrentPw}
+                newPw={newPw}
+                setNewPw={setNewPw}
+                confirmPw={confirmPw}
+                setConfirmPw={setConfirmPw}
+                pwBusy={pwBusy}
+                pwError={pwError}
+                pwNotice={pwNotice}
+                onPasswordChange={handlePasswordChange}
+                onOpenPasswordChange={() => {
+                  setPwNotice(null);
+                  setPwError(null);
+                  setPwConfirmOpen(true);
+                }}
+                onOpenSignOut={() => setSignOutOpen(true)}
+                onOpenDelete={() => {
+                  setDeleteError(null);
+                  setDeleteConfirm('');
+                  setDeleteOpen(true);
+                }}
+              />
+            </div>
           )}
         </div>
       </div>
@@ -1087,6 +831,9 @@ export default function Settings() {
           onConfirm={() => {
             setEmailConfirmOpen(false);
             setEmailEditing(true);
+            // The email form lives on the Account subpage, so open it there
+            // (the Profile email entry is on a different subpage).
+            navigate('#/settings/account');
             setTimeout(() => {
               // JS smooth scrolling is not covered by the CSS reduced-motion
               // block — use an instant jump for reduced-motion users.
@@ -1168,4 +915,28 @@ export default function Settings() {
       )}
     </aside>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* collapse helper: keep a toggled form mounted just long enough to    */
+/* animate out, instead of disappearing instantly (which felt janky).  */
+/* ------------------------------------------------------------------ */
+
+function useCollapse(open: boolean, duration = 200) {
+  const [render, setRender] = useState(open);
+  const [closing, setClosing] = useState(false);
+  useEffect(() => {
+    if (open) {
+      setRender(true);
+      setClosing(false);
+    } else if (render) {
+      setClosing(true);
+      const t = window.setTimeout(() => {
+        setRender(false);
+        setClosing(false);
+      }, duration);
+      return () => window.clearTimeout(t);
+    }
+  }, [open, render, duration]);
+  return { render, closing };
 }

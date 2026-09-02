@@ -59,6 +59,14 @@ export function BackIcon(props: IconProps) {
   );
 }
 
+export function ChevronIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M9.5 5 16 12l-6.5 7" />
+    </svg>
+  );
+}
+
 export function SendIcon(props: IconProps) {
   return (
     <svg {...base(props)}>
