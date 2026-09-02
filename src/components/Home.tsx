@@ -1,16 +1,27 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+} from 'react';
 import { useAuth } from '../context/AuthContext';
 import { navigate, useHashRoute } from '../lib/router';
 import {
   acceptConnection,
+  blockUser,
   cancelConnectionRequest,
   declineConnection,
+  deleteChatForMe,
   getConnection,
+  getBlockState,
   getLastMessages,
   getMyConnections,
   getProfiles,
   getReadState,
   getUnreadCounts,
+  unblockUser,
   CHAT_HIDDEN_EVENT,
   isHiddenByChatDeletion,
   loadDeletionsForUser,
@@ -25,7 +36,7 @@ import {
 } from '../lib/helpers';
 import { supabase } from '../lib/supabase';
 import { getLang, t } from '../i18n';
-import { Connection, Message, Profile } from '../lib/types';
+import { BlockState, Connection, Message, Profile } from '../lib/types';
 import {
   computeReconcileState,
   createConversationEventGate,
@@ -48,6 +59,7 @@ import { isEnvelope } from '../lib/e2ee/message-flow';
 import Avatar from './Avatar';
 import ThemeButton from './ThemeButton';
 import { GearIcon, NoteIcon } from './icons';
+import ChatActionMenu from './ChatActionMenu';
 import Dialog from './Dialog';
 
 interface RowData {
@@ -67,6 +79,10 @@ interface RowData {
  * event (a single event queues a single narrow reconciliation instead).
  */
 const LOAD_DRAIN_RECONCILE_CAP = 6;
+
+// Identical duration to the message-bubble and People-rows long-press
+// targets so the gesture feels the same across the app.
+const LONG_PRESS_MS = 550;
 
 function previewOf(
   last: Message | undefined,
@@ -115,6 +131,26 @@ export default function Home() {
   const [declineBusy, setDeclineBusy] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Long-press action menu — the SAME shared menu component as the in-chat
+  // trash action (Block user / Delete chat for me). My Notes
+  // (self-connection) never opens it: there is no peer to block.
+  const [menuTarget, setMenuTarget] = useState<Connection | null>(null);
+  const [menuSheetOpen, setMenuSheetOpen] = useState(false);
+  const [menuConfirm, setMenuConfirm] = useState<'block' | 'delete' | null>(
+    null,
+  );
+  // Authoritative block relation of the menu pair (drives Block vs.
+  // Unblock); re-derived from user_blocks on every open.
+  const [menuBlockState, setMenuBlockState] = useState<BlockState>('none');
+  const [menuBusy, setMenuBusy] = useState(false);
+  // Long-press press state (one pointer at a time).
+  const pressTimerRef = useRef<number | null>(null);
+  // The click that releases a completed long-press must not navigate.
+  const suppressClickRef = useRef(false);
+  // Generation counter: any menu open/close invalidates in-flight
+  // block-state fetches so a stale result never changes the wrong menu.
+  const menuGenRef = useRef(0);
+
   const me = user?.id ?? '';
 
   // Mirrors the rendered state so the realtime bridge can decide between an
@@ -156,6 +192,11 @@ export default function Home() {
     aliveRef.current = true;
     return () => {
       aliveRef.current = false;
+      // A pending long-press must not fire after the list is unmounted.
+      if (pressTimerRef.current !== null) {
+        window.clearTimeout(pressTimerRef.current);
+        pressTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -577,6 +618,119 @@ export default function Home() {
     else load();
   }
 
+  /* Long-press on a chat row opens the shared chat action menu (the same
+     component the in-chat trash icon uses): Block user and Delete chat
+     for me. A normal (short) tap keeps opening the chat exactly as before. */
+  function startRowPress(conn: Connection) {
+    // My Notes is a self-connection: no peer to block, no action menu.
+    if (isSelfConnection(conn)) return;
+    if (pressTimerRef.current !== null) return;
+    pressTimerRef.current = window.setTimeout(() => {
+      pressTimerRef.current = null;
+      suppressClickRef.current = true;
+      openChatMenu(conn);
+    }, LONG_PRESS_MS);
+  }
+
+  function cancelRowPress() {
+    if (pressTimerRef.current !== null) {
+      window.clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+  }
+
+  function handleRowMove(e: PointerEvent) {
+    // Cancel the long-press when the finger moves beyond a small slop.
+    if (
+      pressTimerRef.current !== null &&
+      e.movementX * e.movementX + e.movementY * e.movementY > 36
+    ) {
+      cancelRowPress();
+    }
+  }
+
+  function handleRowClick(conn: Connection) {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    navigate(`#/chat/${conn.id}`);
+  }
+
+  function openChatMenu(conn: Connection) {
+    const peerId = otherUserId(conn, me);
+    const gen = ++menuGenRef.current;
+    setMenuTarget(conn);
+    setMenuSheetOpen(true);
+    setMenuConfirm(null);
+    setMenuBlockState('none');
+    // Derive the menu contents (Block vs. Unblock) from the authoritative
+    // block relation — the user may have blocked this peer from Settings
+    // or on another device. A failed lookup degrades to the plain
+    // "Block user" item; the block insert itself stays idempotent.
+    void getBlockState(me, peerId).then((state) => {
+      if (menuGenRef.current === gen) setMenuBlockState(state);
+    });
+  }
+
+  function closeChatMenu() {
+    menuGenRef.current++;
+    setMenuTarget(null);
+    setMenuSheetOpen(false);
+    setMenuConfirm(null);
+  }
+
+  async function handleMenuUnblock() {
+    const conn = menuTarget;
+    if (!conn) return;
+    const peerId = otherUserId(conn, me);
+    setMenuBusy(true);
+    setError(null);
+    const err = await unblockUser(me, peerId);
+    setMenuBusy(false);
+    closeChatMenu();
+    if (err) setError(err);
+  }
+
+  async function handleMenuBlock() {
+    const conn = menuTarget;
+    if (!conn) return;
+    const peerId = otherUserId(conn, me);
+    setMenuBusy(true);
+    setError(null);
+    const err = await blockUser(me, peerId);
+    setMenuBusy(false);
+    closeChatMenu();
+    if (err) {
+      setError(err);
+      return;
+    }
+    setMenuBlockState('blockedByMe');
+  }
+
+  async function handleMenuDelete() {
+    const conn = menuTarget;
+    if (!conn) return;
+    setMenuBusy(true);
+    setError(null);
+    const err = await deleteChatForMe(me, conn.id);
+    setMenuBusy(false);
+    closeChatMenu();
+    if (err) {
+      setError(err);
+      return;
+    }
+    // Existing chat-deletion flow: the list re-derives so the deleted row
+    // disappears immediately (same load() the other Home actions use).
+    load();
+  }
+
+  // Peer profile of the long-press target (for the sheet title / block
+  // dialog). May be null while the profile has not loaded yet.
+  const menuOther = menuTarget
+    ? others[otherUserId(menuTarget, me)] ?? null
+    : null;
+
   return (
     <main className="home-screen">
       <header className="home-header">
@@ -658,7 +812,19 @@ export default function Home() {
                 <button
                   type="button"
                   className="chat chat-overview-row"
-                  onClick={() => navigate(`#/chat/${conn.id}`)}
+                  onClick={() => handleRowClick(conn)}
+                  onPointerDown={() => startRowPress(conn)}
+                  onPointerUp={cancelRowPress}
+                  onPointerLeave={cancelRowPress}
+                  onPointerCancel={cancelRowPress}
+                  onPointerMove={handleRowMove}
+                  onContextMenu={(e) => {
+                    // The long-press release must not also surface the
+                    // browser context menu (same contract as the message
+                    // bubbles and the People rows). My Notes has no
+                    // long-press, so its context menu stays as before.
+                    if (!self) e.preventDefault();
+                  }}
                 >
                   <Avatar name={name} size={44} />
                   <div className="chat-text">
@@ -756,6 +922,34 @@ export default function Home() {
             );
           })}
         </div>
+      )}
+
+      {/* Long-press action menu: the same shared component as the in-chat
+          trash menu (Block user / Delete chat for me). It is only reachable
+          for peer connections — startRowPress ignores My Notes. */}
+      {menuTarget && (menuSheetOpen || menuConfirm !== null) && (
+        <ChatActionMenu
+          sheetOpen={menuSheetOpen}
+          confirm={menuConfirm}
+          title={menuOther ? displayName(menuOther) : undefined}
+          peerUsername={menuOther?.username ?? ''}
+          blockedByMe={menuBlockState === 'blockedByMe'}
+          busy={menuBusy}
+          onSheetClose={() => setMenuSheetOpen(false)}
+          onConfirmChange={(confirm) => {
+            setMenuConfirm(confirm);
+            // Canceling a confirmation closes the whole menu (same
+            // behavior as the in-chat menu) so the sheet cannot reappear
+            // underneath it.
+            if (confirm === null) {
+              setMenuTarget(null);
+              setMenuSheetOpen(false);
+            }
+          }}
+          onUnblock={handleMenuUnblock}
+          onBlock={handleMenuBlock}
+          onDeleteChat={handleMenuDelete}
+        />
       )}
 
       {declineTarget && (

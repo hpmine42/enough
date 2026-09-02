@@ -160,6 +160,74 @@ test('getBlockedUsers lists only the caller-blocked relations', async () => {
   assert.deepEqual(eq[0].args, ['blocker_id', ME]);
 });
 
+// ---------------------------------------------------------------------------
+// getBlockState — the two-directional derivation the composer state relies
+// on (blocked-by-peer must survive a self-unblock in a mutual block)
+// ---------------------------------------------------------------------------
+
+test('getBlockState derives the relation from BOTH block directions', async () => {
+  // Peer blocks me only → blockedByThem: the composer must stay disabled.
+  let client = createSupabaseMock([
+    { data: [{ blocker_id: 'peer-1', blocked_id: ME }], error: null },
+  ]);
+  __setSupabase(client);
+  assert.equal(await api.getBlockState(ME, 'peer-1'), 'blockedByThem');
+
+  // I block the peer only → blockedByMe.
+  client = createSupabaseMock([
+    { data: [{ blocker_id: ME, blocked_id: 'peer-1' }], error: null },
+  ]);
+  __setSupabase(client);
+  assert.equal(await api.getBlockState(ME, 'peer-1'), 'blockedByMe');
+
+  // Mutual block → blockedByMe: the caller can only remove their own side,
+  // so the UI must offer Unblock. After a self-unblock in this state the
+  // peer row is still present, so re-deriving yields blockedByThem — the
+  // invariant that keeps the composer disabled across the unblock.
+  client = createSupabaseMock([
+    {
+      data: [
+        { blocker_id: ME, blocked_id: 'peer-1' },
+        { blocker_id: 'peer-1', blocked_id: ME },
+      ],
+      error: null,
+    },
+  ]);
+  __setSupabase(client);
+  assert.equal(await api.getBlockState(ME, 'peer-1'), 'blockedByMe');
+
+  // No rows → none: the composer becomes available again only when the peer
+  // no longer blocks the caller.
+  client = createSupabaseMock([{ data: [], error: null }]);
+  __setSupabase(client);
+  assert.equal(await api.getBlockState(ME, 'peer-1'), 'none');
+});
+
+test('getBlockState scopes the lookup to the exact me↔peer pair', async () => {
+  const client = createSupabaseMock([{ data: [], error: null }]);
+  __setSupabase(client);
+
+  await api.getBlockState(ME, 'peer-1');
+
+  const or = ops(client, 'user_blocks', 'or');
+  assert.equal(or.length, 1);
+  assert.match(or[0].args[0], new RegExp(`and\\(blocker_id\\.eq\\.${ME},blocked_id\\.eq\\.peer-1\\)`));
+  assert.match(or[0].args[0], new RegExp(`and\\(blocker_id\\.eq\\.peer-1,blocked_id\\.eq\\.${ME}\\)`));
+});
+
+test('getBlockState never queries for self-chats and reports none on read errors', async () => {
+  const client = createSupabaseMock();
+  __setSupabase(client);
+  assert.equal(await api.getBlockState(ME, ME), 'none');
+  assert.equal(client._log.length, 0, 'self-chat must not query user_blocks');
+
+  const errClient = createSupabaseMock([
+    { data: null, error: { message: 'fetch failed' } },
+  ]);
+  __setSupabase(errClient);
+  assert.equal(await api.getBlockState(ME, 'peer-1'), 'none');
+});
+
 test('getReadState scopes the read-state query to the caller', async () => {
   const client = createSupabaseMock([
     { data: [{ connection_id: 'c1', last_read_at: '2026-01-01T00:00:00Z' }], error: null },
