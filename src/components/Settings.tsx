@@ -161,6 +161,11 @@ export default function Settings() {
     ? '#/settings/people'
     : '#/settings';
 
+  // People Search belongs to the Settings overview only. When any category
+  // subpage (including People → Blocked Users) is open, the search bar is
+  // hidden so the subpage shows only its own content.
+  const onOverview = open && category === null;
+
   const {
     user,
     profile,
@@ -753,26 +758,27 @@ export default function Settings() {
         <ThemeButton />
       </header>
 
-      {/* People search is available from the Settings overview and stays
-          available on every Settings subpage (see the shared subpanel below). */}
-      <div className="settings-search-wrap">
-        <PeopleSearch
-          query={query}
-          onSearchChange={handleSearchChange}
-          searchActive={searchActive}
-          searching={searching}
-          searchError={searchError}
-          results={results}
-          statusOf={statusOf}
-          blockedIds={blockedIds}
-          blockedByIds={blockedByIds}
-          blockBusyId={blockBusyId}
-          onUnblock={handleUnblock}
-          onOpenConversation={openConversation}
-          actionBusyId={actionBusyId}
-          me={me}
-        />
-      </div>
+      {/* People search is available from the Settings overview only. */}
+      {onOverview && (
+        <div className="settings-search-wrap">
+          <PeopleSearch
+            query={query}
+            onSearchChange={handleSearchChange}
+            searchActive={searchActive}
+            searching={searching}
+            searchError={searchError}
+            results={results}
+            statusOf={statusOf}
+            blockedIds={blockedIds}
+            blockedByIds={blockedByIds}
+            blockBusyId={blockBusyId}
+            onUnblock={handleUnblock}
+            onOpenConversation={openConversation}
+            actionBusyId={actionBusyId}
+            me={me}
+          />
+        </div>
+      )}
 
       {/* CATEGORY OVERVIEW */}
       <div className="settings-scroll settings-overview">
@@ -829,24 +835,6 @@ export default function Settings() {
           </div>
           <ThemeButton />
         </header>
-        <div className="settings-search-wrap settings-subpanel-search">
-          <PeopleSearch
-            query={query}
-            onSearchChange={handleSearchChange}
-            searchActive={searchActive}
-            searching={searching}
-            searchError={searchError}
-            results={results}
-            statusOf={statusOf}
-            blockedIds={blockedIds}
-            blockedByIds={blockedByIds}
-            blockBusyId={blockBusyId}
-            onUnblock={handleUnblock}
-            onOpenConversation={openConversation}
-            actionBusyId={actionBusyId}
-            me={me}
-          />
-        </div>
         <div className="settings-scroll">
           {category === 'profile' && (
             <ProfileSettings
@@ -965,24 +953,6 @@ export default function Settings() {
           </div>
           <ThemeButton />
         </header>
-        <div className="settings-search-wrap settings-subpanel-search">
-          <PeopleSearch
-            query={query}
-            onSearchChange={handleSearchChange}
-            searchActive={searchActive}
-            searching={searching}
-            searchError={searchError}
-            results={results}
-            statusOf={statusOf}
-            blockedIds={blockedIds}
-            blockedByIds={blockedByIds}
-            blockBusyId={blockBusyId}
-            onUnblock={handleUnblock}
-            onOpenConversation={openConversation}
-            actionBusyId={actionBusyId}
-            me={me}
-          />
-        </div>
         <div className="settings-scroll">
           {blockedSubpageOpen && (
             <BlockedUsersPage

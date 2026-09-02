@@ -7,7 +7,7 @@
 // (active connections, long-press block, Blocked Users hierarchy, back
 // navigation). This file adds focused source-level guards so the most
 // important invariants fail fast and deterministically:
-//   * global Settings search is rendered by Settings, not by PeopleSettings;
+//   * Settings search renders only on the overview, never on a subpage;
 //   * PeopleSettings renders active-connection rows with long-press support;
 //   * the Settings → People → Blocked Users hierarchy is route-driven;
 //   * UI chrome is non-selectable while editable fields stay selectable;
@@ -42,14 +42,20 @@ const peopleSettings = read('src/components/settings/PeopleSettings.tsx');
 const peopleSearch = read('src/components/settings/PeopleSearch.tsx');
 const css = read('src/index.css');
 
-test('People search is rendered by Settings (overview + subpanel) and not by PeopleSettings', () => {
+test('People search is rendered only on the Settings overview and not by PeopleSettings', () => {
   assert.ok(
     settings.includes('<PeopleSearch'),
     'Settings renders the shared people-search component',
   );
+  assert.equal(
+    settings.split('<PeopleSearch').length - 1,
+    1,
+    'Settings renders exactly one PeopleSearch (the overview; subpages do not duplicate it)',
+  );
   assert.ok(
-    settings.includes('settings-search-wrap'),
-    'Settings keeps a dedicated search wrapper for overview and subpanel use',
+    settings.includes('settings-search-wrap') &&
+      !settings.includes('settings-subpanel-search'),
+    'the search wrapper exists only for the overview (subpanel search removed)',
   );
   assert.ok(
     !peopleSettings.includes('SearchIcon'),
@@ -62,6 +68,17 @@ test('People search is rendered by Settings (overview + subpanel) and not by Peo
   assert.ok(
     peopleSearch.includes('settingsScreen.searchPeople'),
     'the shared search component keeps the localized People search label',
+  );
+});
+
+test('People search is gated to the Settings overview route', () => {
+  assert.ok(
+    settings.includes('const onOverview = open && category === null'),
+    'overview detection compares the open route against the selected category',
+  );
+  assert.ok(
+    settings.includes('{onOverview && ('),
+    'the overview search is conditionally rendered on the overview route only',
   );
 });
 

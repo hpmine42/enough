@@ -802,6 +802,20 @@ function setHash(hash) {
   dom.window.dispatchEvent(new dom.window.HashChangeEvent('hashchange'));
 }
 
+// The People Search section rendered on the Settings overview. It is the only
+// place PeopleSearch is mounted: subpages must not render the search bar.
+function peopleSearchSection() {
+  const wrap = dom.window.document.querySelector('.settings-overlay .settings-search-wrap');
+  if (!wrap) return null;
+  return (
+    [...wrap.querySelectorAll('.settings-section')].find(
+      (section) =>
+        section.querySelector('.settings-section-title')?.textContent ===
+        'Search people',
+    ) ?? null
+  );
+}
+
 async function waitFor(fn, name, timeout = 3000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
@@ -1180,7 +1194,7 @@ assert(
 /* R4: each category still exposes every existing option on its subpage */
 const categoryExpectations = [
   { category: 'profile', selector: '#display-name', name: 'display name input' },
-  { category: 'people', selector: '.settings-subpanel .at-input', name: 'person search' },
+  { category: 'people', selector: '.settings-subpanel .settings-row.clickable', name: 'blocked users entry' },
   { category: 'language', selector: '.settings-subpanel .option', name: 'language radio' },
   { category: 'appearance', selector: '.settings-subpanel .option', name: 'appearance radio' },
   { category: 'chat', selector: '.settings-subpanel .toggle', name: 'chat toggles' },
@@ -1198,10 +1212,18 @@ for (const { category, selector, name } of categoryExpectations) {
     () => dom.window.document.querySelector(selector) !== null,
     `${category} subpage keeps its ${name}`,
   );
+  assert(
+    dom.window.document.querySelector('.settings-search-wrap') === null,
+    `${category} subpage does not render the people search bar`,
+  );
   click('.settings-subpanel .icon-button');
   await waitFor(
     () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') === false,
     `back to overview after ${category}`,
+  );
+  assert(
+    dom.window.document.querySelector('.settings-overlay .settings-search-wrap input') !== null,
+    `people search is visible again on the overview after ${category}`,
   );
 }
 
@@ -1217,6 +1239,10 @@ await waitFor(
     text('.settings-subpanel-title') === 'Blocked users' &&
     dom.window.document.querySelector('.settings-subpanel .settings-blocked-empty') !== null,
   'blocked list opens from the People subpage and renders its empty state',
+);
+assert(
+  dom.window.document.querySelector('.settings-search-wrap') === null,
+  'blocked users subpage does not render the people search bar',
 );
 click('.settings-subpanel-nested .icon-button');
 await waitFor(
@@ -1476,15 +1502,14 @@ await waitFor(
   'header icon follows the Settings radio selection',
 );
 
-/* person search inside settings (People subpage) */
-setHash('#/settings/people');
+/* person search on the Settings overview */
+setHash('#/settings');
 await waitFor(
-  () => text('.settings-subpanel-title') === 'People',
-  'people subpage opens',
+  () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
+  'settings overview opens for person search',
 );
-const searchSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find((s) =>
-  s.querySelector('.settings-section-title')?.textContent === 'Search people',
-);
+const searchSection = peopleSearchSection();
+assert(searchSection !== null, 'people search section is rendered on the overview');
 const searchInput = searchSection.querySelector('input');
 setInputValue(searchInput, 'benno');
 await waitFor(
@@ -1822,14 +1847,12 @@ assert(
   db.messages.some((message) => message.ciphertext === 'Hey Benno!' || message.ciphertext === ''),
   'chat delete does not remove messages globally',
 );
-setHash('#/settings/people');
+setHash('#/settings');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
   'settings opens to reopen deleted chat',
 );
-const restoreSearchSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find((section) =>
-  section.querySelector('.settings-section-title')?.textContent === 'Search people',
-);
+const restoreSearchSection = peopleSearchSection();
 setInputValue(restoreSearchSection.querySelector('input'), 'benno');
 await waitFor(
   () => [...restoreSearchSection.querySelectorAll('.chat-name')].some(
@@ -2148,14 +2171,12 @@ assert(
 );
 
 /* scenario C: blocked user is visible in search (by-you direction) */
-setHash('#/settings/people');
+setHash('#/settings');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
   'settings open for block checks',
 );
-const blockSearchSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find(
-  (section) => section.querySelector('.settings-section-title')?.textContent === 'Search people',
-);
+const blockSearchSection = peopleSearchSection();
 setInputValue(blockSearchSection.querySelector('input'), 'benno');
 await waitFor(
   () =>
@@ -2298,14 +2319,12 @@ await waitFor(
 );
 
 /* scenario E (continued): after unblocking, requests work again */
-setHash('#/settings/people');
+setHash('#/settings');
 await waitFor(
-  () => text('.settings-subpanel-title') === 'People',
-  'people subpage opens after unblock',
+  () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
+  'settings overview opens after unblock',
 );
-const afterUnblockSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find(
-  (section) => section.querySelector('.settings-section-title')?.textContent === 'Search people',
-);
+const afterUnblockSection = peopleSearchSection();
 setInputValue(afterUnblockSection.querySelector('input'), 'benno');
 await waitFor(
   () =>
@@ -2353,14 +2372,12 @@ db.user_blocks.push({
 });
 setHash('#/');
 await waitFor(() => dom.window.document.querySelector('.home-screen') !== null, 'leave settings');
-setHash('#/settings/people');
+setHash('#/settings');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
   'settings reopen for blocked-by-them check',
 );
-const byThemSection = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section')].find(
-  (section) => section.querySelector('.settings-section-title')?.textContent === 'Search people',
-);
+const byThemSection = peopleSearchSection();
 setInputValue(byThemSection.querySelector('input'), 'benno');
 await waitFor(
   () =>
