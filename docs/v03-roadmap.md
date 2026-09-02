@@ -182,7 +182,7 @@ Home chat rows become two-line rows:
 
 ```text
 Max Mustermann  @maxmustermann                14:32
-letzte Nachricht …                       [3]
+last message …                           [3]
 ```
 
 The small muted `@username` sits directly after the display name on the top line; the separate third line is removed.
