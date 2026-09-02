@@ -42,6 +42,10 @@ production UI and should not be modified or turned into the app.
 - Chat: grouped bubbles, compact timestamps, long-press bottom sheet
   (copy / delete for me / delete for everyone within 24 h), per-user chat
   deletion, display-name change events, My Notes self-chat
+- Home previews of messages deleted for everyone name the deletion actor —
+  "You deleted this message" for own deletions, "@peer deleted this
+  message" otherwise (only the sender can delete for everyone, enforced by
+  RLS; "delete for me" never shows a tombstone)
 - Read state: viewport-based, per user, survives reloads; `↓ N` scroll button
   with progressive read counts
 - Pagination with stable scroll position; Realtime for new messages,
@@ -141,6 +145,10 @@ schema so real E2EE can be introduced later without renaming columns.
 - `npm run build` — TypeScript check + production build
 - `npm run test:crypto` / `npm run test:crypto:engine` — Node crypto and
   Signal-engine suites (no database)
+- `npm run test:preview` — Node regression tests for the Home chat-overview
+  preview: a message deleted for everyone is attributed to the actual
+  deletion actor ("You deleted this message" vs "@peer deleted this
+  message"), while "delete for me" keeps producing no tombstone at all
 - `npm run test:crypto:prekeys` — **live PostgreSQL** RPC/RLS tests for
   `claim_prekey_bundle` and the `crypto_*` policies (F3). Starts an embedded
   real Postgres, applies `supabase/tests/bootstrap_supabase_auth.sql` +
