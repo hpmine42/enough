@@ -691,16 +691,15 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     setBusyId(conn.id);
     setError(null);
     const err = await unblockUser(me, peer.id);
-    setBusyId(null);
     if (err) {
+      setBusyId(null);
       setError(err);
       return;
     }
-    // Removing my own block may leave the peer's block in place (mutual
-    // block): re-derive the authoritative relation from user_blocks instead
-    // of assuming 'none'. Without this the composer would re-enable while
-    // the peer still blocks me, and only the server-side send guard would
-    // catch it.
+    // Re-derive the relation from the database instead of assuming 'none':
+    // with a mutual block, removing the caller's own side must still leave
+    // the composer disabled while the peer's block ('blockedByThem') exists.
+    setBusyId(null);
     setBlockState(await getBlockState(me, peer.id));
   }
 

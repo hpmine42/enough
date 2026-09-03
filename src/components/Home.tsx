@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { navigate, useHashRoute } from '../lib/router';
 import {
@@ -14,17 +7,18 @@ import {
   cancelConnectionRequest,
   declineConnection,
   deleteChatForMe,
-  getConnection,
   getBlockState,
+  getConnection,
   getLastMessages,
   getMyConnections,
   getProfiles,
   getReadState,
   getUnreadCounts,
-  unblockUser,
   CHAT_HIDDEN_EVENT,
   isHiddenByChatDeletion,
   loadDeletionsForUser,
+  removeMyNotes,
+  unblockUser,
 } from '../lib/api';
 import {
   displayName,
@@ -80,9 +74,15 @@ interface RowData {
  */
 const LOAD_DRAIN_RECONCILE_CAP = 6;
 
-// Identical duration to the message-bubble and People-rows long-press
-// targets so the gesture feels the same across the app.
+/** Hold duration that turns a row press into the row action menu. */
 const LONG_PRESS_MS = 550;
+
+/** Target of the long-press row menu (mirrors the Chat trash menu). */
+interface RowMenuTarget {
+  conn: Connection;
+  other: Profile | null;
+  blockState: BlockState;
+}
 
 function previewOf(
   last: Message | undefined,
@@ -131,25 +131,18 @@ export default function Home() {
   const [declineBusy, setDeclineBusy] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  // Long-press action menu — the SAME shared menu component as the in-chat
-  // trash action (Block user / Delete chat for me). My Notes
-  // (self-connection) never opens it: there is no peer to block.
-  const [menuTarget, setMenuTarget] = useState<Connection | null>(null);
+  // Long-press row actions: the SAME shared menu component as the in-chat
+  // trash icon (Block user / Delete chat for me) plus the My Notes
+  // clear-and-disable dialog for the self-connection.
+  const [menuTarget, setMenuTarget] = useState<RowMenuTarget | null>(null);
   const [menuSheetOpen, setMenuSheetOpen] = useState(false);
   const [menuConfirm, setMenuConfirm] = useState<'block' | 'delete' | null>(
     null,
   );
-  // Authoritative block relation of the menu pair (drives Block vs.
-  // Unblock); re-derived from user_blocks on every open.
-  const [menuBlockState, setMenuBlockState] = useState<BlockState>('none');
+  const [notesClearTarget, setNotesClearTarget] = useState<Connection | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
-  // Long-press press state (one pointer at a time).
   const pressTimerRef = useRef<number | null>(null);
-  // The click that releases a completed long-press must not navigate.
   const suppressClickRef = useRef(false);
-  // Generation counter: any menu open/close invalidates in-flight
-  // block-state fetches so a stale result never changes the wrong menu.
-  const menuGenRef = useRef(0);
 
   const me = user?.id ?? '';
 
@@ -192,11 +185,6 @@ export default function Home() {
     aliveRef.current = true;
     return () => {
       aliveRef.current = false;
-      // A pending long-press must not fire after the list is unmounted.
-      if (pressTimerRef.current !== null) {
-        window.clearTimeout(pressTimerRef.current);
-        pressTimerRef.current = null;
-      }
     };
   }, []);
 
@@ -618,17 +606,52 @@ export default function Home() {
     else load();
   }
 
-  /* Long-press on a chat row opens the shared chat action menu (the same
-     component the in-chat trash icon uses): Block user and Delete chat
-     for me. A normal (short) tap keeps opening the chat exactly as before. */
+  /* ---------------------- long-press row actions ---------------------- */
+
+  // Clear the pending long-press timer when Home unmounts.
+  useEffect(() => {
+    return () => {
+      if (pressTimerRef.current !== null) window.clearTimeout(pressTimerRef.current);
+    };
+  }, []);
+
+  /** Open the shared chat action menu for this row. */
+  async function openRowMenu(conn: Connection, other: Profile | null) {
+    if (isSelfConnection(conn)) {
+      // My Notes mirrors the Chat trash action: the clear-and-disable
+      // dialog — never the block/delete sheet (there is no peer to block).
+      setNotesClearTarget(conn);
+      return;
+    }
+    // Mirror the Chat menu semantics: Unblock replaces Block user when the
+    // current user already blocks this peer. The relation is re-read from
+    // the database (RLS-scoped), never inferred from local UI state.
+    const state = await getBlockState(me, otherUserId(conn, me));
+    setMenuTarget({ conn, other, blockState: state });
+    setMenuSheetOpen(true);
+    setMenuConfirm(null);
+  }
+
   function startRowPress(conn: Connection) {
-    // My Notes is a self-connection: no peer to block, no action menu.
-    if (isSelfConnection(conn)) return;
+    if (isSelfConnection(conn)) {
+      // My Notes mirrors the Chat trash action: the clear-and-disable
+      // dialog — never the block/delete sheet (there is no peer to block).
+      if (pressTimerRef.current !== null) return;
+      pressTimerRef.current = window.setTimeout(() => {
+        pressTimerRef.current = null;
+        suppressClickRef.current = true;
+        setNotesClearTarget(conn);
+      }, LONG_PRESS_MS);
+      return;
+    }
     if (pressTimerRef.current !== null) return;
     pressTimerRef.current = window.setTimeout(() => {
       pressTimerRef.current = null;
+      // Swallow the click that follows the released long press so the
+      // menu never races the normal open-chat navigation.
       suppressClickRef.current = true;
-      openChatMenu(conn);
+      const other = others[otherUserId(conn, me)] ?? null;
+      void openRowMenu(conn, other);
     }, LONG_PRESS_MS);
   }
 
@@ -636,16 +659,6 @@ export default function Home() {
     if (pressTimerRef.current !== null) {
       window.clearTimeout(pressTimerRef.current);
       pressTimerRef.current = null;
-    }
-  }
-
-  function handleRowMove(e: PointerEvent) {
-    // Cancel the long-press when the finger moves beyond a small slop.
-    if (
-      pressTimerRef.current !== null &&
-      e.movementX * e.movementX + e.movementY * e.movementY > 36
-    ) {
-      cancelRowPress();
     }
   }
 
@@ -657,79 +670,82 @@ export default function Home() {
     navigate(`#/chat/${conn.id}`);
   }
 
-  function openChatMenu(conn: Connection) {
-    const peerId = otherUserId(conn, me);
-    const gen = ++menuGenRef.current;
-    setMenuTarget(conn);
-    setMenuSheetOpen(true);
-    setMenuConfirm(null);
-    setMenuBlockState('none');
-    // Derive the menu contents (Block vs. Unblock) from the authoritative
-    // block relation — the user may have blocked this peer from Settings
-    // or on another device. A failed lookup degrades to the plain
-    // "Block user" item; the block insert itself stays idempotent.
-    void getBlockState(me, peerId).then((state) => {
-      if (menuGenRef.current === gen) setMenuBlockState(state);
-    });
-  }
-
-  function closeChatMenu() {
-    menuGenRef.current++;
+  /** Close the row menu and drop a stale click suppression: once the menu is
+      gone the suppressed click can no longer arrive, and a lingering flag
+      would swallow the next open-chat tap. */
+  function closeRowMenu() {
     setMenuTarget(null);
     setMenuSheetOpen(false);
     setMenuConfirm(null);
+    suppressClickRef.current = false;
   }
 
-  async function handleMenuUnblock() {
-    const conn = menuTarget;
-    if (!conn) return;
-    const peerId = otherUserId(conn, me);
-    setMenuBusy(true);
-    setError(null);
-    const err = await unblockUser(me, peerId);
-    setMenuBusy(false);
-    closeChatMenu();
-    if (err) setError(err);
-  }
-
+  /** Existing block flow (same API + confirmation the Chat menu uses). */
   async function handleMenuBlock() {
-    const conn = menuTarget;
-    if (!conn) return;
+    if (!menuTarget) return;
+    const conn = menuTarget.conn;
     const peerId = otherUserId(conn, me);
     setMenuBusy(true);
     setError(null);
     const err = await blockUser(me, peerId);
     setMenuBusy(false);
-    closeChatMenu();
+    setMenuConfirm(null);
     if (err) {
       setError(err);
       return;
     }
-    setMenuBlockState('blockedByMe');
+    setMenuTarget((prev) => (prev ? { ...prev, blockState: 'blockedByMe' } : prev));
+    closeRowMenu();
   }
 
+  async function handleMenuUnblock() {
+    if (!menuTarget) return;
+    const conn = menuTarget.conn;
+    const peerId = otherUserId(conn, me);
+    setError(null);
+    const err = await unblockUser(me, peerId);
+    if (err) {
+      setError(err);
+      return;
+    }
+    closeRowMenu();
+  }
+
+  /** Existing per-user chat deletion (never deletes for the peer). */
   async function handleMenuDelete() {
-    const conn = menuTarget;
-    if (!conn) return;
+    if (!menuTarget) return;
+    const conn = menuTarget.conn;
     setMenuBusy(true);
     setError(null);
     const err = await deleteChatForMe(me, conn.id);
     setMenuBusy(false);
-    closeChatMenu();
+    setMenuConfirm(null);
     if (err) {
       setError(err);
       return;
     }
-    // Existing chat-deletion flow: the list re-derives so the deleted row
-    // disappears immediately (same load() the other Home actions use).
+    closeRowMenu();
     load();
   }
 
-  // Peer profile of the long-press target (for the sheet title / block
-  // dialog). May be null while the profile has not loaded yet.
-  const menuOther = menuTarget
-    ? others[otherUserId(menuTarget, me)] ?? null
-    : null;
+  /* My Notes long-press mirrors the Chat trash action: clear all notes and
+     disable My Notes in one step (remove_my_notes() RPC). */
+  async function handleClearMyNotes() {
+    if (!notesClearTarget) return;
+    setMenuBusy(true);
+    setError(null);
+    const err = await removeMyNotes(me, notesClearTarget.id);
+    setMenuBusy(false);
+    setNotesClearTarget(null);
+    suppressClickRef.current = false;
+    if (err) {
+      setError(err);
+      return;
+    }
+    load();
+  }
+
+  const menuOther = menuTarget?.other ?? null;
 
   return (
     <main className="home-screen">
@@ -817,14 +833,17 @@ export default function Home() {
                   onPointerUp={cancelRowPress}
                   onPointerLeave={cancelRowPress}
                   onPointerCancel={cancelRowPress}
-                  onPointerMove={handleRowMove}
-                  onContextMenu={(e) => {
-                    // The long-press release must not also surface the
-                    // browser context menu (same contract as the message
-                    // bubbles and the People rows). My Notes has no
-                    // long-press, so its context menu stays as before.
-                    if (!self) e.preventDefault();
+                  onPointerMove={(e) => {
+                    // Cancel the long-press when the pointer moves beyond a
+                    // small slop (scrolling must not open the menu).
+                    if (
+                      pressTimerRef.current !== null &&
+                      e.movementX * e.movementX + e.movementY * e.movementY > 36
+                    ) {
+                      cancelRowPress();
+                    }
                   }}
+                  onContextMenu={(e) => e.preventDefault()}
                 >
                   <Avatar name={name} size={44} />
                   <div className="chat-text">
@@ -924,34 +943,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* Long-press action menu: the same shared component as the in-chat
-          trash menu (Block user / Delete chat for me). It is only reachable
-          for peer connections — startRowPress ignores My Notes. */}
-      {menuTarget && (menuSheetOpen || menuConfirm !== null) && (
-        <ChatActionMenu
-          sheetOpen={menuSheetOpen}
-          confirm={menuConfirm}
-          title={menuOther ? displayName(menuOther) : undefined}
-          peerUsername={menuOther?.username ?? ''}
-          blockedByMe={menuBlockState === 'blockedByMe'}
-          busy={menuBusy}
-          onSheetClose={() => setMenuSheetOpen(false)}
-          onConfirmChange={(confirm) => {
-            setMenuConfirm(confirm);
-            // Canceling a confirmation closes the whole menu (same
-            // behavior as the in-chat menu) so the sheet cannot reappear
-            // underneath it.
-            if (confirm === null) {
-              setMenuTarget(null);
-              setMenuSheetOpen(false);
-            }
-          }}
-          onUnblock={handleMenuUnblock}
-          onBlock={handleMenuBlock}
-          onDeleteChat={handleMenuDelete}
-        />
-      )}
-
       {declineTarget && (
         <Dialog
           title={t('connection.declinedTitle')}
@@ -965,6 +956,44 @@ export default function Home() {
             onClick: () => handleDecline(true),
           }}
           onCancel={() => setDeclineTarget(null)}
+        />
+      )}
+
+      {menuTarget && (menuSheetOpen || menuConfirm !== null) && (
+        <ChatActionMenu
+          sheetOpen={menuSheetOpen}
+          confirm={menuConfirm}
+          title={menuOther ? displayName(menuOther) : undefined}
+          peerUsername={menuOther?.username ?? ''}
+          blockedByMe={menuTarget.blockState === 'blockedByMe'}
+          busy={menuBusy}
+          onSheetClose={() => setMenuSheetOpen(false)}
+          onConfirmChange={(confirm) => {
+            setMenuConfirm(confirm);
+            // Canceling a confirmation closes the whole menu so the sheet
+            // cannot reappear underneath it (same behavior as the in-chat
+            // menu).
+            if (confirm === null) closeRowMenu();
+          }}
+          onUnblock={() => handleMenuUnblock()}
+          onBlock={handleMenuBlock}
+          onDeleteChat={handleMenuDelete}
+        />
+      )}
+
+      {notesClearTarget && (
+        <Dialog
+          title={t('chat.myNotesClearTitle')}
+          text={t('chat.myNotesClearText')}
+          confirmLabel={t('confirm')}
+          cancelLabel={t('cancel')}
+          danger
+          busy={menuBusy}
+          onConfirm={handleClearMyNotes}
+          onCancel={() => {
+            setNotesClearTarget(null);
+            suppressClickRef.current = false;
+          }}
         />
       )}
     </main>
