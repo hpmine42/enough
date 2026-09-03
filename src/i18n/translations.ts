@@ -206,10 +206,8 @@ export const translations = {
 
     // offline read mode (v0.3.x)
     offline: {
-      badge: 'Offline',
       banner: 'You are offline. Showing locally stored data.',
       unreachable: 'No connection to the server. Showing locally stored data.',
-      cachedNote: 'Offline — locally stored',
       composerDisabled: 'You are offline. Messages can be sent again once you are back online.',
       actionUnavailable: 'Not available offline.',
       noCachedChat: 'This conversation is not available offline.',
@@ -498,10 +496,8 @@ export const translations = {
 
     // offline read mode (v0.3.x)
     offline: {
-      badge: 'Offline',
       banner: 'Du bist offline. Es werden lokal gespeicherte Daten angezeigt.',
       unreachable: 'Keine Verbindung zum Server. Es werden lokal gespeicherte Daten angezeigt.',
-      cachedNote: 'Offline — lokal gespeichert',
       composerDisabled: 'Du bist offline. Nachrichten können wieder gesendet werden, sobald du online bist.',
       actionUnavailable: 'Offline nicht verfügbar.',
       noCachedChat: 'Diese Unterhaltung ist offline nicht verfügbar.',

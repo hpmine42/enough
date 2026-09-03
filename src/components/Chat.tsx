@@ -95,6 +95,20 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const [fromCache, setFromCache] = useState(false);
 
   const connectivity = useConnectivity();
+  // Two deliberately different connectivity tests are used in this component:
+  //
+  //   `shouldSkipNetwork()` — true ONLY when the browser reports no network.
+  //     Used by the realtime subscriptions and by `persistRead`, i.e. the
+  //     paths that should keep trying whenever an interface exists. The
+  //     'unreachable' state (browser online, a request failed) deliberately
+  //     does NOT suppress them, because an actual attempt is the only way
+  //     that state can recover.
+  //
+  //   `offline` (= 'offline' OR 'unreachable') — used to disable server
+  //     mutations and server-backed reads that are offered to the user:
+  //     sending, pagination, the message/chat action menus. These must never
+  //     be offered while they cannot safely succeed, and nothing is queued,
+  //     so failing closed in both states is the correct behavior.
   const offline = connectivity !== 'online';
 
   // message actions
