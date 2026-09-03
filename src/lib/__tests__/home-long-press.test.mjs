@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const homeSource = fs.readFileSync(`${__dirname}/../../components/Home.tsx`, 'utf-8');
+const menuSource = fs.readFileSync(`${__dirname}/../../components/ChatActionMenu.tsx`, 'utf-8');
 
 /** The overview row button JSX (from its class name to the closing tag). */
 function overviewRowJsx() {
@@ -35,7 +36,7 @@ function overviewRowJsx() {
 test('overview row implements the pointer long-press with slop + cancel', () => {
   const row = overviewRowJsx();
   assert.ok(
-    row.includes('onPointerDown={() => startRowPress(conn, other)}'),
+    row.includes('onPointerDown={() => startRowPress(conn)}'),
     'pointer down must start the long-press timer for this row',
   );
   for (const cancel of ['onPointerUp', 'onPointerLeave', 'onPointerCancel']) {
@@ -77,36 +78,53 @@ test('normal tap still opens the chat; only a fired long press suppresses it', (
   );
 });
 
-test('long press opens the shared BottomSheet, not a bespoke menu', () => {
+test('long press opens the shared action menu, not a bespoke menu', () => {
   assert.ok(
-    homeSource.includes("import BottomSheet from './BottomSheet';"),
-    'Home must reuse the shared BottomSheet component',
+    homeSource.includes("import ChatActionMenu from './ChatActionMenu';"),
+    'Home must reuse the shared chat action menu component',
+  );
+  assert.ok(
+    menuSource.includes("import BottomSheet from './BottomSheet';"),
+    'the shared action menu must reuse the existing BottomSheet component',
   );
   assert.ok(
     !homeSource.includes('className="sheet'),
     'Home must not re-implement the sheet markup',
   );
+  assert.ok(
+    !homeSource.includes("label: t('block.blockUser')") &&
+      !homeSource.includes("label: t('chat.deleteChatForMe')") &&
+      !homeSource.includes("label: t('block.unblock')"),
+    'Home must not re-implement the menu items',
+  );
 });
 
 test('the menu offers the existing Block user and Delete chat flows', () => {
+  // The shared menu owns the labels and confirmation dialogs; Home's
+  // handlers keep the existing per-user API calls.
   assert.ok(
-    homeSource.includes("label: t('block.blockUser')"),
+    menuSource.includes("label: t('block.blockUser')"),
     'the sheet must offer Block user',
   );
   assert.ok(
-    homeSource.includes("label: t('chat.deleteChatForMe')"),
+    menuSource.includes("label: t('chat.deleteChatForMe')"),
     'the sheet must offer the per-user Delete chat action',
   );
-  // Block goes through the existing confirmation dialog + blockUser API.
   assert.ok(
-    homeSource.includes("t('block.blockTitle'") && homeSource.includes('blockUser(me, blockConfirmTarget.id)'),
-    'blocking must use the existing confirmation dialog and blockUser API',
+    menuSource.includes("t('block.blockTitle'"),
+    'blocking must keep the existing block confirmation title',
   );
-  // Delete chat goes through the existing confirmation + per-user deletion.
   assert.ok(
-    homeSource.includes("t('chat.deleteChatConfirmTitle')") &&
-      homeSource.includes('deleteChatForMe(me, deleteChatTarget.id)'),
-    'deleting must use the existing confirmation dialog and deleteChatForMe API',
+    menuSource.includes("t('chat.deleteChatConfirmTitle'"),
+    'deleting must keep the existing chat-deletion confirmation title',
+  );
+  assert.ok(
+    homeSource.includes('blockUser(me, peerId)'),
+    'Home must call the existing blockUser API from the shared menu handler',
+  );
+  assert.ok(
+    homeSource.includes('deleteChatForMe(me, conn.id)'),
+    'Home must call the existing per-user deleteChatForMe API',
   );
   // "Delete chat" must stay per-user — never the for-everyone message path.
   assert.ok(
