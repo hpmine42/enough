@@ -146,6 +146,60 @@ test('getBlockRelations scopes the block lookup to the caller', async () => {
   assert.match(or[0].args[0], new RegExp(`blocked_id\\.eq\\.${ME}`));
 });
 
+// ---------------------------------------------------------------------------
+// Block-state derivation (blocked-composer invariant)
+// ---------------------------------------------------------------------------
+// The composer's blocked state is derived from getBlockState. These tests pin
+// the derivation for every relation shape, in particular the mutual-block →
+// self-unblock sequence: once the caller's own row is gone, the peer's block
+// must still surface as 'blockedByThem' (the composer stays disabled).
+
+test('getBlockState scopes the pair lookup to exactly the two participants', async () => {
+  const client = createSupabaseMock([{ data: [], error: null }]);
+  __setSupabase(client);
+
+  const state = await api.getBlockState(ME, 'peer-1');
+
+  assert.equal(state, 'none');
+  const or = ops(client, 'user_blocks', 'or');
+  assert.equal(or.length, 1);
+  assert.match(or[0].args[0], new RegExp(`and\\(blocker_id\\.eq\\.${ME},blocked_id\\.eq\\.peer-1\\)`));
+  assert.match(or[0].args[0], new RegExp(`and\\(blocker_id\\.eq\\.peer-1,blocked_id\\.eq\\.${ME}\\)`));
+});
+
+test('getBlockState: mutual block surfaces as blockedByMe (unblock stays available)', async () => {
+  const client = createSupabaseMock([
+    {
+      data: [
+        { blocker_id: ME, blocked_id: 'peer-1' },
+        { blocker_id: 'peer-1', blocked_id: ME },
+      ],
+      error: null,
+    },
+  ]);
+  __setSupabase(client);
+
+  assert.equal(await api.getBlockState(ME, 'peer-1'), 'blockedByMe');
+});
+
+test('getBlockState: after self-unblock a remaining peer block is still blockedByThem', async () => {
+  // The caller's own row is gone (self-unblock); only the peer → me row
+  // remains. The UI must keep treating the relation as blocked.
+  const client = createSupabaseMock([
+    { data: [{ blocker_id: 'peer-1', blocked_id: ME }], error: null },
+  ]);
+  __setSupabase(client);
+
+  assert.equal(await api.getBlockState(ME, 'peer-1'), 'blockedByThem');
+});
+
+test('getBlockState: no rows at all means the composer may open up again', async () => {
+  const client = createSupabaseMock([{ data: [], error: null }]);
+  __setSupabase(client);
+
+  assert.equal(await api.getBlockState(ME, 'peer-1'), 'none');
+});
+
 test('getBlockedUsers lists only the caller-blocked relations', async () => {
   const client = createSupabaseMock([
     { data: [{ blocked_id: 'x', created_at: '2026-01-01T00:00:00Z' }], error: null },
