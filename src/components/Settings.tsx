@@ -43,6 +43,7 @@ import {
   ChevronIcon,
   GithubIcon,
 } from './icons';
+import { shouldSkipNetwork } from '../lib/connectivity';
 import { Section } from './settings/settings-ui';
 import ProfileSettings from './settings/ProfileSettings';
 import PeopleSettings from './settings/PeopleSettings';
@@ -609,6 +610,15 @@ export default function Settings() {
       setResults([]);
       setSearching(false);
       setSearchError(null);
+      return;
+    }
+    if (shouldSkipNetwork()) {
+      // People Search is a server query. Offline it reports unavailability
+      // instead of issuing a request that can only fail.
+      if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
+      setResults([]);
+      setSearching(false);
+      setSearchError(t('offline.actionUnavailable'));
       return;
     }
     setSearching(true);

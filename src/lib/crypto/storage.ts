@@ -24,6 +24,7 @@ import {
   CRYPTO_STORE_STATE,
   CRYPTO_STORE_VAULTKEYS,
   DEVICE_RECORD_PREFIX,
+  OFFLINE_RECORD_PREFIX,
   RECORD_IDENTITY,
   RECORD_MESSAGE_CACHE,
   RECORD_SIGNED_PREKEY,
@@ -396,25 +397,30 @@ export async function deleteUserCryptoState(userId: string): Promise<void> {
     // The sealing key is deleted further below, so any record that somehow
     // survived would already be unreadable — wiping the rows is defence in
     // depth and keeps the prefix clean for a recreated account.
-    const deviceRange = IDBKeyRange.bound(
-      `${userId}:${DEVICE_RECORD_PREFIX}`,
-      `${userId}:${DEVICE_RECORD_PREFIX}\uffff`,
-      false,
-      false,
-    );
-    await new Promise<void>((resolve, reject) => {
-      const req = stateStore.openCursor(deviceRange);
-      req.onsuccess = () => {
-        const cursor = req.result;
-        if (cursor) {
-          cursor.delete();
-          cursor.continue();
-        } else {
-          resolve();
-        }
-      };
-      req.onerror = () => reject(new CryptoError('STORAGE_ERROR', undefined, req.error));
-    });
+    // Offline Read Mode snapshots (`${userId}:offline:...`) are wiped by the
+    // same mechanism: they are sealed under the sealing key deleted below,
+    // but the rows go too so a recreated account starts clean.
+    for (const prefix of [DEVICE_RECORD_PREFIX, OFFLINE_RECORD_PREFIX]) {
+      const prefixRange = IDBKeyRange.bound(
+        `${userId}:${prefix}`,
+        `${userId}:${prefix}\uffff`,
+        false,
+        false,
+      );
+      await new Promise<void>((resolve, reject) => {
+        const req = stateStore.openCursor(prefixRange);
+        req.onsuccess = () => {
+          const cursor = req.result;
+          if (cursor) {
+            cursor.delete();
+            cursor.continue();
+          } else {
+            resolve();
+          }
+        };
+        req.onerror = () => reject(new CryptoError('STORAGE_ERROR', undefined, req.error));
+      });
+    }
     // Prefix-delete all prekeys for this user.
     const prekeyStore = transaction.objectStore(CRYPTO_STORE_PREKEYS);
     const range = IDBKeyRange.bound(prekeyPrefix(userId), prekeyPrefix(userId) + '\uffff', false, false);

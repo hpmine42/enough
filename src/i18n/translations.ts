@@ -204,6 +204,18 @@ export const translations = {
         'You were blocked. You can chat again once this user unblocks you.',
     },
 
+    // offline read mode (v0.3.x)
+    offline: {
+      badge: 'Offline',
+      banner: 'You are offline. Showing locally stored data.',
+      unreachable: 'No connection to the server. Showing locally stored data.',
+      cachedNote: 'Offline — locally stored',
+      composerDisabled: 'You are offline. Messages can be sent again once you are back online.',
+      actionUnavailable: 'Not available offline.',
+      noCachedChat: 'This conversation is not available offline.',
+      olderUnavailable: 'Older messages are not available offline.',
+    },
+
     // chat
     chat: {
       backLabel: 'Back',
@@ -482,6 +494,18 @@ export const translations = {
         'Du hast diesen Nutzer blockiert. Gib ihn frei, um wieder zu schreiben.',
       blockedByThemChat:
         'Du wurdest blockiert. Du kannst erst wieder schreiben, wenn dieser Nutzer dich freigibt.',
+    },
+
+    // offline read mode (v0.3.x)
+    offline: {
+      badge: 'Offline',
+      banner: 'Du bist offline. Es werden lokal gespeicherte Daten angezeigt.',
+      unreachable: 'Keine Verbindung zum Server. Es werden lokal gespeicherte Daten angezeigt.',
+      cachedNote: 'Offline — lokal gespeichert',
+      composerDisabled: 'Du bist offline. Nachrichten können wieder gesendet werden, sobald du online bist.',
+      actionUnavailable: 'Offline nicht verfügbar.',
+      noCachedChat: 'Diese Unterhaltung ist offline nicht verfügbar.',
+      olderUnavailable: 'Ältere Nachrichten sind offline nicht verfügbar.',
     },
 
     chat: {

@@ -48,9 +48,16 @@ import {
   type RealtimeEventPayloadLike,
 } from '../lib/homeRealtime';
 import { deletedMessagePreview } from '../lib/homePreview';
+import {
+  reportNetworkSuccess,
+  shouldSkipNetwork,
+  useConnectivity,
+} from '../lib/connectivity';
+import { loadHomeSnapshot, saveHomeSnapshot } from '../lib/offlineStore';
 import { getCachedPlaintextSync, warmMessageCache } from '../lib/e2ee/message-cache';
 import { isEnvelope } from '../lib/e2ee/message-flow';
 import Avatar from './Avatar';
+import OfflineBanner from './OfflineBanner';
 import ThemeButton from './ThemeButton';
 import { GearIcon, NoteIcon } from './icons';
 import ChatActionMenu from './ChatActionMenu';
@@ -130,6 +137,12 @@ export default function Home() {
   const [declineTarget, setDeclineTarget] = useState<Connection | null>(null);
   const [declineBusy, setDeclineBusy] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // True while the rendered list came from the local offline snapshot rather
+  // than a fresh server read. Never used to claim data is current.
+  const [fromCache, setFromCache] = useState(false);
+
+  const connectivity = useConnectivity();
+  const offline = connectivity !== 'online';
 
   // Long-press row actions: the SAME shared menu component as the in-chat
   // trash icon (Block user / Delete chat for me) plus the My Notes
@@ -167,6 +180,12 @@ export default function Home() {
   const pendingReconcileRef = useRef<Set<string>>(new Set());
   const schedulerRef = useRef<ReturnType<typeof createReconcileScheduler> | null>(null);
   const drainRef = useRef<(() => void) | null>(null);
+  /* Offline Read Mode: monotonic token identifying the newest load attempt.
+     A slower asynchronous result (offline hydration or a late online load)
+     may only commit when it is still the newest one — this is what stops a
+     stale snapshot from overwriting fresher server state during rapid
+     online/offline transitions. */
+  const loadTokenRef = useRef(0);
   // The per-conversation event counter used to detect realtime events that
   // raced an in-flight reconciliation (stale-snapshot guard).
   function eventGate(): ConversationEventGate {
@@ -197,11 +216,30 @@ export default function Home() {
 
   const load = useCallback(async () => {
     if (!me) return;
+    const token = ++loadTokenRef.current;
+    const isCurrent = () => loadTokenRef.current === token && meRef.current === me;
     setLoadError(null);
     loadingRef.current = true;
     try {
       await warmMessageCache(me);
+      if (shouldSkipNetwork()) {
+        // The browser has no network: render what this account already has
+        // locally instead of issuing requests that can only fail. No Supabase
+        // call is made on this path at all.
+        const snapshot = await loadHomeSnapshot(me);
+        if (!isCurrent()) return;
+        if (snapshot) {
+          setConnections(snapshot.connections);
+          setOthers(snapshot.profiles);
+          setLastMessages(snapshot.lastMessages);
+          setUnread(snapshot.unread);
+          setDeletedForMe(new Set(snapshot.deletedForMe));
+          setFromCache(true);
+        }
+        return;
+      }
       const connsResult = await getMyConnections(me);
+      if (!isCurrent()) return;
       if (connsResult.error) {
         setLoadError(connsResult.error);
         return;
@@ -213,6 +251,7 @@ export default function Home() {
         revealed: deletions.revealed,
       };
       const lastAllResult = await getLastMessages(conns.map((c) => c.id));
+      if (!isCurrent()) return;
       if (lastAllResult.error) {
         setLoadError(lastAllResult.error);
         return;
@@ -237,6 +276,7 @@ export default function Home() {
 
       const ids = visible.map((c) => otherUserId(c, me));
       const profilesResult = await getProfiles(ids);
+      if (!isCurrent()) return;
       if (profilesResult.error) {
         setLoadError(profilesResult.error);
         return;
@@ -257,7 +297,20 @@ export default function Home() {
         visible.map((c) => c.id),
         readState,
       );
+      if (!isCurrent()) return;
       setUnread(counts);
+      // The full load succeeded, so the server is reachable and this data is
+      // current: clear a previous "unreachable" latch and refresh the local
+      // offline snapshot for exactly this account.
+      reportNetworkSuccess();
+      setFromCache(false);
+      void saveHomeSnapshot(me, {
+        connections: visible,
+        profiles: profilesResult.data,
+        lastMessages: last,
+        unread: counts,
+        deletedForMe: Array.from(deletions.messages),
+      });
     } finally {
       setLoading(false);
       loadingRef.current = false;
@@ -273,6 +326,17 @@ export default function Home() {
     setLoading(true);
     load();
   }, [me, load]);
+
+  /* Reconnection: when connectivity returns, resume the normal online load
+     path. `load()` is the existing loader — no separate synchronization
+     system is introduced, and the token guard above makes the fresh result
+     win over any in-flight offline hydration. */
+  const wasOfflineRef = useRef(offline);
+  useEffect(() => {
+    const wasOffline = wasOfflineRef.current;
+    wasOfflineRef.current = offline;
+    if (wasOffline && !offline && me) load();
+  }, [offline, me, load]);
 
   /* Home stays mounted behind the Settings overlay. Leaving Settings may have
      changed the chat list (e.g. My Notes toggled on/off), so reload it on the
@@ -470,6 +534,10 @@ export default function Home() {
      API, and load() is NOT referenced in any handler below. */
   useEffect(() => {
     if (!supabase || !me) return;
+    // No network at all: do not open a realtime channel that can only fail.
+    // The effect re-runs on reconnection (see the `offline` dependency), which
+    // restores the unchanged P1-5 realtime wiring exactly as before.
+    if (offline) return;
     const client = supabase;
     const scheduler = createReconcileScheduler((id, finalPass) =>
       runReconcile(id, finalPass),
@@ -549,7 +617,7 @@ export default function Home() {
       if (schedulerRef.current === scheduler) schedulerRef.current = null;
       client.removeChannel(channel);
     };
-  }, [me, applyConnectionRow, applyConnectionGone, runReconcile]);
+  }, [me, offline, applyConnectionRow, applyConnectionGone, runReconcile]);
 
   /* Rows sorted by latest activity (message time, else connection time). */
   const rows = useMemo<RowData[]>(() => {
@@ -633,6 +701,10 @@ export default function Home() {
   }
 
   function startRowPress(conn: Connection) {
+    // Every action in the row menu (block/unblock, delete chat, clear notes)
+    // is a server mutation. Offline it is not offered at all rather than
+    // offered and silently failing — nothing is queued.
+    if (offline) return;
     if (isSelfConnection(conn)) {
       // My Notes mirrors the Chat trash action: the clear-and-disable
       // dialog — never the block/delete sheet (there is no peer to block).
@@ -771,6 +843,8 @@ export default function Home() {
         </div>
       </header>
 
+      <OfflineBanner status={connectivity} />
+
       {error && (
         <p className="error" role="alert">
           {error}
@@ -799,7 +873,12 @@ export default function Home() {
           <div className="empty-text">{t('home.startChat')}</div>
         </section>
       ) : (
-        <div className="chat-list">
+        <div
+          className="chat-list"
+          // Distinguishes "offline + locally stored" from "online + current
+          // server data" for both styling and tests. Never set while online.
+          data-offline-cached={offline && fromCache ? 'true' : undefined}
+        >
           {rows.map(({ conn, status, other, last, unread: unreadCount }) => {
             const self = isSelfConnection(conn);
             const ended = status === 'ended';
@@ -910,7 +989,8 @@ export default function Home() {
                     <button
                       type="button"
                       className="btn-small"
-                      disabled={busyId === conn.id}
+                      disabled={busyId === conn.id || offline}
+                      title={offline ? t('offline.actionUnavailable') : undefined}
                       onClick={() => handleAccept(conn)}
                     >
                       {t('connection.accept')}
@@ -918,7 +998,8 @@ export default function Home() {
                     <button
                       type="button"
                       className="btn-small ghost"
-                      disabled={busyId === conn.id}
+                      disabled={busyId === conn.id || offline}
+                      title={offline ? t('offline.actionUnavailable') : undefined}
                       onClick={() => setDeclineTarget(conn)}
                     >
                       {t('connection.decline')}
@@ -930,7 +1011,8 @@ export default function Home() {
                     <button
                       type="button"
                       className="btn-small ghost"
-                      disabled={busyId === conn.id}
+                      disabled={busyId === conn.id || offline}
+                      title={offline ? t('offline.actionUnavailable') : undefined}
                       onClick={() => handleCancelRequest(conn)}
                     >
                       {t('connection.cancelRequest')}

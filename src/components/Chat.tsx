@@ -44,9 +44,16 @@ import { BlockState, Connection, Message, Profile } from '../lib/types';
 import { useE2EE } from '../context/E2EEContext';
 import { prepareSend, decryptForDisplay, isEnvelope } from '../lib/e2ee/message-flow';
 import { cachePlaintext, getCachedPlaintext } from '../lib/e2ee/message-cache';
+import {
+  reportNetworkSuccess,
+  shouldSkipNetwork,
+  useConnectivity,
+} from '../lib/connectivity';
+import { loadChatSnapshot, saveChatSnapshot } from '../lib/offlineStore';
 import { isCryptoError } from '../lib/crypto/errors';
 import Avatar from './Avatar';
 import MessageBubble from './MessageBubble';
+import OfflineBanner from './OfflineBanner';
 import MessageComposer from './MessageComposer';
 import BottomSheet from './BottomSheet';
 import ChatActionMenu from './ChatActionMenu';
@@ -83,6 +90,12 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [infoOpen, setInfoOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // True while the rendered conversation came from the local offline
+  // snapshot rather than a fresh server read.
+  const [fromCache, setFromCache] = useState(false);
+
+  const connectivity = useConnectivity();
+  const offline = connectivity !== 'online';
 
   // message actions
   const [sheetTarget, setSheetTarget] = useState<SheetTarget | null>(null);
@@ -156,6 +169,29 @@ export default function Chat({ connectionId }: { connectionId: string }) {
 
     (async () => {
       setBlockState('none');
+      if (shouldSkipNetwork()) {
+        // Offline Read Mode: render the locally stored conversation without
+        // issuing a single Supabase request. Nothing is fabricated — if there
+        // is no snapshot for this conversation we say so.
+        const snapshot = await loadChatSnapshot(me, connectionId);
+        if (!active) return;
+        if (!snapshot) {
+          setValid(false);
+          setLoading(false);
+          return;
+        }
+        setConn(snapshot.connection);
+        setPeer(snapshot.peer);
+        setMessages(snapshot.messages);
+        setHiddenUntil(snapshot.hiddenUntil);
+        setDeletedForMe(new Set(snapshot.deletedForMe));
+        // Older pages live on the server only: never paginate while offline.
+        setHasMore(false);
+        setFromCache(true);
+        setValid(true);
+        setLoading(false);
+        return;
+      }
       const found = await getConnection(connectionId);
       if (!active) return;
       const isMine = found && (found.user_a === me || found.user_b === me);
@@ -206,7 +242,22 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         setMessages(pageResult.messages);
         setHasMore(pageResult.hasMore);
         setDeletedForMe(deletions.messages);
+        setFromCache(false);
         setLoading(false);
+        // The server answered, so this data is current: clear a previous
+        // "unreachable" latch and refresh the offline snapshot of exactly
+        // this conversation for exactly this account.
+        reportNetworkSuccess();
+        const peerProfile = isSelfConnection(found)
+          ? profiles[me] ?? null
+          : profiles[peerId] ?? null;
+        void saveChatSnapshot(me, connectionId, {
+          connection: found,
+          peer: peerProfile,
+          messages: pageResult.messages,
+          hiddenUntil: until,
+          deletedForMe: Array.from(deletions.messages),
+        });
       }
     })();
 
@@ -217,10 +268,22 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionId, me, reloadKey]);
 
+  /* Reconnection: rerun the EXISTING load path (same effect, same queries,
+     same realtime subscription) once connectivity returns. No separate
+     synchronization system, and the fresh page replaces the cached one, so
+     messages cannot be duplicated. */
+  const wasOfflineRef = useRef(offline);
+  useEffect(() => {
+    const wasOffline = wasOfflineRef.current;
+    wasOfflineRef.current = offline;
+    if (wasOffline && !offline) setReloadKey((k) => k + 1);
+  }, [offline]);
+
   /* ------------------------------ realtime ------------------------------ */
 
   useEffect(() => {
     if (!supabase || !valid) return;
+    if (shouldSkipNetwork()) return;
     const client = supabase;
     const channel = client
       .channel(`chat-${connectionId}`)
@@ -302,11 +365,12 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       client.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, valid, peer, hiddenUntil, me]);
+  }, [connectionId, valid, peer, hiddenUntil, me, offline]);
 
   /* Block state follows changes from the other device in real time. */
   useEffect(() => {
     if (!supabase || !valid || !conn || !me) return;
+    if (shouldSkipNetwork()) return;
     const peerId = otherUserId(conn, me);
     if (peerId === me) return;
     const client = supabase;
@@ -343,7 +407,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     return () => {
       client.removeChannel(channel);
     };
-  }, [connectionId, valid, conn, me]);
+  }, [connectionId, valid, conn, me, offline]);
 
   /* Decrypt message bodies for display (load + realtime share one path).
      Plaintext is resolved from the local cache, a legacy row, My Notes, or a
@@ -459,6 +523,9 @@ export default function Chat({ connectionId }: { connectionId: string }) {
 
   const persistRead = useCallback(() => {
     if (!me || !conn) return;
+    // Read state is server-authoritative. Offline it is neither written nor
+    // queued — the position is simply re-derived after reconnection.
+    if (shouldSkipNetwork()) return;
     if (lastReadRef.current) {
       saveReadState(me, conn.id, lastReadRef.current);
     }
@@ -524,13 +591,15 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       }, 1500);
     }
     // Pagination: approaching the top loads older messages.
-    if (el.scrollTop < 160 && hasMore && !loadingOlder) {
+    if (el.scrollTop < 160 && hasMore && !loadingOlder && !offline) {
       loadOlder();
     }
   }
 
   async function loadOlder() {
     if (loadingOlderRef.current || !hasMore || !conn) return;
+    // Older pages exist on the server only; offline we never request them.
+    if (offline) return;
     const first = messages[0];
     if (!first) return;
     loadingOlderRef.current = true;
@@ -609,6 +678,10 @@ export default function Chat({ connectionId }: { connectionId: string }) {
 
   async function handleSend(text: string) {
     if (!conn || blocked || !text) return;
+    // Offline sending is deliberately not implemented in this version and
+    // nothing is queued: the composer is disabled, and this is the guard
+    // behind it.
+    if (offline) return;
     setError(null);
     const peerId = self ? me : otherUserId(conn, me);
     // `text` is the single sanitized plaintext value produced by
@@ -958,7 +1031,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           label: t('message.copy'),
           onSelect: handleCopy,
         },
-        ...(sheetTarget.mine && sheetTarget.within24h && !sheetTarget.message.deleted_at
+        ...(!offline && sheetTarget.mine && sheetTarget.within24h && !sheetTarget.message.deleted_at
           ? [
               {
                 key: 'everyone',
@@ -971,7 +1044,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
               },
             ]
           : []),
-        ...(!sheetTarget.message.deleted_at
+        ...(!offline && !sheetTarget.message.deleted_at
           ? [
               {
                 key: 'me',
@@ -1020,6 +1093,8 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         <button
           type="button"
           className="icon-button"
+          disabled={offline}
+          title={offline ? t('offline.actionUnavailable') : undefined}
           onClick={() => {
             // Opening the menu always starts from the sheet view; a leftover
             // confirmation state (e.g. after a profile-load race) must not
@@ -1136,10 +1211,14 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         </div>
       )}
 
+      <OfflineBanner status={connectivity} />
+
       {loading ? (
         <div className="chat-loading">{t('loading')}</div>
       ) : !valid ? (
-        <div className="chat-loading">{t('chat.unavailable')}</div>
+        <div className="chat-loading">
+          {offline ? t('offline.noCachedChat') : t('chat.unavailable')}
+        </div>
       ) : loadError ? (
         <section className="chat-load-error">
           <div className="chat-empty" role="alert">
@@ -1164,9 +1243,15 @@ export default function Chat({ connectionId }: { connectionId: string }) {
             ref={scrollRef}
             onScroll={handleScroll}
             aria-live="polite"
+            // Distinguishes "offline + locally stored" from "online + current
+            // server data". Never set while online.
+            data-offline-cached={offline && fromCache ? 'true' : undefined}
           >
             {loadingOlder && (
               <div className="chat-loading-older">{t('chat.loadingOlder')}</div>
+            )}
+            {offline && fromCache && (
+              <div className="chat-loading-older">{t('offline.olderUnavailable')}</div>
             )}
             {visibleMessages.length === 0 && (
               <div className="chat-empty">{t('chat.noMessages')}</div>
@@ -1202,7 +1287,11 @@ export default function Chat({ connectionId }: { connectionId: string }) {
             </p>
           )}
 
-          {blocked ? (
+          {offline ? (
+            <div className="composer-disabled" role="note">
+              {t('offline.composerDisabled')}
+            </div>
+          ) : blocked ? (
             <div className="composer-disabled blocked" role="note">
               <span>
                 {blockState === 'blockedByMe'
@@ -1236,7 +1325,10 @@ export default function Chat({ connectionId }: { connectionId: string }) {
             )
           )}
 
-          <MessageComposer onSend={handleSend} disabled={!canChat || blocked} />
+          <MessageComposer
+            onSend={handleSend}
+            disabled={!canChat || blocked || offline}
+          />
         </>
       )}
 

@@ -62,10 +62,11 @@ test('composer disable and the client send guard are wired to the two-directiona
   // The `blocked` derivation covers BOTH directions (blockedByMe and
   // blockedByThem), not merely "I blocked them".
   assert.match(chat, /const blocked = !self && blockState !== 'none';/);
-  // The composer is disabled by it...
+  // The composer is disabled by it (Offline Read Mode adds `|| offline` as a
+  // further disabling term; `blocked` must remain one of them).
   assert.match(
     chat,
-    /<MessageComposer onSend=\{handleSend\} disabled=\{!canChat \|\| blocked\} \/>/,
+    /<MessageComposer\s+onSend=\{handleSend\}\s+disabled=\{!canChat \|\| blocked(?: \|\| offline)?\}\s*\/>/,
   );
   // ...and the client-side send guard fails closed on the same state.
   const send = fnBody(chat, 'handleSend');

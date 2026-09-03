@@ -92,6 +92,16 @@ export const RECORD_X25519_IDENTITY = 'x25519-identity';
  */
 export const RECORD_MESSAGE_CACHE = 'msgcache';
 
+/**
+ * Record-key prefix for Offline Read Mode snapshots (v0.3.x).
+ *
+ * Sealed Home/Chat metadata snapshots live in the EXISTING `state` object
+ * store under composite keys `${userId}:offline:<...>`. The prefix keeps them
+ * disjoint from every other record family, so account deletion wipes them
+ * with a single prefix range scan (see `deleteUserCryptoState`).
+ */
+export const OFFLINE_RECORD_PREFIX = 'offline:';
+
 /** Build the composite state key for a given user + record type. */
 export function stateKeyFor(userId: string, recordKey: string): string {
   return `${userId}:${recordKey}`;
