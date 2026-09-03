@@ -309,6 +309,19 @@ function setSystemDark(value) {
   );
 }
 globalThis.matchMedia = window.matchMedia;
+
+/* Controllable network state for Offline Read Mode. jsdom's navigator.onLine
+   is a read-only getter, so it is redefined here and the standard
+   online/offline events are dispatched exactly as a browser would. */
+const networkState = { online: true };
+Object.defineProperty(window.navigator, 'onLine', {
+  get: () => networkState.online,
+  configurable: true,
+});
+function setBrowserOnline(value) {
+  networkState.online = value;
+  window.dispatchEvent(new window.Event(value ? 'online' : 'offline'));
+}
 // Note: no Notification stub is installed on purpose. enough. must not touch
 // the browser Notification API anywhere, so any remaining usage would throw
 // here and fail the smoke test.
@@ -333,7 +346,12 @@ window.HTMLElement.prototype.getBoundingClientRect = function () {
 const myProfile = () =>
   db.profiles.find((p) => p.id === 'user-1');
 
+// Offline Read Mode: counts every Supabase request so the offline scenario
+// can prove that cached rendering needs no network at all.
+const fetchStats = { count: 0 };
+
 globalThis.fetch = async (input, init = {}) => {
+  fetchStats.count++;
   const url = typeof input === 'string' ? new URL(input) : new URL(input.url);
   const method = (init.method ?? 'GET').toUpperCase();
   const path = url.pathname;
@@ -1680,6 +1698,145 @@ composer.closest('form').dispatchEvent(new dom.window.Event('submit', { bubbles:
 await waitFor(
   () => [...dom.window.document.querySelectorAll('.message')].some((m) => m.textContent.includes('Hey Benno!')),
   'sending a message appends the bubble',
+);
+
+/* ------------------------------------------------------------------ */
+/* Offline Read Mode (v0.3.x)                                          */
+/* ------------------------------------------------------------------ */
+
+// The conversation and the Home overview have just been loaded online, so
+// both sealed snapshots exist. Everything below must work without network.
+await sleep(120); // let the snapshot writes settle
+assert(
+  dom.window.document.querySelector('.offline-banner') === null,
+  'offline: no indicator while online',
+);
+
+setBrowserOnline(false);
+await waitFor(
+  () => dom.window.document.querySelector('.offline-banner') !== null,
+  'offline: indicator appears when the browser goes offline',
+);
+assert(
+  dom.window.document.querySelector('.offline-banner')?.textContent?.includes(
+    'You are offline',
+  ),
+  'offline: indicator states the offline condition',
+);
+await waitFor(
+  () => dom.window.document.querySelector('.composer-input')?.disabled === true,
+  'offline: sending is disabled',
+);
+assert(
+  dom.window.document.querySelector('.composer-disabled')?.textContent?.includes(
+    'You are offline',
+  ),
+  'offline: the composer explains why sending is unavailable',
+);
+assert(
+  dom.window.document.querySelector('.chat-header .icon-button:last-child')?.disabled === true,
+  'offline: server-dependent chat actions are unavailable',
+);
+
+// Navigate away and back with the network down: cached Home and cached Chat
+// must render WITHOUT a single Supabase request.
+const fetchesBeforeOfflineNav = fetchStats.count;
+setHash('#/');
+await waitFor(
+  () =>
+    [...dom.window.document.querySelectorAll('.chat-row .chat-name')].some(
+      (n) => n.textContent === 'Benno Schmidt',
+    ),
+  'offline: Home renders the cached conversation list',
+);
+assert(
+  dom.window.document.querySelector('.chat-list')?.dataset.offlineCached === 'true',
+  'offline: Home marks the list as locally stored',
+);
+const cachedRow = [...dom.window.document.querySelectorAll('.chat-row')].find(
+  (row) => row.querySelector('.chat-name')?.textContent === 'Benno Schmidt',
+);
+assert(
+  cachedRow?.querySelector('.chat-username')?.textContent === '@benno',
+  'offline: cached identity information is preserved',
+);
+assert(
+  cachedRow?.querySelector('.chat-preview')?.textContent === 'Hallo Anna!',
+  'offline: cached latest-message preview is preserved',
+);
+
+cachedRow.querySelector('.chat').dispatchEvent(
+  new dom.window.MouseEvent('click', { bubbles: true }),
+);
+await waitFor(
+  () =>
+    [...dom.window.document.querySelectorAll('.message')].some((m) =>
+      m.textContent.includes('Hallo Anna!'),
+    ),
+  'offline: cached messages render immediately',
+);
+assert(
+  dom.window.document.querySelector('.messages')?.dataset.offlineCached === 'true',
+  'offline: Chat marks the rendered messages as locally stored',
+);
+assert(
+  fetchStats.count === fetchesBeforeOfflineNav,
+  `offline: rendering cached data issues no network request (saw ${fetchStats.count - fetchesBeforeOfflineNav})`,
+);
+
+// A conversation that was never opened has no snapshot: say so, never fake it.
+setHash('#/chat/conn-never-opened');
+await waitFor(
+  () => text('.chat-loading') === 'This conversation is not available offline.',
+  'offline: an uncached conversation is reported honestly',
+);
+assert(
+  fetchStats.count === fetchesBeforeOfflineNav,
+  'offline: an uncached conversation still issues no failing request',
+);
+
+// Reconnection restores the normal online behavior.
+setBrowserOnline(true);
+await waitFor(
+  () => dom.window.document.querySelector('.offline-banner') === null,
+  'reconnect: the offline indicator disappears',
+);
+setHash('#/');
+await waitFor(
+  () =>
+    [...dom.window.document.querySelectorAll('.chat-row .chat-name')].some(
+      (n) => n.textContent === 'Benno Schmidt',
+    ),
+  'reconnect: Home reloads from the server',
+);
+await waitFor(
+  () => fetchStats.count > fetchesBeforeOfflineNav,
+  'reconnect: server requests resume',
+);
+assert(
+  dom.window.document.querySelector('.chat-list')?.dataset.offlineCached === undefined,
+  'reconnect: the list is no longer marked as locally stored',
+);
+const reopened = [...dom.window.document.querySelectorAll('.chat-row')].find(
+  (row) => row.querySelector('.chat-name')?.textContent === 'Benno Schmidt',
+);
+reopened.querySelector('.chat').dispatchEvent(
+  new dom.window.MouseEvent('click', { bubbles: true }),
+);
+await waitFor(
+  () => dom.window.document.querySelector('.composer-input')?.disabled === false,
+  'reconnect: sending is possible again',
+);
+const messageIdsAfterReconnect = [
+  ...dom.window.document.querySelectorAll('.message'),
+].map((m) => m.textContent);
+assert(
+  messageIdsAfterReconnect.filter((m) => m.includes('Hallo Anna!')).length === 1,
+  'reconnect: cached messages are not duplicated',
+);
+assert(
+  messageIdsAfterReconnect.some((m) => m.includes('Hey Benno!')),
+  'reconnect: locally cached messages are not lost',
 );
 
 /* long-press bottom sheet — on an OWN message */

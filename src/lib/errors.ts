@@ -1,5 +1,6 @@
 import type { TranslationKey } from '../i18n';
 import { t } from '../i18n';
+import { reportNetworkFailure } from './connectivity';
 
 interface ErrorFields {
   code?: string;
@@ -112,6 +113,11 @@ export function errorMessage(error: unknown, context?: string): string {
     msg.includes('fetch failed') ||
     msg.includes('network request failed')
   ) {
+    // Offline Read Mode: the browser may still report `onLine === true` while
+    // Supabase is unreachable. A real failed request is the only trustworthy
+    // evidence of that, so record it here — the single place every Supabase
+    // error already passes through. No extra request is made.
+    reportNetworkFailure();
     return t(keyOf('errors.network'));
   }
   if (code === 'PGRST116') {
