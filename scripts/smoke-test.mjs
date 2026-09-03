@@ -2795,6 +2795,17 @@ assert(text('.sheet-title') === 'Benno Schmidt', 'overview sheet names the press
   assert(overviewLabels.includes('Block user'), 'overview sheet offers Block user');
   assert(overviewLabels.includes('Delete chat for me'), 'overview sheet offers Delete chat');
 }
+/* the click that releases the held press must not navigate into the chat */
+overviewRowFor('Benno Schmidt').dispatchEvent(
+  new dom.window.MouseEvent('pointerup', { bubbles: true }),
+);
+overviewRowFor('Benno Schmidt').dispatchEvent(
+  new dom.window.MouseEvent('click', { bubbles: true }),
+);
+assert(
+  dom.window.document.querySelector('.chat-screen') === null,
+  'overview long-press release does not navigate into the chat (suppressed)',
+);
 /* blocking goes through the existing confirmation flow */
 [...dom.window.document.querySelectorAll('.sheet-item')]
   .find((item) => item.textContent === 'Block user')

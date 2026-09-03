@@ -53,7 +53,7 @@ import { isEnvelope } from '../lib/e2ee/message-flow';
 import Avatar from './Avatar';
 import ThemeButton from './ThemeButton';
 import { GearIcon, NoteIcon } from './icons';
-import BottomSheet from './BottomSheet';
+import ChatActionMenu from './ChatActionMenu';
 import Dialog from './Dialog';
 
 interface RowData {
@@ -131,11 +131,14 @@ export default function Home() {
   const [declineBusy, setDeclineBusy] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  // Long-press row actions: the same menu the Chat trash button opens
-  // (Block user / Delete chat; My Notes gets its clear-and-disable dialog).
+  // Long-press row actions: the SAME shared menu component as the in-chat
+  // trash icon (Block user / Delete chat for me) plus the My Notes
+  // clear-and-disable dialog for the self-connection.
   const [menuTarget, setMenuTarget] = useState<RowMenuTarget | null>(null);
-  const [blockConfirmTarget, setBlockConfirmTarget] = useState<Profile | null>(null);
-  const [deleteChatTarget, setDeleteChatTarget] = useState<Connection | null>(null);
+  const [menuSheetOpen, setMenuSheetOpen] = useState(false);
+  const [menuConfirm, setMenuConfirm] = useState<'block' | 'delete' | null>(
+    null,
+  );
   const [notesClearTarget, setNotesClearTarget] = useState<Connection | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
   const pressTimerRef = useRef<number | null>(null);
@@ -612,7 +615,7 @@ export default function Home() {
     };
   }, []);
 
-  /** Open the same action menu the Chat trash button opens for this row. */
+  /** Open the shared chat action menu for this row. */
   async function openRowMenu(conn: Connection, other: Profile | null) {
     if (isSelfConnection(conn)) {
       // My Notes mirrors the Chat trash action: the clear-and-disable
@@ -625,15 +628,29 @@ export default function Home() {
     // the database (RLS-scoped), never inferred from local UI state.
     const state = await getBlockState(me, otherUserId(conn, me));
     setMenuTarget({ conn, other, blockState: state });
+    setMenuSheetOpen(true);
+    setMenuConfirm(null);
   }
 
-  function startRowPress(conn: Connection, other: Profile | null) {
+  function startRowPress(conn: Connection) {
+    if (isSelfConnection(conn)) {
+      // My Notes mirrors the Chat trash action: the clear-and-disable
+      // dialog — never the block/delete sheet (there is no peer to block).
+      if (pressTimerRef.current !== null) return;
+      pressTimerRef.current = window.setTimeout(() => {
+        pressTimerRef.current = null;
+        suppressClickRef.current = true;
+        setNotesClearTarget(conn);
+      }, LONG_PRESS_MS);
+      return;
+    }
     if (pressTimerRef.current !== null) return;
     pressTimerRef.current = window.setTimeout(() => {
       pressTimerRef.current = null;
       // Swallow the click that follows the released long press so the
       // menu never races the normal open-chat navigation.
       suppressClickRef.current = true;
+      const other = others[otherUserId(conn, me)] ?? null;
       void openRowMenu(conn, other);
     }, LONG_PRESS_MS);
   }
@@ -658,38 +675,56 @@ export default function Home() {
       would swallow the next open-chat tap. */
   function closeRowMenu() {
     setMenuTarget(null);
+    setMenuSheetOpen(false);
+    setMenuConfirm(null);
     suppressClickRef.current = false;
   }
 
   /** Existing block flow (same API + confirmation the Chat menu uses). */
-  async function handleBlockUser() {
-    if (!blockConfirmTarget) return;
+  async function handleMenuBlock() {
+    if (!menuTarget) return;
+    const conn = menuTarget.conn;
+    const peerId = otherUserId(conn, me);
     setMenuBusy(true);
     setError(null);
-    const err = await blockUser(me, blockConfirmTarget.id);
+    const err = await blockUser(me, peerId);
     setMenuBusy(false);
-    setBlockConfirmTarget(null);
-    if (err) setError(err);
-  }
-
-  async function handleRowUnblock(conn: Connection) {
-    setError(null);
-    const err = await unblockUser(me, otherUserId(conn, me));
-    if (err) setError(err);
-  }
-
-  /** Existing per-user chat deletion (never deletes for the peer). */
-  async function handleDeleteChat() {
-    if (!deleteChatTarget) return;
-    setMenuBusy(true);
-    setError(null);
-    const err = await deleteChatForMe(me, deleteChatTarget.id);
-    setMenuBusy(false);
-    setDeleteChatTarget(null);
+    setMenuConfirm(null);
     if (err) {
       setError(err);
       return;
     }
+    setMenuTarget((prev) => (prev ? { ...prev, blockState: 'blockedByMe' } : prev));
+    closeRowMenu();
+  }
+
+  async function handleMenuUnblock() {
+    if (!menuTarget) return;
+    const conn = menuTarget.conn;
+    const peerId = otherUserId(conn, me);
+    setError(null);
+    const err = await unblockUser(me, peerId);
+    if (err) {
+      setError(err);
+      return;
+    }
+    closeRowMenu();
+  }
+
+  /** Existing per-user chat deletion (never deletes for the peer). */
+  async function handleMenuDelete() {
+    if (!menuTarget) return;
+    const conn = menuTarget.conn;
+    setMenuBusy(true);
+    setError(null);
+    const err = await deleteChatForMe(me, conn.id);
+    setMenuBusy(false);
+    setMenuConfirm(null);
+    if (err) {
+      setError(err);
+      return;
+    }
+    closeRowMenu();
     load();
   }
 
@@ -710,39 +745,7 @@ export default function Home() {
     load();
   }
 
-  // Sheet items are built outside the JSX so the narrowed `other` profile
-  // stays available inside the onSelect closures.
   const menuOther = menuTarget?.other ?? null;
-  const rowMenuItems = menuTarget
-    ? [
-        ...(menuTarget.blockState === 'blockedByMe'
-          ? [
-              {
-                key: 'unblock',
-                label: t('block.unblock'),
-                onSelect: () => {
-                  void handleRowUnblock(menuTarget.conn);
-                },
-              },
-            ]
-          : menuOther
-            ? [
-                {
-                  key: 'block',
-                  label: t('block.blockUser'),
-                  danger: true,
-                  onSelect: () => setBlockConfirmTarget(menuOther),
-                },
-              ]
-            : []),
-        {
-          key: 'delete',
-          label: t('chat.deleteChatForMe'),
-          danger: true,
-          onSelect: () => setDeleteChatTarget(menuTarget.conn),
-        },
-      ]
-    : [];
 
   return (
     <main className="home-screen">
@@ -826,7 +829,7 @@ export default function Home() {
                   type="button"
                   className="chat chat-overview-row"
                   onClick={() => handleRowClick(conn)}
-                  onPointerDown={() => startRowPress(conn, other)}
+                  onPointerDown={() => startRowPress(conn)}
                   onPointerUp={cancelRowPress}
                   onPointerLeave={cancelRowPress}
                   onPointerCancel={cancelRowPress}
@@ -956,38 +959,25 @@ export default function Home() {
         />
       )}
 
-      {menuTarget && (
-        <BottomSheet
+      {menuTarget && (menuSheetOpen || menuConfirm !== null) && (
+        <ChatActionMenu
+          sheetOpen={menuSheetOpen}
+          confirm={menuConfirm}
           title={menuOther ? displayName(menuOther) : undefined}
-          cancelLabel={t('cancel')}
-          onClose={closeRowMenu}
-          items={rowMenuItems}
-        />
-      )}
-
-      {blockConfirmTarget && (
-        <Dialog
-          title={t('block.blockTitle', { username: blockConfirmTarget.username ?? '' })}
-          text={t('block.blockText')}
-          confirmLabel={t('block.blockUser')}
-          cancelLabel={t('cancel')}
-          danger
+          peerUsername={menuOther?.username ?? ''}
+          blockedByMe={menuTarget.blockState === 'blockedByMe'}
           busy={menuBusy}
-          onConfirm={handleBlockUser}
-          onCancel={() => setBlockConfirmTarget(null)}
-        />
-      )}
-
-      {deleteChatTarget && (
-        <Dialog
-          title={t('chat.deleteChatConfirmTitle')}
-          text={t('chat.deleteChatConfirmText')}
-          confirmLabel={t('chat.deleteChatForMe')}
-          cancelLabel={t('cancel')}
-          danger
-          busy={menuBusy}
-          onConfirm={handleDeleteChat}
-          onCancel={() => setDeleteChatTarget(null)}
+          onSheetClose={() => setMenuSheetOpen(false)}
+          onConfirmChange={(confirm) => {
+            setMenuConfirm(confirm);
+            // Canceling a confirmation closes the whole menu so the sheet
+            // cannot reappear underneath it (same behavior as the in-chat
+            // menu).
+            if (confirm === null) closeRowMenu();
+          }}
+          onUnblock={() => handleMenuUnblock()}
+          onBlock={handleMenuBlock}
+          onDeleteChat={handleMenuDelete}
         />
       )}
 

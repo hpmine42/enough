@@ -49,6 +49,7 @@ import Avatar from './Avatar';
 import MessageBubble from './MessageBubble';
 import MessageComposer from './MessageComposer';
 import BottomSheet from './BottomSheet';
+import ChatActionMenu from './ChatActionMenu';
 import Dialog from './Dialog';
 import ThemeButton from './ThemeButton';
 import { BackIcon, TrashIcon, DownIcon, InfoIcon } from './icons';
@@ -94,8 +95,11 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const [confirmTarget, setConfirmTarget] = useState<SheetTarget | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
-  const [deleteChatOpen, setDeleteChatOpen] = useState(false);
-  const [blockConfirmOpen, setBlockConfirmOpen] = useState(false);
+  // Which confirmation dialog of the shared chat action menu is open
+  // (null = no dialog; the sheet may be open independently).
+  const [chatActionConfirm, setChatActionConfirm] = useState<
+    'block' | 'delete' | null
+  >(null);
   const [declineOpen, setDeclineOpen] = useState(false);
   const [blockState, setBlockState] = useState<BlockState>('none');
 
@@ -674,7 +678,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     setError(null);
     const err = await blockUser(me, peer.id);
     setActionBusy(false);
-    setBlockConfirmOpen(false);
+    setChatActionConfirm(null);
     if (err) {
       setError(err);
       return;
@@ -695,9 +699,8 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     // Re-derive the relation from the database instead of assuming 'none':
     // with a mutual block, removing the caller's own side must still leave
     // the composer disabled while the peer's block ('blockedByThem') exists.
-    const state = await getBlockState(me, peer.id);
     setBusyId(null);
-    setBlockState(state);
+    setBlockState(await getBlockState(me, peer.id));
   }
 
   async function handleCancelRequest() {
@@ -794,7 +797,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     setError(null);
     const err = await deleteChatForMe(me, conn.id);
     setActionBusy(false);
-    setDeleteChatOpen(false);
+    setChatActionConfirm(null);
     if (err) {
       setError(err);
       return;
@@ -1017,7 +1020,13 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         <button
           type="button"
           className="icon-button"
-          onClick={() => setChatMenuOpen(true)}
+          onClick={() => {
+            // Opening the menu always starts from the sheet view; a leftover
+            // confirmation state (e.g. after a profile-load race) must not
+            // re-appear on top of the freshly opened sheet.
+            setChatActionConfirm(null);
+            setChatMenuOpen(true);
+          }}
           aria-label={
             self ? t('chat.myNotesClearTitle') : t('chat.deleteChatForMe')
           }
@@ -1243,7 +1252,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         </button>
       )}
 
-      {chatMenuOpen && (self ? (
+      {chatMenuOpen && self && (
         <Dialog
           title={t('chat.myNotesClearTitle')}
           text={t('chat.myNotesClearText')}
@@ -1254,63 +1263,23 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           onConfirm={handleClearMyNotes}
           onCancel={() => setChatMenuOpen(false)}
         />
-      ) : (
-        <BottomSheet
-          title={peer ? displayName(peer) : undefined}
-          cancelLabel={t('cancel')}
-          onClose={() => setChatMenuOpen(false)}
-          items={[
-            ...(blockState === 'blockedByMe'
-              ? [
-                  {
-                    key: 'unblock',
-                    label: t('block.unblock'),
-                    onSelect: () => {
-                      void handleUnblock();
-                    },
-                  },
-                ]
-              : [
-                  {
-                    key: 'block',
-                    label: t('block.blockUser'),
-                    danger: true,
-                    onSelect: () => setBlockConfirmOpen(true),
-                  },
-                ]),
-            {
-              key: 'delete',
-              label: t('chat.deleteChatForMe'),
-              danger: true,
-              onSelect: () => setDeleteChatOpen(true),
-            },
-          ]}
-        />
-      ))}
-
-      {deleteChatOpen && (
-        <Dialog
-          title={t('chat.deleteChatConfirmTitle')}
-          text={t('chat.deleteChatConfirmText')}
-          confirmLabel={t('chat.deleteChatForMe')}
-          cancelLabel={t('cancel')}
-          danger
-          busy={actionBusy}
-          onConfirm={handleDeleteChat}
-          onCancel={() => setDeleteChatOpen(false)}
-        />
       )}
 
-      {blockConfirmOpen && peer && (
-        <Dialog
-          title={t('block.blockTitle', { username: peer.username ?? '' })}
-          text={t('block.blockText')}
-          confirmLabel={t('block.blockUser')}
-          cancelLabel={t('cancel')}
-          danger
+      {/* The shared chat action menu (block/unblock + delete chat for me) —
+          the same component the Home overview opens on long-press. */}
+      {!self && (chatMenuOpen || chatActionConfirm !== null) && (
+        <ChatActionMenu
+          sheetOpen={chatMenuOpen}
+          confirm={chatActionConfirm}
+          title={peer ? displayName(peer) : undefined}
+          peerUsername={peer?.username ?? ''}
+          blockedByMe={blockState === 'blockedByMe'}
           busy={actionBusy}
-          onConfirm={handleBlockUser}
-          onCancel={() => setBlockConfirmOpen(false)}
+          onSheetClose={() => setChatMenuOpen(false)}
+          onConfirmChange={(confirm) => setChatActionConfirm(confirm)}
+          onUnblock={() => handleUnblock()}
+          onBlock={handleBlockUser}
+          onDeleteChat={handleDeleteChat}
         />
       )}
 
