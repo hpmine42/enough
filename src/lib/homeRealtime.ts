@@ -390,6 +390,82 @@ export function createHomeRealtimeBridge(
 }
 
 /* ------------------------------------------------------------------ */
+/* Home load lifecycle (F-03)                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Ownership tracker for overlapping Home `load()` calls (audit finding
+ * F-03).
+ *
+ * Home can have more than one `load()` in flight at a time (initial load,
+ * reconnect load, Settings→Home transition, connection accept/decline, the
+ * P1-5 drain fallback). Two properties must hold:
+ *
+ *  - **Gate ownership**: the realtime loading gate must stay closed while
+ *    ANY load is still running. An older load finishing first must not
+ *    reopen the gate for a newer load that is still going to replace the
+ *    whole Home state — otherwise a realtime event in between is treated as
+ *    steady-state and then silently overwritten by the newer load's
+ *    snapshot.
+ *  - **State ownership**: Home loads are last-write-wins by START order.
+ *    Only the most recently started load may commit its snapshot; an older
+ *    load resolving later must discard its result.
+ *
+ * A plain boolean satisfies neither, and a plain counter of active loads
+ * satisfies only the first. This tracker therefore keeps both a monotonic
+ * generation (the token identifying the newest load) and the number of
+ * loads that are still running.
+ */
+export interface HomeLoadLifecycle {
+  /**
+   * Register a newly started load. Returns its token, which the caller
+   * passes to `isCurrent`/`finish`.
+   */
+  start: () => number;
+  /**
+   * True while `token` identifies the newest started load. Older loads get
+   * `false` and must not commit any state.
+   */
+  isCurrent: (token: number) => boolean;
+  /**
+   * Mark one load as finished. Returns true when this was the last active
+   * load, i.e. when the realtime gate may be released and the post-load
+   * drain may run. Idempotent per token: a double `finish` for the same
+   * token cannot release another load's gate.
+   */
+  finish: (token: number) => boolean;
+  /** True while at least one load is still running (the realtime gate). */
+  isLoading: () => boolean;
+  /** Newest issued token (diagnostics/tests). */
+  current: () => number;
+  /** Number of loads currently in flight (diagnostics/tests). */
+  active: () => number;
+}
+
+export function createHomeLoadLifecycle(): HomeLoadLifecycle {
+  let token = 0;
+  let active = 0;
+  const running = new Set<number>();
+  return {
+    start: () => {
+      token += 1;
+      active += 1;
+      running.add(token);
+      return token;
+    },
+    isCurrent: (t) => t === token,
+    finish: (t) => {
+      if (!running.delete(t)) return false;
+      active -= 1;
+      return active === 0;
+    },
+    isLoading: () => active > 0,
+    current: () => token,
+    active: () => active,
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* convergence machinery for the narrow reconciliation                 */
 /* ------------------------------------------------------------------ */
 
