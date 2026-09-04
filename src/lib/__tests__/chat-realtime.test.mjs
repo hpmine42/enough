@@ -83,6 +83,7 @@ import {
   isPendingRealtimeRow,
   mergeLoadedPage,
   mergeOlderPage,
+  countsAsNewIncoming,
   createChatLifecycle,
 } from '../chatRealtime.ts';
 
@@ -143,6 +144,47 @@ test('CR3: duplicate realtime events do not duplicate a message', () => {
   assert.equal(mergeIncomingMessage(prev, { ...prev[0] }, CONN, null), prev);
   assert.equal(mergeIncomingMessage(prev, { ...prev[0] }, CONN, null), prev);
   assert.equal(prev.length, 1, 'the list never gains a second copy');
+});
+
+/* F-04: the "new since up" counter must increment exactly once per newly
+   delivered message, never on a duplicate or a row that the merge ignores. */
+test('CR3b: countsAsNewIncoming is true only for a genuinely new message (F-04)', () => {
+  const prev = [msg('m1', CONN, '2026-01-01T09:00:00Z')];
+  // A brand-new message for the open chat counts.
+  assert.equal(
+    countsAsNewIncoming(prev, msg('m2', CONN, '2026-01-01T10:00:00Z'), CONN, null),
+    true,
+    'a new message is counted once',
+  );
+  // A duplicate of an already-rendered message never re-counts.
+  assert.equal(
+    countsAsNewIncoming(prev, { ...prev[0] }, CONN, null),
+    false,
+    'a duplicate delivery does not re-count',
+  );
+  assert.equal(
+    countsAsNewIncoming(prev, prev[0], CONN, null),
+    false,
+    'a replay with the identical row object does not re-count',
+  );
+  // A row from another conversation is never counted.
+  assert.equal(
+    countsAsNewIncoming(prev, msg('m3', 'conn-other'), CONN, null),
+    false,
+    'a foreign row is scoped out and never counted',
+  );
+  // A row hidden behind the chat-deletion cutoff is never counted.
+  assert.equal(
+    countsAsNewIncoming(prev, msg('m4', CONN, '2026-01-01T10:00:00Z'), CONN, '2026-01-01T12:00:00Z'),
+    false,
+    'a row behind the deletion cutoff is dropped and never counted',
+  );
+  // Malformed rows never count.
+  assert.equal(
+    countsAsNewIncoming(prev, { id: '', connection_id: CONN }, CONN, null),
+    false,
+    'malformed payloads never count',
+  );
 });
 
 /* ------------------------------------------------------------------ */
@@ -1384,4 +1426,38 @@ test('PG-G5: the pagination buffer path never decrypts and never touches plainte
   // Rows are captured as raw payload rows only (`row`), and the buffer
   // type is the same ciphertext-only PendingRealtimeRow as F-02.
   assert.match(chatSrc, /const pendingOlderRef = useRef<PendingRealtimeRow\[\]>\(\[\]\);/);
+});
+
+/* ------------------------------------------------------------------ */
+/* F-04 (counter dedup) + F-05 (subscription generation) wiring        */
+/* ------------------------------------------------------------------ */
+
+test('CRG-F04-1: the badge counter is gated so a duplicate delivery never re-counts', () => {
+  const wiring = realtimeWiring();
+  // The same-burst dedup set is checked before counting, and the count is
+  // gated on the genuinely-new predicate.
+  assert.match(wiring, /if \(countedSinceUpRef\.current\.has\(row\.id\)\) return;/);
+  assert.match(wiring, /countedSinceUpRef\.current\.add\(row\.id\)/);
+  assert.match(wiring, /countsAsNewIncoming\(visibleMessagesRef\.current, row, connectionId, hiddenUntil\)/);
+  // The counter is still incremented only when the user is not at the bottom.
+  assert.match(wiring, /if \(!atBottomRef\.current\) \{\s*setNewSinceUp\(\(c\) => c \+ 1\);/);
+});
+
+test('CRG-F05-2: the realtime subscription is bound to the conversation generation (F-05)', () => {
+  // Slice the whole realtime effect body (from the client binding through
+  // subscribe) so the captured generation token is included.
+  const start = chatSrc.indexOf('const subToken = lifecycleRef.current.current();');
+  assert.ok(start >= 0, 'the subscription captures the lifecycle token');
+  const end = chatSrc.indexOf('.subscribe();', start);
+  assert.ok(end > start, 'the realtime subscription wiring is found');
+  const wiring = chatSrc.slice(start, end);
+  // The token is captured once, reusing the F-01 lifecycle (no second
+  // lifecycle system).
+  assert.match(wiring, /const subToken = lifecycleRef\.current\.current\(\);/);
+  // Every realtime callback re-checks the token, so a callback delivered by an
+  // old subscription after a conversation switch is dropped before it can
+  // mutate the new conversation's state.
+  const guards = wiring.match(/lifecycleRef\.current\.isCurrent\(subToken\)/g) ?? [];
+  // INSERT + UPDATE messages, connections, profiles and message_deletions.
+  assert.ok(guards.length >= 5, `expected the token guard in every callback, saw ${guards.length}`);
 });

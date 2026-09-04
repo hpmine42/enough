@@ -95,6 +95,34 @@ export function mergeIncomingMessage(
 }
 
 /**
+ * Whether a realtime messages INSERT is a GENUINELY new message for the open
+ * chat (audit F-04).
+ *
+ * The open chat's "new since up" scroll badge must increment exactly once per
+ * newly delivered message. A duplicate delivery of a message already in the
+ * rendered list (a Realtime replay, or our own send racing back from another
+ * device), a row from another conversation, and a row hidden behind the
+ * chat-deletion cutoff are all NOT new and must never re-increment the badge.
+ *
+ * This mirrors the change-detection contract of {@link mergeIncomingMessage}:
+ * the same array reference is returned when the event changes nothing, and a
+ * distinct array is returned when the row is genuinely appended. So the
+ * predicate is exactly "would the merge change the list."
+ *
+ * Returns the same-reference/no-change decision as a boolean so a caller can
+ * gate a counter outside the React state updater (which React is not
+ * guaranteed to run synchronously).
+ */
+export function countsAsNewIncoming(
+  prev: Message[],
+  row: unknown,
+  connectionId: string,
+  hiddenUntil: string | null | undefined,
+): boolean {
+  return mergeIncomingMessage(prev, row, connectionId, hiddenUntil) !== prev;
+}
+
+/**
  * Merge a realtime messages UPDATE into the rendered list (e.g. a
  * delete-for-everyone tombstone: `deleted_at` set, ciphertext cleared).
  *

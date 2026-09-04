@@ -23,6 +23,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   isMessageNewer,
+  isNewLastMessage,
   mergeLastMessage,
   unreadAfterInsert,
   countsTowardUnread,
@@ -113,6 +114,36 @@ test('unreadAfterInsert: peer message increments', () => {
 test('unreadAfterInsert: own message leaves the map untouched (same reference)', () => {
   const prev = { 'conn-1': 2 };
   assert.equal(unreadAfterInsert(prev, 'conn-1', false), prev);
+});
+
+/* F-04: the unread badge must increment exactly once per new peer message,
+   never on a duplicate delivery or an out-of-order older message. */
+test('isNewLastMessage: true for a first message with no prior last', () => {
+  const m = msg('m1', 'conn-1', '2026-01-01T10:00:00Z');
+  assert.equal(isNewLastMessage({}, m), true);
+});
+
+test('isNewLastMessage: true for a newer message that replaces the last', () => {
+  const older = msg('m1', 'conn-1', '2026-01-01T10:00:00Z');
+  const newer = msg('m2', 'conn-1', '2026-01-01T11:00:00Z');
+  assert.equal(isNewLastMessage({ 'conn-1': older }, newer), true);
+});
+
+test('isNewLastMessage: false for a duplicate delivery of the current last message', () => {
+  const last = msg('m2', 'conn-1', '2026-01-01T11:00:00Z');
+  assert.equal(isNewLastMessage({ 'conn-1': last }, { ...last }), false, 'replay duplicate is never new');
+});
+
+test('isNewLastMessage: false for an out-of-order older message the merge ignores', () => {
+  const newer = msg('m2', 'conn-1', '2026-01-01T11:00:00Z');
+  const older = msg('m1', 'conn-1', '2026-01-01T10:00:00Z');
+  assert.equal(isNewLastMessage({ 'conn-1': newer }, older), false);
+});
+
+test('isNewLastMessage: per-connection — a message for another connection is independent', () => {
+  const a = msg('m1', 'conn-1', '2026-01-01T10:00:00Z');
+  const b = msg('m2', 'conn-2', '2026-01-01T11:00:00Z');
+  assert.equal(isNewLastMessage({ 'conn-1': a }, b), true);
 });
 
 
@@ -705,4 +736,37 @@ test('Home.tsx realtime wiring never calls load() from a handler', () => {
   assert.match(wiring, /bridge\.chatDeletions\(/);
   const cleanup = src.slice(effectEnd, src.indexOf('}, [me', effectEnd));
   assert.match(cleanup, /client\.removeChannel\(channel\);/, 'subscription cleanup preserved');
+});
+
+/* F-06: Home account-switch deletion state must be reset at the account
+   boundary so stale deletion IDs from User A can never influence User B. */
+test('Home.tsx resets deletion state at the account/session boundary (F-06)', () => {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  const src = fs.readFileSync(path.resolve(dir, '../../components/Home.tsx'), 'utf8');
+  const start = src.indexOf('// Account change: drop cross-account bookkeeping immediately.');
+  assert.ok(start >= 0, 'the account-change effect exists');
+  const effectEnd = src.indexOf('}, [me]);', start);
+  assert.ok(effectEnd > start, 'the [me] effect region is bounded');
+  const effect = src.slice(start, effectEnd);
+  // The chat-deletion windows / revealed set mirror is reset (F-06), so a
+  // realtime event processed before the new account's load commits never
+  // reads User A's deletion window.
+  assert.match(effect, /deletionsRef\.current = \{ chatUntil: new Map\(\), revealed: new Set\(\) \}/);
+  // The per-user message tombstones are reset too, so User A's tombstones can
+  // never mask User B's previews in the window before the next load().
+  assert.match(effect, /setDeletedForMe\(new Set\(\)\)/);
+});
+
+/* F-04: Home onMessage only increments the unread badge for a genuinely new
+   last message (a duplicate delivery never double-counts). */
+test('Home.tsx onMessage gates the unread badge on isNewLastMessage (F-04)', () => {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  const src = fs.readFileSync(path.resolve(dir, '../../components/Home.tsx'), 'utf8');
+  const start = src.indexOf('onMessage: (msg, countUnread) => {');
+  assert.ok(start >= 0, 'the onMessage handler exists');
+  const end = src.indexOf('},', start);
+  assert.ok(end > start, 'the onMessage handler is bounded');
+  const handler = src.slice(start, end);
+  assert.match(handler, /setLastMessages\(\(prev\) => mergeLastMessage\(prev, msg\)\)/);
+  assert.match(handler, /isNewLastMessage\(lastMessagesRef\.current, msg\)/);
 });

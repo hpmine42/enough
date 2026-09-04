@@ -181,3 +181,38 @@ test('MF14: user isolation — A and B caches do not cross', async () => {
   assert.equal(await getCachedPlaintext(a, 'm-1'), 'alice-text');
   assert.equal(await getCachedPlaintext(b, 'm-1'), null, 'B cannot read A cache');
 });
+
+test('MF15: a cachePlaintext persistence failure never invalidates a successful decrypt (F-07)', async () => {
+  // Simulate a failure of the optional IndexedDB cache write by making the
+  // underlying AES-GCM seal step throw. The decrypt itself is served by the
+  // mock engine and must still resolve — a cache-persistence failure is a UI
+  // concern, never a cryptographic one (audit F-07).
+  const me = freshUser();
+  const m = mockManager();
+  const originalEncrypt = globalThis.crypto.subtle.encrypt;
+  globalThis.crypto.subtle.encrypt = async () => {
+    throw new Error('IndexedDB cache write failed');
+  };
+  try {
+    const { plaintext } = await decryptForDisplay({
+      e2ee: m,
+      isSelf: false,
+      me,
+      message: msg({ ciphertext: '{"v":1,"e":"sw","t":2,"b":"YQ=="}', sender_id: 'peer' }),
+      connectionId: CONN,
+    });
+    // The decryption succeeded and the display plaintext is returned even
+    // though the cache could not be persisted.
+    assert.equal(plaintext, 'DECRYPTED-TEXT');
+    assert.equal(m.calls.decrypt, 1, 'the engine still performed the decrypt');
+    // The in-memory cache (set before the persistence attempt) still serves
+    // the current session, so the message is NOT treated as undecryptable.
+    assert.equal(
+      await getCachedPlaintext(me, 'm-1'),
+      'DECRYPTED-TEXT',
+      'the plaintext is still available for the session even when persistence failed',
+    );
+  } finally {
+    globalThis.crypto.subtle.encrypt = originalEncrypt;
+  }
+});
