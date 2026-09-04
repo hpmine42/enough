@@ -21,7 +21,11 @@
 //      that flows into the unchanged, shared decryptForDisplay path;
 //   6. rows captured while a page load was in flight are drained onto the
 //      loaded page (no dropped message, no full reload);
-//   7. UPDATE handling (delete-for-everyone tombstones) stays in place.
+//   7. UPDATE handling (delete-for-everyone tombstones) stays in place;
+//   8. audit F-01: the conversation lifecycle guard — an async operation
+//      (send / loadOlder) started for conversation A is discarded when the
+//      component switched to conversation B, while the still-current
+//      conversation's results are applied unchanged.
 //
 // The static guards (accepted repo pattern, supplement — not a substitute —
 // for the runtime tests) pin the Chat.tsx wiring:
@@ -46,6 +50,7 @@ import {
   mergeIncomingMessage,
   applyMessageUpdate,
   mergeLoadedPage,
+  createChatLifecycle,
 } from '../chatRealtime.ts';
 
 const CONN = 'conn-open';
@@ -269,6 +274,91 @@ test('CR9: isRealtimeMessageRow validates the payload shape', () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* 10. Conversation lifecycle guard (audit F-01)                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The lifecycle helper is the ACTUAL guard logic Chat.tsx uses: an async
+ * operation captures `current()` before its first await and only commits its
+ * result while `isCurrent(token)` is still true. These tests exercise that
+ * exact decision under the switch sequences of the F-01 report.
+ */
+test('CRL1: a result of an operation started in A is discarded after A -> B', async () => {
+  const lc = createChatLifecycle();
+  const tokenA = lc.current();
+  // The async operation resolves AFTER the user switched to B.
+  lc.advance(); // A -> B
+  await Promise.resolve();
+  // The guarded commit decision (as in handleSend / loadOlder):
+  const reachedCommit = lc.isCurrent(tokenA);
+  assert.equal(reachedCommit, false, 'stale operation must not commit');
+  // While the CURRENT conversation can still commit.
+  assert.equal(lc.isCurrent(lc.current()), true);
+});
+
+test('CRL2: a result of an operation started in the still-current conversation is applied', async () => {
+  const lc = createChatLifecycle();
+  const token = lc.current();
+  await Promise.resolve();
+  assert.equal(lc.isCurrent(token), true, 'no switch -> commit allowed');
+});
+
+test('CRL3: only the newest generation survives rapid switches (A->B->C)', async () => {
+  const lc = createChatLifecycle();
+  const tokenA = lc.current();
+  lc.advance(); // A -> B
+  const tokenB = lc.current();
+  lc.advance(); // B -> C
+  const tokenC = lc.current();
+  assert.equal(lc.isCurrent(tokenA), false, 'A is stale');
+  assert.equal(lc.isCurrent(tokenB), false, 'B is stale');
+  assert.equal(lc.isCurrent(tokenC), true, 'only C may commit');
+});
+
+test('CRL4: A -> B -> A starts a NEW generation, so the first A session stays stale', async () => {
+  const lc = createChatLifecycle();
+  const firstA = lc.current();
+  lc.advance(); // A -> B
+  lc.advance(); // B -> A (reopened)
+  const reopenedA = lc.current();
+  assert.notEqual(reopenedA, firstA, 'reopened conversation is a new generation');
+  assert.equal(lc.isCurrent(firstA), false, 'the old A session must not leak into the reopened A');
+  assert.equal(lc.isCurrent(reopenedA), true);
+});
+
+test('CRL5: the lifecycle is monotonic and stable while the conversation does not change', () => {
+  const lc = createChatLifecycle();
+  assert.equal(lc.current(), lc.current(), 'current() is stable without a switch');
+  const first = lc.advance();
+  assert.ok(first > 0, 'tokens are monotonically increasing');
+  const second = lc.advance();
+  assert.ok(second > first, 'each switch starts a newer generation');
+  assert.equal(lc.isCurrent(first), false);
+  assert.equal(lc.isCurrent(second), true);
+});
+
+test('CRL6: the guarded commit decision keeps ordering when the current result is applied', async () => {
+  // Simulates the exact "apply only if current" shape used by handleSend and
+  // loadOlder: the same row that was mid-flight is merged only via the shared
+  // comparator path, and only when the token is still current.
+  const lc = createChatLifecycle();
+  const token = lc.current();
+  let list = [];
+  const apply = (row) => {
+    if (!lc.isCurrent(token)) return list;
+    return mergeIncomingMessage(list, row, CONN, null);
+  };
+  list = apply(msg('m2', CONN, '2026-01-01T10:00:01Z'));
+  list = apply(msg('m1', CONN, '2026-01-01T10:00:00Z'));
+  assert.deepEqual(list.map((m) => m.id), ['m1', 'm2'], 'current results keep (created_at, id) order');
+  // A later switch invalidates the same closure's next result.
+  lc.advance();
+  const before = list;
+  list = apply(msg('m3', CONN, '2026-01-01T10:00:02Z'));
+  assert.equal(list, before, 'stale result is discarded without re-allocation');
+});
+
+/* ------------------------------------------------------------------ */
 /* Static guards over the Chat.tsx wiring (supplement, NOT a           */
 /* substitute for the runtime tests above)                             */
 /* ------------------------------------------------------------------ */
@@ -384,4 +474,85 @@ test('CRG7: existing send, pagination and deletion behavior is preserved', () =>
   assert.match(chatSrc, /setMessages\(\(prev\) => \[\.\.\.result\.messages, \.\.\.prev\]\)/);
   // Delete-for-me is still pure per-user tombstone bookkeeping.
   assert.match(chatSrc, /setDeletedForMe\(\(prev\) => new Set\(prev\)\.add\(target\.message\.id\)\)/);
+});
+
+/* ---------------- 11. F-01 lifecycle wiring (static guards) ---------------- */
+
+test('CRL-G1: the lifecycle is advanced synchronously with the connectionId prop', () => {
+  // The token must be invalidated in the render body (ref compare), not only
+  // in an effect, so a promise resolving between render and effect already
+  // sees the new generation.
+  assert.match(chatSrc, /lifecycleConnectionRef\.current !== connectionId/);
+  assert.match(chatSrc, /lifecycleRef\.current\.advance\(\)/);
+  // The reset effect clears the shared pagination latch on every switch so
+  // the new conversation can never start with a stuck "loading older" state.
+  const resetStart = chatSrc.indexOf('// Reset display state when switching conversations.');
+  const resetEnd = chatSrc.indexOf('/* --------------------------- scroll / read');
+  assert.ok(resetStart >= 0 && resetEnd > resetStart, 'the conversation reset effect exists');
+  const reset = chatSrc.slice(resetStart, resetEnd);
+  assert.match(reset, /loadingOlderRef\.current = false;/);
+  assert.match(reset, /setLoadingOlder\(false\);/);
+});
+
+test('CRL-G2: a send started in A cannot commit into B after switching', () => {
+  const start = chatSrc.indexOf('async function handleSend');
+  const end = chatSrc.indexOf('async function handleAccept', start);
+  assert.ok(start >= 0 && end > start, 'handleSend exists');
+  const send = chatSrc.slice(start, end);
+  // The operation is bound to the conversation before its first await.
+  assert.match(send, /const token = lifecycleRef\.current\.current\(\);/);
+  // It re-checks the token after EVERY await that can cross a switch
+  // (prepareSend, sendMessage, cachePlaintext).
+  const checks = send.match(/lifecycleRef\.current\.isCurrent\(token\)/g) ?? [];
+  assert.ok(checks.length >= 3, `expected 3+ lifecycle checks, saw ${checks.length}`);
+  const lastCheck = send.lastIndexOf('lifecycleRef.current.isCurrent(token)');
+  // The message-state commits (and their plaintext cache write) are only
+  // reachable after the LAST stale check: any commit before it would be an
+  // unguarded cross-conversation write.
+  assert.ok(
+    send.indexOf('setMessages') > lastCheck,
+    'setMessages must be guarded by the final isCurrent check',
+  );
+  assert.ok(
+    send.indexOf('setPlain') > lastCheck,
+    'setPlain must be guarded by the final isCurrent check',
+  );
+  // No new crypto path: sending still encrypts via the existing session
+  // manager and stores the resulting ciphertext via the existing API.
+  assert.match(send, /await prepareSend\(\{/);
+  assert.match(send, /await sendMessage\(conn\.id, me, ciphertext\)/);
+  assert.ok(!/decryptFromPeer|parseEnvelope|setCiphertext/.test(send), 'send never parses or decrypts');
+});
+
+test('CRL-G3: loadOlder started in A cannot prepend A pages into B after switching', () => {
+  const start = chatSrc.indexOf('async function loadOlder');
+  const end = chatSrc.indexOf('useLayoutEffect(() =>', start);
+  assert.ok(start >= 0 && end > start, 'loadOlder exists');
+  const load = chatSrc.slice(start, end);
+  // Bound to the conversation before the page request.
+  assert.match(load, /const token = lifecycleRef\.current\.current\(\);/);
+  const checks = load.match(/lifecycleRef\.current\.isCurrent\(token\)/g) ?? [];
+  assert.ok(checks.length >= 1, 'the page fetch result is checked for staleness');
+  const lastCheck = load.lastIndexOf('lifecycleRef.current.isCurrent(token)');
+  assert.ok(
+    load.indexOf('setMessages') > lastCheck,
+    'setMessages must be guarded by the isCurrent check',
+  );
+  assert.ok(
+    load.indexOf('pendingDeltaRef.current = prevHeight') > lastCheck,
+    'scroll compensation must not run for a stale page',
+  );
+  // The stale path releases the shared single-flight latch without touching
+  // the new conversation's visual state.
+  assert.match(load, /if \(!lifecycleRef\.current\.isCurrent\(token\)\) \{\s*\/\/ Conversation changed/);
+  assert.match(load, /loadingOlderRef\.current = false;/);
+});
+
+test('CRL-G4: the E2EE display path is unchanged (guard never touches decrypt)', () => {
+  // The single shared decrypt effect still exists on the message list, and
+  // no second decrypt path was added anywhere in Chat.tsx.
+  assert.match(chatSrc, /const \{ plaintext \} = await decryptForDisplay\(\{/);
+  assert.match(chatSrc, /\[messages, manager, conn, me\]\)/);
+  assert.match(chatSrc, /resolvedRef\.current\.has\(m\.id\)\) continue;/);
+  assert.match(chatSrc, /decryptedRef\.current\.has\(m\.id\)\) continue;/);
 });

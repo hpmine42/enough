@@ -39,6 +39,7 @@ import {
 import { advanceReadPosition, compareMessagesAsc, displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
 import {
   applyMessageUpdate,
+  createChatLifecycle,
   isRealtimeMessageRow,
   mergeIncomingMessage,
   mergeLoadedPage,
@@ -178,6 +179,20 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const loadingRef = useRef(true);
   // Rows captured while a load was in flight (see `loadingRef`).
   const pendingRealtimeRef = useRef<Message[]>([]);
+  // F-01: conversation lifecycle token. Advanced SYNCHRONOUSLY in the render
+  // body when the `connectionId` prop changes, so an async continuation that
+  // resolves between this render and the effect flush can never still see
+  // the previous conversation's token. Every async message-state path
+  // (send, pagination) captures `current()` before its first await and
+  // re-checks `isCurrent()` after every await; a stale result is discarded
+  // before it can enter the new conversation's state or reach the E2EE
+  // decrypt path.
+  const lifecycleRef = useRef(createChatLifecycle());
+  const lifecycleConnectionRef = useRef(connectionId);
+  if (lifecycleConnectionRef.current !== connectionId) {
+    lifecycleConnectionRef.current = connectionId;
+    lifecycleRef.current.advance();
+  }
 
   const me = user?.id ?? '';
 
@@ -532,13 +547,22 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, manager, conn, me]);
 
-  // Reset display state when switching conversations.
+  // Reset display state when switching conversations. The lifecycle token
+  // was already advanced synchronously in the render body above, so state
+  // written by an async operation of the previous conversation is discarded
+  // by its own `isCurrent` checks; this effect only clears the component's
+  // own per-conversation state.
   useEffect(() => {
     resolvedRef.current = new Set();
     decryptedRef.current = new Set();
     // Captured rows belong to the previous conversation: dropping them is
     // safe (reopening that conversation re-loads its page from the server).
     pendingRealtimeRef.current = [];
+    // A pagination request of the previous conversation is invalid now; the
+    // stale resolve path resets the latch as well, and this is the fallback
+    // so the new conversation never starts with a stuck "loading older" flag.
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
     setPlain({});
     setUndecryptable(new Set());
     initialAnchorPendingRef.current = false;
@@ -682,6 +706,10 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     if (offline) return;
     const first = messages[0];
     if (!first) return;
+    // F-01: bind this request to the conversation it started in. If the user
+    // switches chats while the page is in flight, the result (older messages
+    // of conversation A) must never be prepended to conversation B's list.
+    const token = lifecycleRef.current.current();
     loadingOlderRef.current = true;
     setLoadingOlder(true);
     const result = await getMessagesPage(
@@ -691,6 +719,13 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       PAGE_SIZE,
       hiddenUntil,
     );
+    if (!lifecycleRef.current.isCurrent(token)) {
+      // Conversation changed: discard the stale page, release the shared
+      // single-flight latch (the reset effect clears the visual flag). The
+      // scroll anchors of the previous conversation are never touched.
+      loadingOlderRef.current = false;
+      return;
+    }
     const el = scrollRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
     pendingDeltaRef.current = prevHeight;
@@ -762,6 +797,11 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     // nothing is queued: the composer is disabled, and this is the guard
     // behind it.
     if (offline) return;
+    // F-01: bind this send to the conversation it started in. The send itself
+    // (encrypt + server insert) is for the captured conversation and is not
+    // cancelled by a switch — the row belongs there — but its result and any
+    // error must never be written into a conversation the user switched to.
+    const token = lifecycleRef.current.current();
     setError(null);
     const peerId = self ? me : otherUserId(conn, me);
     // `text` is the single sanitized plaintext value produced by
@@ -778,6 +818,8 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         plaintext: text,
       });
     } catch (e) {
+      // A send that lost its conversation must not surface an error there.
+      if (!lifecycleRef.current.isCurrent(token)) return;
       setError(
         isCryptoError(e) && e.code === 'NOT_AVAILABLE'
           ? t('chat.e2eeUnavailable')
@@ -785,13 +827,20 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       );
       return; // fail-closed: no insert, no plaintext to Supabase.
     }
+    if (!lifecycleRef.current.isCurrent(token)) return;
     const { message, error: err } = await sendMessage(conn.id, me, ciphertext);
+    if (!lifecycleRef.current.isCurrent(token)) return;
     if (err) {
       setError(err);
       return;
     }
     if (message) {
+      // The plaintext cache is keyed by message id, not by conversation, and
+      // the message was genuinely sent: keep the local cache write even when
+      // the conversation changed, so the sender can still display it there
+      // later. Only React state of the CURRENT conversation is guarded.
       await cachePlaintext(me, message.id, text);
+      if (!lifecycleRef.current.isCurrent(token)) return;
       setPlain((prev) => ({ ...prev, [message.id]: text }));
       setMessages((prev) =>
         prev.some((m) => m.id === message.id)
