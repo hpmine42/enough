@@ -132,3 +132,45 @@ export function mergeLoadedPage(
   }
   return out;
 }
+
+/* ------------------------------------------------------------------ */
+/* conversation lifecycle (audit F-01)                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Monotonic conversation-lifecycle token for async Chat operations.
+ *
+ * `Chat` is a single component instance reused across `#/chat/<id>`
+ * transitions, so an async operation started for conversation A (sending,
+ * loading an older page) used to be able to resolve after the component had
+ * switched to conversation B and write A's result into B's message state —
+ * including E2EE ciphertext that would then be processed under B's
+ * conversation/session context.
+ *
+ * The guard is a generation counter:
+ *   - `advance()` is called by `Chat` synchronously when the `connectionId`
+ *     prop changes (during render, so even an async continuation that
+ *     resolves between render and effect sees the new generation);
+ *   - every async message-state path captures `current()` before its first
+ *     await and re-checks `isCurrent(token)` after every await;
+ *   - as soon as the conversation changed, the stale result is discarded
+ *     before it can enter React state — it is never applied to the new
+ *     conversation and never reaches the E2EE decrypt path.
+ */
+export interface ChatLifecycle {
+  /** Start a new conversation generation and return its token. */
+  advance: () => number;
+  /** Token of the current conversation generation. */
+  current: () => number;
+  /** True while `token` still belongs to the current generation. */
+  isCurrent: (token: number) => boolean;
+}
+
+export function createChatLifecycle(): ChatLifecycle {
+  let generation = 0;
+  return {
+    advance: () => ++generation,
+    current: () => generation,
+    isCurrent: (token) => token === generation,
+  };
+}
