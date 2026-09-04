@@ -44,6 +44,7 @@ import {
   isRealtimeMessageRow,
   mergeIncomingMessage,
   mergeLoadedPage,
+  mergeOlderPage,
 } from '../lib/chatRealtime';
 import type { PendingRealtimeRow } from '../lib/chatRealtime';
 import { supabase } from '../lib/supabase';
@@ -184,6 +185,21 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   // the event kind that delivered them so the drain reconciles INSERTs and
   // UPDATEs with their own steady-state semantics (audit F-02).
   const pendingRealtimeRef = useRef<PendingRealtimeRow[]>([]);
+  // Pagination tombstone race (F-02 audit follow-up): while a `loadOlder()`
+  // page request is in flight, a delete-for-everyone UPDATE can arrive for a
+  // message that is OLDER than the list's head and therefore not rendered
+  // yet. The steady-state handler correctly ignores unknown ids in general —
+  // but this specific in-flight page can still contain that message's stale
+  // pre-delete row (its SELECT ran before the delete committed), and the old
+  // raw prepend resurrected the deleted message. `pagingInFlightRef` gates
+  // exactly that window (opened when the request starts, closed
+  // synchronously at the commit); `pendingOlderRef` buffers the captured
+  // UPDATEs in the SAME tagged structure the F-02 initial-load queue uses.
+  // The pagination commit drains them onto the merged page via
+  // `mergeOlderPage` — the tombstone wins, unknown ids are never appended
+  // as rows, and INSERTs keep flowing through the steady-state handler.
+  const pagingInFlightRef = useRef(false);
+  const pendingOlderRef = useRef<PendingRealtimeRow[]>([]);
   // F-01: conversation lifecycle token. Advanced SYNCHRONOUSLY in the render
   // body when the `connectionId` prop changes, so an async continuation that
   // resolves between this render and the effect flush can never still see
@@ -442,6 +458,27 @@ export default function Chat({ connectionId }: { connectionId: string }) {
             );
             return;
           }
+          // Pagination tombstone race: an older-page request is in flight
+          // and can still deliver the PRE-DELETE row of this message (its
+          // SELECT ran before the update committed) even though the message
+          // is not rendered yet. The steady-state merge below would ignore
+          // the unknown id — correct in general, wrong in this window,
+          // because the page commit would then resurrect the stale row.
+          // Buffer the update; the pagination commit reconciles it onto the
+          // merged page (tombstone wins, no phantom row, newest payload
+          // wins for repeated updates). Rows already rendered keep taking
+          // the immediate in-place path.
+          if (
+            pagingInFlightRef.current &&
+            !visibleMessagesRef.current.some((m) => m.id === row.id)
+          ) {
+            pendingOlderRef.current = captureRealtimeRow(
+              pendingOlderRef.current,
+              'UPDATE',
+              row,
+            );
+            return;
+          }
           setMessages((prev) => applyMessageUpdate(prev, row, connectionId));
         },
       )
@@ -583,6 +620,12 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     // Captured rows belong to the previous conversation: dropping them is
     // safe (reopening that conversation re-loads its page from the server).
     pendingRealtimeRef.current = [];
+    // The same applies to the pagination capture window (tombstone race):
+    // a buffer or gate left over from conversation A must never feed (or
+    // block) conversation B — the stale resolve path resets both as well,
+    // and this is the fallback so B starts with a clean pagination state.
+    pendingOlderRef.current = [];
+    pagingInFlightRef.current = false;
     // A pagination request of the previous conversation is invalid now; the
     // stale resolve path resets the latch as well, and this is the fallback
     // so the new conversation never starts with a stuck "loading older" flag.
@@ -737,6 +780,11 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     const token = lifecycleRef.current.current();
     loadingOlderRef.current = true;
     setLoadingOlder(true);
+    // Open the pagination capture gate (see `pendingOlderRef`): while this
+    // request is in flight, UPDATEs for messages the list does not render
+    // are buffered instead of ignored — the page below can still introduce
+    // their stale pre-update rows.
+    pagingInFlightRef.current = true;
     const result = await getMessagesPage(
       conn.id,
       first.created_at,
@@ -748,21 +796,71 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       // Conversation changed: discard the stale page, release the shared
       // single-flight latch (the reset effect clears the visual flag). The
       // scroll anchors of the previous conversation are never touched.
+      // Captured rows of conversation A are dropped as well — they must
+      // never drain into conversation B (the reset effect cleared the
+      // buffer already; this is the synchronous fallback).
+      pendingOlderRef.current = [];
+      pagingInFlightRef.current = false;
       loadingOlderRef.current = false;
       return;
     }
     const el = scrollRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
     pendingDeltaRef.current = prevHeight;
+    // Drain the rows captured while this page was in flight, atomically with
+    // closing the capture gate (clear-then-flip — the same discipline as the
+    // initial-load drain): an event after the flip is applied by the
+    // steady-state handler and composes with this commit through the
+    // functional updater; an event before it was captured and is reconciled
+    // here. Draining also applies on the error path — a captured tombstone
+    // for a message realtime INSERTed mid-flight must not stay unapplied.
+    const drained = pendingOlderRef.current;
+    pendingOlderRef.current = [];
+    pagingInFlightRef.current = false;
     if (result.error) {
       // Pagination failure is non-fatal: keep existing messages visible
       // and surface the error in the chat error bar.
       setError(result.error);
+      if (drained.length > 0) {
+        setMessages((prev) =>
+          mergeOlderPage(prev, [], drained, conn.id, hiddenUntil),
+        );
+      }
       setLoadingOlder(false);
       loadingOlderRef.current = false;
       return;
     }
-    setMessages((prev) => [...result.messages, ...prev]);
+    if (result.messages.length > 0) {
+      // Reconciled commit: the page's rows are strictly older than the
+      // list's head, so each of them is new (dedupe against realtime rows
+      // that landed during the flight keeps a message arriving via both
+      // paths exactly once, and the sorted insertion keeps the
+      // deterministic (created_at, id) order); the drained captured rows
+      // then override matching page rows — a delete-for-everyone tombstone
+      // received mid-flight wins over the stale pre-delete row instead of
+      // being resurrected by it. The merge always adds rows here, so the
+      // scroll-compensation layout effect below runs and releases the
+      // single-flight latch once the new list renders.
+      setMessages((prev) =>
+        mergeOlderPage(prev, result.messages, drained, conn.id, hiddenUntil),
+      );
+    } else {
+      // Empty older page: nothing can be prepended, and the drained rows
+      // can only replace ids realtime delivered during the flight (captured
+      // UPDATEs target unknown ids). No scroll compensation applies, and
+      // with no new rows the layout effect that usually releases the latch
+      // never runs — release everything directly (also when the drained
+      // merge turns out to be a no-op, so no stale scroll delta is left
+      // for the next unrelated layout pass).
+      if (drained.length > 0) {
+        setMessages((prev) =>
+          mergeOlderPage(prev, [], drained, conn.id, hiddenUntil),
+        );
+      }
+      pendingDeltaRef.current = 0;
+      setLoadingOlder(false);
+      loadingOlderRef.current = false;
+    }
     setHasMore(result.hasMore);
   }
 

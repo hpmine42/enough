@@ -44,6 +44,19 @@
 //  13. reconciliation never decrypts or rewrites ciphertext — the drained
 //      rows flow into the unchanged shared decryptForDisplay path.
 //
+// Pagination tombstone race (F-02 follow-up) regression suite:
+//  14. an UPDATE/tombstone that arrives while `loadOlder()`'s older-page
+//      request is in flight, for a message NOT currently rendered, is
+//      buffered in a dedicated pagination queue and reconciled ONTO the
+//      committed page — the stale pre-delete row the page may still carry
+//      can never resurrect the deleted message (the tombstone wins);
+//  15. the pagination commit reconciles instead of raw-prepending: dedupe
+//      by id against realtime rows that landed mid-flight, deterministic
+//      (created_at, id) order, hidden-cutoff and scope checks intact;
+//  16. INSERT behavior during pagination is unchanged (steady state),
+//      F-01 (conversation switch) and F-02 (initial load) stay intact,
+//      and the buffer stays ciphertext-only (no decrypt/plaintext path).
+//
 // The static guards (accepted repo pattern, supplement — not a substitute —
 // for the runtime tests) pin the Chat.tsx wiring:
 //   - a realtime event never triggers a full reload;
@@ -69,6 +82,7 @@ import {
   captureRealtimeRow,
   isPendingRealtimeRow,
   mergeLoadedPage,
+  mergeOlderPage,
   createChatLifecycle,
 } from '../chatRealtime.ts';
 
@@ -527,6 +541,298 @@ test('F02-9: reconciliation keeps ciphertext opaque — no decrypt, no plaintext
 });
 
 /* ------------------------------------------------------------------ */
+/* 8g. Pagination tombstone race (loadOlder in-flight reconciliation)  */
+/* ------------------------------------------------------------------ */
+//
+// Central invariant: a Realtime UPDATE received while an OLDER-PAGE request
+// is in flight must not be lost merely because the message is not yet
+// present in the rendered list — the page response can still introduce the
+// stale pre-update row. Chat.tsx buffers such UPDATEs into a dedicated
+// pagination queue (`pendingOlderRef`, gated by `pagingInFlightRef`) and
+// the loadOlder commit reconciles them onto the merged page through
+// `mergeOlderPage` — the exact helpers exercised here.
+//
+// Timeline every test shares (P-T1 is the primary regression):
+//
+//   Chat renders the newest page (head = m41, hasMore)
+//     → loadOlder() starts (cursor strictly below m41)
+//     → realtime event(s) arrive mid-flight
+//     → the older page resolves (possibly with stale rows)
+//     → commit = mergeOlderPage(rendered, page, captured, …)
+
+function ts(h, min = 0) {
+  return `2026-01-01T${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:00Z`;
+}
+
+test('P-T1: a tombstone UPDATE for an unrendered message during loadOlder wins over the stale paginated row', () => {
+  const rendered = [msg('m41', CONN, ts(13)), msg('m42', CONN, ts(14))];
+  // The pre-fix failure this suite guards against (actual pre-fix logic:
+  // steady-state UPDATE handler + raw-prepend commit):
+  const staleX = msg('mX', CONN, ts(10), { ciphertext: 'ENVELOPE-STALE' });
+  const tombstoneX = { ...staleX, deleted_at: ts(16), ciphertext: '' };
+  const ignored = applyMessageUpdate(rendered, tombstoneX, CONN);
+  assert.equal(ignored, rendered, 'pre-fix: the unknown-id UPDATE was dropped');
+  const resurrected = [staleX, msg('m40', CONN, ts(12)), ...ignored];
+  assert.equal(resurrected.find((m) => m.id === 'mX').deleted_at, null,
+    'pre-fix: the raw prepend resurrected the deleted message');
+
+  // The fixed flow: loadOlder in flight → tombstone captured (the exact
+  // call the new UPDATE-handler branch makes) → page resolves with the
+  // stale pre-delete X → reconciled commit.
+  let pending = [];
+  pending = captureRealtimeRow(pending, 'UPDATE', tombstoneX);
+  const page = [staleX, msg('m40', CONN, ts(12))];
+  const committed = mergeOlderPage(rendered, page, pending, CONN, null);
+  assert.deepEqual(committed.map((m) => m.id), ['mX', 'm40', 'm41', 'm42'],
+    'no row added or removed, deterministic order');
+  const finalX = committed.find((m) => m.id === 'mX');
+  assert.equal(finalX, tombstoneX, 'final state is the tombstone');
+  assert.equal(finalX.deleted_at, ts(16));
+  assert.equal(finalX.ciphertext, '', 'the stale ciphertext is never reintroduced');
+  assert.ok(!committed.includes(staleX), 'the stale visible row never wins');
+  // deleted_at is set, so the shared decrypt effect skips the row and
+  // MessageBubble renders the deleted placeholder — no plaintext of the
+  // deleted message can be resolved again.
+});
+
+test('P-T2: a non-tombstone UPDATE captured during loadOlder survives the pagination commit', () => {
+  const rendered = [msg('m41', CONN, ts(13))];
+  const staleX = msg('mX', CONN, ts(10), { ciphertext: 'ENVELOPE-OLD', meta: null });
+  const renamedX = msg('mX', CONN, ts(10), { ciphertext: 'ENVELOPE-OLD', meta: { new_name: 'renamed' } });
+  let pending = [];
+  pending = captureRealtimeRow(pending, 'UPDATE', renamedX);
+  const committed = mergeOlderPage(rendered, [staleX], pending, CONN, null);
+  assert.deepEqual(committed.map((m) => m.id), ['mX', 'm41']);
+  const finalX = committed.find((m) => m.id === 'mX');
+  assert.equal(finalX, renamedX, 'the captured UPDATE payload replaces the stale page row');
+  assert.equal(finalX.meta.new_name, 'renamed');
+  assert.equal(finalX.deleted_at, null, 'a live row stays live (no accidental tombstoning)');
+  // Without captured rows the page merges unchanged.
+  const fresh = mergeOlderPage(rendered, [staleX], [], CONN, null);
+  assert.equal(fresh.find((m) => m.id === 'mX'), staleX);
+});
+
+test('P-T3: an UPDATE for a currently rendered message applies immediately and survives the commit', () => {
+  // Chat's pagination capture branch only buffers messages the list does
+  // NOT render; a rendered message takes the steady-state in-place path
+  // while the older page is in flight. The reconciled commit must keep it.
+  const rendered = [msg('m41', CONN, ts(13)), msg('m42', CONN, ts(14))];
+  const tombstone42 = { ...rendered[1], deleted_at: ts(16), ciphertext: '' };
+  // Steady-state path taken by the handler (unchanged behavior):
+  const list = applyMessageUpdate(rendered, tombstone42, CONN);
+  assert.notEqual(list, rendered, 'the rendered row was updated in place');
+  // Older page resolves (strictly older than m41 — cannot contain m42):
+  const page = [msg('m40', CONN, ts(12))];
+  const committed = mergeOlderPage(list, page, [], CONN, null);
+  assert.deepEqual(committed.map((m) => m.id), ['m40', 'm41', 'm42']);
+  assert.equal(committed.find((m) => m.id === 'm42'), tombstone42,
+    'the immediately applied tombstone is not clobbered by the page commit');
+});
+
+test('P-T4: several UPDATEs during loadOlder reconcile deterministically (newest wins per id)', () => {
+  const rendered = [msg('m41', CONN, ts(13))];
+  const staleX = msg('mX', CONN, ts(10));
+  const staleY = msg('mY', CONN, ts(11));
+  const x1 = { ...staleX, meta: { new_name: 'n1' } };
+  const x2 = { ...staleX, meta: { new_name: 'n2' }, deleted_at: ts(16), ciphertext: '' };
+  const y1 = { ...staleY, meta: { new_name: 'other' } };
+  // Arrival order through the actual capture queue (newest UPDATE payload
+  // supersedes the older one for the same id; different ids keep order):
+  let pending = [];
+  pending = captureRealtimeRow(pending, 'UPDATE', x1);
+  pending = captureRealtimeRow(pending, 'UPDATE', y1);
+  pending = captureRealtimeRow(pending, 'UPDATE', x2);
+  assert.equal(pending.length, 2, 'the queue holds one entry per message id');
+  const committed = mergeOlderPage(rendered, [staleX, staleY], pending, CONN, null);
+  assert.deepEqual(committed.map((m) => m.id), ['mX', 'mY', 'm41']);
+  assert.equal(committed.find((m) => m.id === 'mX'), x2,
+    'newest received payload for X wins (realtime arrival order is authoritative)');
+  assert.equal(committed.find((m) => m.id === 'mY'), y1, "Y's update survives alongside X's");
+  assert.equal(committed.find((m) => m.id === 'mX').ciphertext, '');
+});
+
+test('P-T5: realtime INSERT behavior during pagination is unchanged and cannot duplicate', () => {
+  const rendered = [msg('m41', CONN, ts(13))];
+  // (a) A new message INSERTed mid-flight merges immediately (steady
+  // state) and stays after the older page commits.
+  const inserted = msg('m43', CONN, ts(15), { ciphertext: 'ENVELOPE-NEW' });
+  const list = mergeIncomingMessage(rendered, inserted, CONN, null);
+  const page = [msg('m40', CONN, ts(12))];
+  const committed = mergeOlderPage(list, page, [], CONN, null);
+  assert.deepEqual(committed.map((m) => m.id), ['m40', 'm41', 'm43']);
+  assert.equal(committed.find((m) => m.id === 'm43').ciphertext, 'ENVELOPE-NEW',
+    'the inserted envelope flows byte-identical into the unchanged decrypt path');
+  // (b) The tie-break/clock-skew case: the page ALSO carries the id that
+  // realtime already delivered — the commit must keep it exactly once and
+  // must keep the (fresher) realtime row, not the page snapshot.
+  const pageDup = [msg('m43', CONN, ts(15), { ciphertext: 'ENVELOPE-STALE-PAGE' })];
+  const committed2 = mergeOlderPage(list, pageDup, [], CONN, null);
+  assert.deepEqual(committed2.map((m) => m.id), ['m41', 'm43'], 'no duplicate row');
+  assert.equal(committed2.find((m) => m.id === 'm43').ciphertext, 'ENVELOPE-NEW');
+});
+
+test('P-T6: rows belonging to another conversation are ignored by the pagination merge', () => {
+  const rendered = [msg('m41', CONN, ts(13))];
+  const foreignPageRow = msg('mF', 'conn-other', ts(10));
+  const foreignUpdate = msg('mG', 'conn-other', ts(11), { deleted_at: ts(16), ciphertext: '' });
+  // Foreign rows never reach the queue in Chat (the handler re-scopes
+  // before capturing); even if one did, the merge re-scopes fail-closed:
+  const committed = mergeOlderPage(
+    rendered,
+    [foreignPageRow],
+    [update(foreignUpdate)],
+    CONN,
+    null,
+  );
+  assert.equal(committed, rendered, 'same reference — nothing of another conversation enters the list');
+});
+
+test('P-T7: a loadOlder started in chat A can never commit into chat B (F-01 intact)', () => {
+  const lc = createChatLifecycle();
+  const tokenA = lc.current();
+  let pendingA = [];
+  const tombstoneA = msg('mA', 'conn-a', ts(10), { deleted_at: ts(16), ciphertext: '' });
+  pendingA = captureRealtimeRow(pendingA, 'UPDATE', tombstoneA);
+  const pageA = [msg('mA', 'conn-a', ts(10)), msg('m40', 'conn-a', ts(12))];
+  // The user switches A → B while the page is in flight: the generation
+  // advances and the conversation reset clears A's pagination buffer.
+  lc.advance();
+  pendingA = []; // pendingOlderRef.current = [] (reset effect / stale path)
+  // The guarded commit decision (as in loadOlder): stale → discard.
+  const listB = [msg('b1', 'conn-b', ts(13))];
+  assert.equal(lc.isCurrent(tokenA), false, 'the stale token must not be current');
+  assert.equal(listB.length, 1, 'nothing of conversation A entered B');
+  // The still-current conversation keeps committing normally, and the
+  // re-scoping of the merge keeps any leftover A row out of B's state:
+  const committedB = mergeOlderPage(listB, [], [], 'conn-b', null);
+  assert.equal(committedB, listB);
+  const scoped = mergeOlderPage(listB, [], [update(tombstoneA)], 'conn-b', null);
+  assert.equal(scoped, listB, 'an A row can never be drained into a B commit');
+  // Symmetry: without the switch the same page would have committed into A.
+  const lc2 = createChatLifecycle();
+  const token = lc2.current();
+  const renderedA = [msg('m41', 'conn-a', ts(13))];
+  const committed = lc2.isCurrent(token)
+    ? mergeOlderPage(renderedA, pageA, [update(tombstoneA)], 'conn-a', null)
+    : renderedA;
+  assert.deepEqual(committed.map((m) => m.id), ['mA', 'm40', 'm41']);
+  assert.equal(committed[0].deleted_at, ts(16));
+});
+
+test('P-T8: the reconciled list keeps the deterministic (created_at, id) order', () => {
+  const rendered = [msg('m41', CONN, ts(13))];
+  // Page as getMessagesPage returns it (ascending, with a same-timestamp
+  // id tie), plus a captured update for one of its rows.
+  const tie = '2026-01-01T10:00:00Z';
+  const page = [
+    msg('b', CONN, tie),
+    msg('a', CONN, tie),
+    msg('m40', CONN, ts(12)),
+  ];
+  const tombB = { ...page[0], deleted_at: ts(16), ciphertext: '' };
+  let pending = [];
+  pending = captureRealtimeRow(pending, 'UPDATE', tombB);
+  const committed = mergeOlderPage(rendered, page, pending, CONN, null);
+  assert.deepEqual(committed.map((m) => m.id), ['a', 'b', 'm40', 'm41'],
+    '(created_at, id) ascending with the id tiebreak, as the database paginates');
+  assert.equal(committed[1], tombB, 'the in-place replacement keeps its sorted slot');
+  for (let i = 1; i < committed.length; i++) {
+    const p = committed[i - 1];
+    const q = committed[i];
+    assert.ok(
+      p.created_at < q.created_at || (p.created_at === q.created_at && p.id < q.id),
+      'strict (created_at, id) ascending order after the pagination commit',
+    );
+  }
+});
+
+test('P-T9: a message arriving via both realtime and the older page appears exactly once', () => {
+  const rendered = [msg('m41', CONN, ts(13))];
+  // Realtime delivered the row first (immediately applied INSERT)…
+  const live = msg('m39', CONN, ts(11), { ciphertext: 'ENVELOPE-LIVE' });
+  const list = mergeIncomingMessage(rendered, live, CONN, null);
+  // …and the page snapshot (taken earlier) still carries the stale copy:
+  const page = [msg('m39', CONN, ts(11), { ciphertext: 'ENVELOPE-PAGE' }), msg('m40', CONN, ts(12))];
+  const committed = mergeOlderPage(list, page, [], CONN, null);
+  assert.deepEqual(committed.map((m) => m.id), ['m39', 'm40', 'm41'], 'exactly one copy');
+  assert.equal(committed[0], live, 'the realtime (fresher) row wins over the page snapshot');
+  // The tagged-queue variant (an INSERT entry drained at the commit) also
+  // never duplicates: it dedupes against the page row exactly like the
+  // F-02 initial-load drain does (the page row stays; the queued INSERT
+  // would have been a replay of it).
+  const committed2 = mergeOlderPage(rendered, page, [insert(live)], CONN, null);
+  assert.deepEqual(committed2.map((m) => m.id), ['m39', 'm40', 'm41'], 'exactly one copy in the queued variant');
+  assert.equal(committed2.filter((m) => m.id === 'm39').length, 1);
+});
+
+test('P-T10: the pagination reconciliation keeps ciphertext opaque (one E2EE display path)', () => {
+  const envelope = '{"v":1,"e":"sw","t":4,"b":"YmFzZTY0"}';
+  const rendered = [msg('m41', CONN, ts(13))];
+  const secretX = msg('mX', CONN, ts(10), { ciphertext: envelope });
+  const tombstoneX = { ...secretX, deleted_at: ts(16), ciphertext: '' };
+  let pending = [];
+  pending = captureRealtimeRow(pending, 'UPDATE', tombstoneX);
+  const committed = mergeOlderPage(rendered, [secretX], pending, CONN, null);
+  // Live page rows keep their envelope byte-identical…
+  const committedLive = mergeOlderPage(rendered, [secretX], [], CONN, null);
+  assert.equal(committedLive.find((m) => m.id === 'mX').ciphertext, envelope,
+    'the envelope is never parsed, trimmed, sanitized or rewritten');
+  // …and the tombstoned row can never re-expose the deleted envelope.
+  assert.equal(committed.find((m) => m.id === 'mX').ciphertext, '');
+  assert.equal(committed.find((m) => m.id === 'mX').deleted_at, ts(16));
+  // The buffer never carries anything but raw message rows (ciphertext or
+  // the documented empty string of a tombstone/system row) — see the
+  // static guard PG-G5 for the no-decrypt wiring assertion.
+});
+
+test('P-T11: the hidden/deletion cutoff semantics are unchanged by the pagination merge', () => {
+  const cutoff = '2026-01-01T12:00:00Z';
+  const rendered = [msg('m41', CONN, ts(13))];
+  // Page rows at/below the cutoff are dropped, rows above it render —
+  // exactly like the initial-load drain (F02-6b) and the live INSERT path.
+  const hidden = msg('m39', CONN, ts(11, 59));
+  const visible = msg('m40', CONN, ts(12, 1));
+  const committed = mergeOlderPage(rendered, [hidden, visible], [], CONN, cutoff);
+  assert.deepEqual(committed.map((m) => m.id), ['m40', 'm41'], 'cutoff rows are not rendered');
+  // A captured UPDATE for a hidden message stays dropped (no phantom row):
+  const hiddenUpdate = msg('m38', CONN, ts(11), { deleted_at: ts(16), ciphertext: '' });
+  const committed2 = mergeOlderPage(rendered, [visible], [update(hiddenUpdate)], CONN, cutoff);
+  assert.deepEqual(committed2.map((m) => m.id), ['m40', 'm41']);
+  // Tombstoned rows themselves stay IN the list (the placeholder renders,
+  // the decrypt effect skips them) — the merge never filters deletions:
+  const tomb = msg('m40', CONN, ts(12, 1), { deleted_at: ts(16), ciphertext: '' });
+  const committed3 = mergeOlderPage(rendered, [tomb], [update(tomb)], CONN, cutoff);
+  assert.deepEqual(committed3.map((m) => m.id), ['m40', 'm41']);
+  assert.equal(committed3[0].deleted_at, ts(16));
+});
+
+test('P-T12: empty and partial older pages commit cleanly without phantom pending rows', () => {
+  const rendered = [msg('m41', CONN, ts(13))];
+  // Empty page, nothing captured: a no-op commit (same reference — Chat
+  // releases the loading-older latch directly, no re-render needed).
+  assert.equal(mergeOlderPage(rendered, [], [], CONN, null), rendered);
+  // Empty page + captured tombstone for an id neither the list nor the
+  // (empty) page contains: dropped, NOT applied as a phantom row.
+  const orphan = msg('mZ', CONN, ts(9), { deleted_at: ts(16), ciphertext: '' });
+  assert.equal(mergeOlderPage(rendered, [], [update(orphan)], CONN, null), rendered,
+    'an UPDATE never invents a row — same reference, no state churn');
+  // Partial page (fewer rows than PAGE_SIZE) commits normally.
+  const partial = [msg('m40', CONN, ts(12))];
+  const committed = mergeOlderPage(rendered, partial, [], CONN, null);
+  assert.deepEqual(committed.map((m) => m.id), ['m40', 'm41']);
+  // Partial/empty page + captured tombstone for a row realtime INSERTed
+  // during the flight (the only case where a captured unknown-id UPDATE
+  // has a target): replaced in place at the drain.
+  const inserted = msg('m39', CONN, ts(11), { ciphertext: 'ENVELOPE-LIVE' });
+  const list = mergeIncomingMessage(rendered, inserted, CONN, null);
+  const tomb39 = { ...inserted, deleted_at: ts(16), ciphertext: '' };
+  const committed2 = mergeOlderPage(list, partial, [update(tomb39)], CONN, null);
+  assert.deepEqual(committed2.map((m) => m.id), ['m39', 'm40', 'm41']);
+  assert.equal(committed2.find((m) => m.id === 'm39'), tomb39,
+    'the drained tombstone wins over the row the INSERT delivered');
+});
+
+/* ------------------------------------------------------------------ */
 /* 9. Structural validation                                            */
 /* ------------------------------------------------------------------ */
 
@@ -838,8 +1144,12 @@ test('CRG7: existing send, pagination and deletion behavior is preserved', () =>
     /setMessages\(\(prev\) =>\s*prev\.some\(\(m\) => m\.id === message\.id\)/,
   );
   assert.match(chatSrc, /\[\.\.\.prev, message\]\.sort\(compareMessagesAsc\)/);
-  // Pagination still prepends older pages with the existing shape.
-  assert.match(chatSrc, /setMessages\(\(prev\) => \[\.\.\.result\.messages, \.\.\.prev\]\)/);
+  // Pagination commits through the reconciling older-page merge (no raw
+  // prepend anymore — see PG-G1 for the full pagination wiring guard).
+  assert.match(
+    chatSrc,
+    /setMessages\(\(prev\) =>\s*mergeOlderPage\(prev, result\.messages, drained, conn\.id, hiddenUntil\)/,
+  );
   // Delete-for-me is still pure per-user tombstone bookkeeping.
   assert.match(chatSrc, /setDeletedForMe\(\(prev\) => new Set\(prev\)\.add\(target\.message\.id\)\)/);
 });
@@ -923,4 +1233,155 @@ test('CRL-G4: the E2EE display path is unchanged (guard never touches decrypt)',
   assert.match(chatSrc, /\[messages, manager, conn, me\]\)/);
   assert.match(chatSrc, /resolvedRef\.current\.has\(m\.id\)\) continue;/);
   assert.match(chatSrc, /decryptedRef\.current\.has\(m\.id\)\) continue;/);
+});
+
+/* --------- 12. Pagination tombstone race wiring (static guards) --------- */
+
+/** The loadOlder function, from its declaration to the scroll-compensation effect. */
+function loadOlderSrc() {
+  const start = chatSrc.indexOf('async function loadOlder');
+  const end = chatSrc.indexOf('useLayoutEffect(() =>', start);
+  assert.ok(start >= 0 && end > start, 'loadOlder exists');
+  return chatSrc.slice(start, end);
+}
+
+test('PG-G1: the loadOlder commit reconciles through mergeOlderPage (no raw prepend)', () => {
+  const load = loadOlderSrc();
+  // The success-path commit merges the page plus the drained captured rows
+  // through the shared pure helper — the raw array prepend is gone.
+  assert.match(
+    load,
+    /setMessages\(\(prev\) =>\s*mergeOlderPage\(prev, result\.messages, drained, conn\.id, hiddenUntil\)/,
+    'the older page commits through the reconciling merge',
+  );
+  assert.ok(
+    !/\[\.\.\.result\.messages, \.\.\.prev\]/.test(load),
+    'the stale raw prepend (which resurrected deleted rows) is gone',
+  );
+  // The error/empty-page paths drain captured rows through the same helper.
+  const drains = load.match(/mergeOlderPage\(prev, \[\], drained, conn\.id, hiddenUntil\)/g) ?? [];
+  assert.ok(drains.length === 2, `error and empty-page paths drain the captured rows, saw ${drains.length}`);
+});
+
+test('PG-G2: an UPDATE for an unrendered message is buffered while an older page is in flight', () => {
+  const wiring = realtimeWiring();
+  const updateStart = wiring.indexOf("event: 'UPDATE'");
+  const updateHandler = wiring.slice(updateStart, wiring.indexOf("event: '*'", updateStart));
+  // The pagination capture branch is gated on the pagination flight AND on
+  // the message not being rendered (rendered rows keep the immediate path —
+  // and unknown UPDATEs stay ignored outside the flight window).
+  assert.match(
+    updateHandler,
+    /if \(\s*pagingInFlightRef\.current &&\s*!visibleMessagesRef\.current\.some\(\(m\) => m\.id === row\.id\)\s*\) \{/,
+    'the capture branch requires: older page in flight AND message not rendered',
+  );
+  assert.match(
+    updateHandler,
+    /pendingOlderRef\.current = captureRealtimeRow\(\s*pendingOlderRef\.current,\s*'UPDATE',\s*row,\s*\)/,
+    'the captured row goes into the dedicated pagination queue (same tagged structure as F-02)',
+  );
+  // Order: F-02 load gate first, then the pagination gate, then the
+  // steady-state in-place merge.
+  const f02Gate = updateHandler.indexOf('if (loadingRef.current)');
+  const pgCapture = updateHandler.indexOf('pendingOlderRef.current = captureRealtimeRow');
+  const steady = updateHandler.indexOf('setMessages((prev) => applyMessageUpdate(prev, row, connectionId))');
+  assert.ok(
+    f02Gate >= 0 && f02Gate < pgCapture && pgCapture < steady,
+    'F-02 load gate → pagination capture → steady-state merge, in that order',
+  );
+  // The steady-state unknown-id behavior is unchanged outside the window:
+  // applyMessageUpdate still ignores unknown ids (no global append).
+  assert.ok(
+    !/mergeIncomingMessage\(prev, row/.test(updateHandler),
+    'an UPDATE handler never appends a row',
+  );
+  // INSERTs are NOT captured during pagination: they keep the steady-state
+  // immediate merge (dedupe at the commit makes that safe).
+  const insertStart = wiring.indexOf("event: 'INSERT'");
+  const insertHandler = wiring.slice(insertStart, updateStart);
+  assert.ok(!/pendingOlderRef/.test(insertHandler), 'the INSERT handler has no pagination capture');
+  assert.match(insertHandler, /if \(loadingRef\.current\)/, 'the F-02 INSERT capture is untouched');
+});
+
+test('PG-G3: the pagination capture gate opens once and closes on every terminal path', () => {
+  const load = loadOlderSrc();
+  // Opened exactly once, before the page request…
+  const opens = load.match(/pagingInFlightRef\.current = true/g) ?? [];
+  assert.equal(opens.length, 1, 'the gate opens when loadOlder starts');
+  assert.ok(
+    load.indexOf('pagingInFlightRef.current = true') < load.indexOf('await getMessagesPage'),
+    'the gate is open before the request goes out',
+  );
+  // …and the drain clears the queue and closes the gate synchronously,
+  // BEFORE the commit (clear-then-flip: an event after the flip composes
+  // through the functional updater; an event before it was captured).
+  const clearPos = load.indexOf('pendingOlderRef.current = [];');
+  const flipPos = load.indexOf('pagingInFlightRef.current = false;');
+  const commitPos = load.indexOf('mergeOlderPage(prev, result.messages');
+  assert.ok(clearPos >= 0 && flipPos > clearPos, 'clear-then-flip at the commit');
+  assert.ok(commitPos > flipPos, 'the commit happens after the flip');
+  // Closed on every terminal path: the stale-conversation path closes its
+  // own copy of the gate, and the synchronous clear-then-flip before the
+  // commit covers BOTH the error and the success/empty-page paths (the
+  // flip precedes the error check, so no path can run with the gate open).
+  const closes = load.match(/pagingInFlightRef\.current = false/g) ?? [];
+  assert.equal(closes.length, 2, 'stale path + the single synchronous commit flip');
+  assert.ok(
+    load.indexOf('pagingInFlightRef.current = false;') < load.indexOf('if (result.error)'),
+    'the flip happens before the error branch, so the error path is covered',
+  );
+  assert.match(load, /pendingOlderRef\.current = \[\];\s*pagingInFlightRef\.current = false;\s*loadingOlderRef\.current = false;/);
+  // The conversation switch clears the pagination buffer and gate (F-01).
+  const resetStart = chatSrc.indexOf('// Reset display state when switching conversations.');
+  const resetEnd = chatSrc.indexOf('/* --------------------------- scroll / read');
+  const reset = chatSrc.slice(resetStart, resetEnd);
+  assert.match(reset, /pendingOlderRef\.current = \[\];/, 'the buffer is cleared on every switch');
+  assert.match(reset, /pagingInFlightRef\.current = false;/, 'the gate is closed on every switch');
+});
+
+test('PG-G4: F-01 and F-02 wiring is untouched by the pagination change', () => {
+  // F-01: loadOlder still binds to the conversation before the await and
+  // discards stale results (the full shape is pinned by CRL-G3).
+  const load = loadOlderSrc();
+  assert.match(load, /const token = lifecycleRef\.current\.current\(\);/);
+  assert.match(load, /if \(!lifecycleRef\.current\.isCurrent\(token\)\) \{/);
+  // F-02: the initial-load drain block is byte-for-byte the same shape
+  // (queue cleared, gate flipped, mergeLoadedPage commit).
+  const drainStart = chatSrc.indexOf('const drained = pendingRealtimeRef.current;');
+  assert.ok(drainStart >= 0, 'the F-02 initial-load drain still exists');
+  const drain = chatSrc.slice(drainStart, chatSrc.indexOf('setMessages(committed);', drainStart));
+  assert.match(drain, /pendingRealtimeRef\.current = \[\];/);
+  assert.match(drain, /loadingRef\.current = false;/);
+  assert.match(drain, /const committed = mergeLoadedPage\(/);
+  // The pagination queue is a SEPARATE structure: no second consumer of
+  // the F-02 queue and no cross-drain (one event, one queue).
+  const load2 = loadOlderSrc();
+  assert.ok(!/pendingRealtimeRef/.test(load2), 'loadOlder never touches the F-02 initial-load queue');
+  const initLoadStart = chatSrc.indexOf('const drained = pendingRealtimeRef.current;');
+  const initLoadEnd = chatSrc.indexOf('setMessages(committed);', initLoadStart);
+  assert.ok(
+    !/pendingOlderRef/.test(chatSrc.slice(initLoadStart, initLoadEnd)),
+    'the initial-load drain never touches the pagination queue',
+  );
+});
+
+test('PG-G5: the pagination buffer path never decrypts and never touches plaintext', () => {
+  // The helpers (including mergeOlderPage) are covered by CRG-F02-4's
+  // stripped-source scan of chatRealtime.ts; here the Chat.tsx wiring is
+  // pinned: the pagination flight adds no crypto/plaintext call.
+  const load = loadOlderSrc();
+  assert.ok(
+    !/decryptForDisplay|getCachedPlaintext|cachePlaintext|setPlain|setUndecryptable/.test(load),
+    'loadOlder never resolves or stores plaintext',
+  );
+  const wiring = realtimeWiring();
+  const updateStart = wiring.indexOf("event: 'UPDATE'");
+  const updateHandler = wiring.slice(updateStart, wiring.indexOf("event: '*'", updateStart));
+  assert.ok(
+    !/decryptForDisplay|getCachedPlaintext|cachePlaintext|setPlain|setUndecryptable/.test(updateHandler),
+    'the pagination capture branch never resolves or stores plaintext',
+  );
+  // Rows are captured as raw payload rows only (`row`), and the buffer
+  // type is the same ciphertext-only PendingRealtimeRow as F-02.
+  assert.match(chatSrc, /const pendingOlderRef = useRef<PendingRealtimeRow\[\]>\(\[\]\);/);
 });

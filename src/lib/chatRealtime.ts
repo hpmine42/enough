@@ -242,6 +242,55 @@ export function mergeLoadedPage(
 }
 
 /* ------------------------------------------------------------------ */
+/* older-page reconciliation (pagination tombstone race)               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Merge an older (paginated) page plus the realtime rows captured while it
+ * was in flight onto the current list (the `loadOlder()` commit).
+ *
+ * An older page is fetched with a cursor strictly below the list's current
+ * head while realtime keeps mutating the conversation, so the commit must
+ * reconcile three sources — newest knowledge last:
+ *
+ *   - the current list is the base. It already contains every realtime
+ *     INSERT/UPDATE applied while the page was in flight, and its rows WIN
+ *     over page rows with the same id (the page snapshot was taken earlier
+ *     and may be staler — e.g. a row realtime already delivered);
+ *   - the page rows merge in one by one as INSERTs through the same
+ *     steady-state checks the live handler uses: structural validation,
+ *     connection scoping, the chat-deletion cutoff, dedupe by id against
+ *     the base, and sorted insertion that keeps the deterministic
+ *     `(created_at, id)` order the database pagination uses;
+ *   - the rows captured while the page was in flight (Chat.tsx buffers
+ *     UPDATEs for messages the list does not render yet — the pagination
+ *     counterpart of the F-02 initial-load queue) drain last through the
+ *     same {@link mergeLoadedPage} semantics: an UPDATE replaces the merged
+ *     row in place, so a delete-for-everyone tombstone that arrived for a
+ *     message the page still delivers as a visible pre-delete row cannot be
+ *     lost and the stale row is never committed as visible state; unknown
+ *     ids stay ignored (an UPDATE never invents a row).
+ *
+ * Draining in arrival order keeps Case B/F02-5b semantics: a message whose
+ * INSERT was captured before its tombstone still ends up as the tombstone.
+ *
+ * Returns the same array reference when the merge changes nothing.
+ */
+export function mergeOlderPage(
+  prev: Message[],
+  olderPage: Message[],
+  pending: Array<Message | PendingRealtimeRow>,
+  connectionId: string,
+  hiddenUntil: string | null | undefined,
+): Message[] {
+  let out = prev;
+  for (const row of olderPage) {
+    out = mergeIncomingMessage(out, row, connectionId, hiddenUntil);
+  }
+  return mergeLoadedPage(out, pending, connectionId, hiddenUntil);
+}
+
+/* ------------------------------------------------------------------ */
 /* conversation lifecycle (audit F-01)                                 */
 /* ------------------------------------------------------------------ */
 
