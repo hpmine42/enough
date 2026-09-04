@@ -37,6 +37,12 @@ import {
   shouldAnchorInitial,
 } from '../lib/chatScroll';
 import { advanceReadPosition, compareMessagesAsc, displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
+import {
+  applyMessageUpdate,
+  isRealtimeMessageRow,
+  mergeIncomingMessage,
+  mergeLoadedPage,
+} from '../lib/chatRealtime';
 import { supabase } from '../lib/supabase';
 import { prefersReducedMotion } from '../lib/theme';
 import { getLang, t, useLang } from '../i18n';
@@ -165,6 +171,13 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const visibleMessagesRef = useRef<Message[]>([]);
   // Newest message timestamp known to this chat session (loaded or realtime).
   const newestKnownRef = useRef<string | null>(null);
+  // True while the chat loader is fetching a page. Realtime rows arriving in
+  // that window are captured (not applied) and drained onto the page the
+  // loader commits — a message landing mid-fetch must not be dropped by the
+  // commit, and must not be applied and then clobbered by it either.
+  const loadingRef = useRef(true);
+  // Rows captured while a load was in flight (see `loadingRef`).
+  const pendingRealtimeRef = useRef<Message[]>([]);
 
   const me = user?.id ?? '';
 
@@ -178,6 +191,8 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     // already flushed by this effect's cleanup).
     lastReadRef.current = null;
     newestKnownRef.current = null;
+    // This load owns the realtime gate from now on (see `loadingRef`).
+    loadingRef.current = true;
     setLoading(true);
     setValid(true);
 
@@ -190,6 +205,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         const snapshot = await loadChatSnapshot(me, connectionId);
         if (!active) return;
         if (!snapshot) {
+          loadingRef.current = false;
           setValid(false);
           setLoading(false);
           return;
@@ -201,6 +217,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         setDeletedForMe(new Set(snapshot.deletedForMe));
         // Older pages live on the server only: never paginate while offline.
         setHasMore(false);
+        loadingRef.current = false;
         setFromCache(true);
         setValid(true);
         setLoading(false);
@@ -210,6 +227,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       if (!active) return;
       const isMine = found && (found.user_a === me || found.user_b === me);
       if (!found || !isMine) {
+        loadingRef.current = false;
         setValid(false);
         setLoading(false);
         return;
@@ -221,6 +239,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       const profilesResult = await getProfiles([peerId, me]);
       if (profilesResult.error) {
         if (active) {
+          loadingRef.current = false;
           setLoadError(profilesResult.error);
           setLoading(false);
         }
@@ -246,6 +265,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       );
       if (pageResult.error) {
         if (active) {
+          loadingRef.current = false;
           setLoadError(pageResult.error);
           setLoading(false);
         }
@@ -253,14 +273,33 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       }
       if (active) {
         setHiddenUntil(until);
-        setMessages(pageResult.messages);
+        // Drain the rows captured while this page was being fetched (see
+        // `loadingRef`): a realtime message that landed mid-fetch must not
+        // be dropped by the commit. The same merge semantics apply, so
+        // order, dedupe and scoping are identical to the steady state.
+        // The gate flips synchronously with the drain, before the commit:
+        // an event after the flip is applied normally (the functional
+        // updater composes with the page commit); an event before it was
+        // captured and is drained here.
+        const drained = pendingRealtimeRef.current;
+        pendingRealtimeRef.current = [];
+        loadingRef.current = false;
+        const committed = mergeLoadedPage(
+          pageResult.messages,
+          drained,
+          connectionId,
+          until,
+        );
+        setMessages(committed);
         setHasMore(pageResult.hasMore);
         setDeletedForMe(deletions.messages);
         setFromCache(false);
         setLoading(false);
         // The server answered, so this data is current: clear a previous
         // "unreachable" latch and refresh the offline snapshot of exactly
-        // this conversation for exactly this account.
+        // this conversation for exactly this account. The snapshot mirrors
+        // the committed (drained) list, so the offline render matches what
+        // was online.
         reportNetworkSuccess();
         const peerProfile = isSelfConnection(found)
           ? profiles[me] ?? null
@@ -268,7 +307,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         void saveChatSnapshot(me, connectionId, {
           connection: found,
           peer: peerProfile,
-          messages: pageResult.messages,
+          messages: committed,
           hiddenUntil: until,
           deletedForMe: Array.from(deletions.messages),
         });
@@ -310,15 +349,38 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           filter: `connection_id=eq.${connectionId}`,
         },
         (payload) => {
-          const msg = payload.new as Message;
-          if (isHiddenByChatDeletion(msg.created_at, hiddenUntil)) return;
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === msg.id)) return prev;
-            if (!atBottomRef.current) {
-              setNewSinceUp((c) => c + 1);
+          const row = payload.new as unknown;
+          // A Realtime payload is not authorization: on top of the channel's
+          // connection filter and RLS delivery, the row is re-scoped to the
+          // open chat client-side (same client-side gate as the Home
+          // bridge, src/lib/homeRealtime.ts).
+          if (!isRealtimeMessageRow(row) || row.connection_id !== connectionId) {
+            return;
+          }
+          // Rows behind the chat-deletion cutoff are not rendered.
+          if (isHiddenByChatDeletion(row.created_at, hiddenUntil)) return;
+          // A load is in flight: its page commit is about to replace the
+          // list. Capture the row (deduped) and let the commit drain it —
+          // no reload, no dropped message.
+          if (loadingRef.current) {
+            if (!pendingRealtimeRef.current.some((m) => m.id === row.id)) {
+              pendingRealtimeRef.current.push(row);
             }
-            return [...prev, msg].sort(compareMessagesAsc);
-          });
+            return;
+          }
+          // Duplicate events (a replay, or our own send racing back from
+          // another device) never mutate the list: fast path here, and the
+          // merge below re-checks by id, so state stays correct either way.
+          if (visibleMessagesRef.current.some((m) => m.id === row.id)) return;
+          // Ciphertext-only incremental merge; the row is resolved for
+          // display by the shared E2EE decrypt path (load and realtime use
+          // one path — see the decrypt effect below).
+          setMessages((prev) =>
+            mergeIncomingMessage(prev, row, connectionId, hiddenUntil),
+          );
+          if (!atBottomRef.current) {
+            setNewSinceUp((c) => c + 1);
+          }
           // Refresh the "new messages below" count without waiting for a scroll.
           requestAnimationFrame(() => {
             if (!atBottomRef.current) computeUnreadBelow();
@@ -334,12 +396,13 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           filter: `connection_id=eq.${connectionId}`,
         },
         (payload) => {
-          const msg = payload.new as Message;
-          setMessages((prev) =>
-            prev.some((m) => m.id === msg.id)
-              ? prev.map((m) => (m.id === msg.id ? msg : m))
-              : prev,
-          );
+          const row = payload.new as unknown;
+          if (!isRealtimeMessageRow(row) || row.connection_id !== connectionId) {
+            return;
+          }
+          // E.g. a delete-for-everyone tombstone: replace in place only when
+          // the row is already rendered.
+          setMessages((prev) => applyMessageUpdate(prev, row, connectionId));
         },
       )
       .on(
@@ -473,6 +536,9 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   useEffect(() => {
     resolvedRef.current = new Set();
     decryptedRef.current = new Set();
+    // Captured rows belong to the previous conversation: dropping them is
+    // safe (reopening that conversation re-loads its page from the server).
+    pendingRealtimeRef.current = [];
     setPlain({});
     setUndecryptable(new Set());
     initialAnchorPendingRef.current = false;

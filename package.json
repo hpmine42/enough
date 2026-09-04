@@ -22,6 +22,7 @@
     "test:offline": "node --test --experimental-strip-types src/lib/__tests__/offline.test.mjs",
     "test:helpers": "node --test --experimental-strip-types src/lib/__tests__/helpers.test.mjs",
     "test:chatblocks": "node --test --experimental-strip-types src/lib/__tests__/chat-block-channel.test.mjs",
+    "test:chatrealtime": "node --test --experimental-strip-types src/lib/__tests__/chat-realtime.test.mjs",
     "test:blocked": "node --test src/lib/__tests__/blocked-composer.test.mjs",
     "test:api-errors": "node --test src/lib/__tests__/api-error-surface.test.mjs",
     "test:api": "node --test --experimental-strip-types src/lib/__tests__/api.test.mjs",
