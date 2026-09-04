@@ -39,11 +39,13 @@ import {
 import { advanceReadPosition, compareMessagesAsc, displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
 import {
   applyMessageUpdate,
+  captureRealtimeRow,
   createChatLifecycle,
   isRealtimeMessageRow,
   mergeIncomingMessage,
   mergeLoadedPage,
 } from '../lib/chatRealtime';
+import type { PendingRealtimeRow } from '../lib/chatRealtime';
 import { supabase } from '../lib/supabase';
 import { prefersReducedMotion } from '../lib/theme';
 import { getLang, t, useLang } from '../i18n';
@@ -175,10 +177,13 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   // True while the chat loader is fetching a page. Realtime rows arriving in
   // that window are captured (not applied) and drained onto the page the
   // loader commits — a message landing mid-fetch must not be dropped by the
-  // commit, and must not be applied and then clobbered by it either.
+  // commit, and an update (e.g. a delete-for-everyone tombstone) must not be
+  // applied and then clobbered by it either.
   const loadingRef = useRef(true);
-  // Rows captured while a load was in flight (see `loadingRef`).
-  const pendingRealtimeRef = useRef<Message[]>([]);
+  // Rows captured while a load was in flight (see `loadingRef`), tagged with
+  // the event kind that delivered them so the drain reconciles INSERTs and
+  // UPDATEs with their own steady-state semantics (audit F-02).
+  const pendingRealtimeRef = useRef<PendingRealtimeRow[]>([]);
   // F-01: conversation lifecycle token. Advanced SYNCHRONOUSLY in the render
   // body when the `connectionId` prop changes, so an async continuation that
   // resolves between this render and the effect flush can never still see
@@ -290,12 +295,15 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         setHiddenUntil(until);
         // Drain the rows captured while this page was being fetched (see
         // `loadingRef`): a realtime message that landed mid-fetch must not
-        // be dropped by the commit. The same merge semantics apply, so
-        // order, dedupe and scoping are identical to the steady state.
-        // The gate flips synchronously with the drain, before the commit:
-        // an event after the flip is applied normally (the functional
-        // updater composes with the page commit); an event before it was
-        // captured and is drained here.
+        // be dropped by the commit, and an update captured mid-fetch (e.g. a
+        // delete-for-everyone tombstone) must win over the pre-update row
+        // this page was fetched with — never the other way round. The drain
+        // reconciles each captured row with the same semantics its live
+        // handler uses, so order, dedupe and scoping are identical to the
+        // steady state. The gate flips synchronously with the drain, before
+        // the commit: an event after the flip is applied normally (the
+        // functional updater composes with the page commit); an event before
+        // it was captured and is drained here.
         const drained = pendingRealtimeRef.current;
         pendingRealtimeRef.current = [];
         loadingRef.current = false;
@@ -378,9 +386,11 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           // list. Capture the row (deduped) and let the commit drain it —
           // no reload, no dropped message.
           if (loadingRef.current) {
-            if (!pendingRealtimeRef.current.some((m) => m.id === row.id)) {
-              pendingRealtimeRef.current.push(row);
-            }
+            pendingRealtimeRef.current = captureRealtimeRow(
+              pendingRealtimeRef.current,
+              'INSERT',
+              row,
+            );
             return;
           }
           // Duplicate events (a replay, or our own send racing back from
@@ -417,6 +427,21 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           }
           // E.g. a delete-for-everyone tombstone: replace in place only when
           // the row is already rendered.
+          //
+          // F-02: while a page load is in flight the list the page will
+          // replace may not contain this row yet (or the commit is about to
+          // clobber the update with the pre-update snapshot the page was
+          // fetched with). Capture the update and let the loader drain it
+          // onto the committed page — the tombstone then wins over the stale
+          // loaded row instead of being overwritten by it.
+          if (loadingRef.current) {
+            pendingRealtimeRef.current = captureRealtimeRow(
+              pendingRealtimeRef.current,
+              'UPDATE',
+              row,
+            );
+            return;
+          }
           setMessages((prev) => applyMessageUpdate(prev, row, connectionId));
         },
       )

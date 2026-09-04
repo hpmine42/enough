@@ -10,6 +10,17 @@
 //   row comes from the live channel or from the queue of rows captured while
 //   a page load was in flight.
 //
+// UPDATE BUFFERING (audit F-02)
+//   An UPDATE that arrives while the initial page load is in flight is
+//   captured into the same pending queue as INSERTs, tagged with the event
+//   kind that produced it. The loader then drains the queue ONTO the freshly
+//   loaded page: INSERTs append (dedupe by id), UPDATEs replace the page row
+//   in place (e.g. a delete-for-everyone tombstone must win over the stale
+//   pre-delete row the page was fetched with). Draining preserves arrival
+//   order, so a message that was INSERTed and tombstoned while the load was
+//   in flight ends up as the tombstone — exactly the state the steady-state
+//   handlers would have produced had no load been running.
+//
 // SECURITY BOUNDARY
 //   A Realtime payload is never treated as proof of authorization. The
 //   subscription is scoped server-side (the channel is filtered to
@@ -106,6 +117,83 @@ export function applyMessageUpdate(
   return next;
 }
 
+/* ------------------------------------------------------------------ */
+/* in-flight load buffer (INSERT + UPDATE, audit F-02)                 */
+/* ------------------------------------------------------------------ */
+
+/** The postgres_changes event kinds the open chat captures during a load. */
+export type PendingRealtimeEvent = 'INSERT' | 'UPDATE';
+
+/**
+ * A row captured while the initial page load was in flight, tagged with the
+ * event kind that delivered it. The tag is what lets the drain decide how
+ * the row must be reconciled onto the loaded page: an INSERT is appended
+ * (deduped by id), an UPDATE replaces the page's row in place.
+ *
+ * The queue is extended, not replaced: it is still the single buffer the
+ * INSERT design (PR #94) introduced, and the drain still runs at the moment
+ * the loader commits its page.
+ */
+export interface PendingRealtimeRow {
+  event: PendingRealtimeEvent;
+  row: Message;
+}
+
+/** Structural check of a pending-queue entry (see {@link PendingRealtimeRow}). */
+export function isPendingRealtimeRow(value: unknown): value is PendingRealtimeRow {
+  if (!value || typeof value !== 'object') return false;
+  const entry = value as Partial<PendingRealtimeRow>;
+  return (
+    (entry.event === 'INSERT' || entry.event === 'UPDATE') &&
+    !!entry.row &&
+    typeof entry.row === 'object'
+  );
+}
+
+/**
+ * Capture a validated realtime row into the in-flight-load queue.
+ *
+ * The queue mirrors what steady-state application would have produced, so
+ * drain order == arrival order:
+ *
+ *   - an INSERT whose id is already queued is a replay and is dropped;
+ *   - an UPDATE for a queued INSERT is APPENDED after it, so the drain
+ *     appends the new row first and then tombstones/replaces it (a message
+ *     created and deleted while the load was in flight ends up as the
+ *     delete-for-everyone tombstone, and never as the visible row);
+ *   - an UPDATE for an already queued UPDATE replaces that entry's payload
+ *     in place: when several updates for one message arrive during the
+ *     load, the newest received payload is the one the drain applies
+ *     (realtime delivers a row's changes in commit order, so arrival order
+ *     is the authoritative "newest" signal — the same rule the steady-state
+ *     handlers use);
+ *   - entries for different messages keep their arrival order (no-op for
+ *     correctness, but keeps the queue deterministic).
+ *
+ * The row must already have passed the caller's structural/scope checks (the
+ * Chat.tsx handlers validate before capturing, exactly like the INSERT path
+ * did before this helper existed). Returns the same array reference when
+ * nothing changed.
+ */
+export function captureRealtimeRow(
+  pending: PendingRealtimeRow[],
+  event: PendingRealtimeEvent,
+  row: Message,
+): PendingRealtimeRow[] {
+  const idx = pending.findIndex((p) => p.row.id === row.id);
+  if (idx === -1) return [...pending, { event, row }];
+  if (event === 'INSERT') return pending; // duplicate INSERT (replay): already queued
+  if (pending[idx].event === 'INSERT') {
+    // Newer state for a message whose INSERT is still queued: the INSERT must
+    // run first at drain time, so the UPDATE is queued behind it.
+    return [...pending, { event, row }];
+  }
+  if (pending[idx].row === row) return pending; // same delivery repeated
+  const next = pending.slice();
+  next[idx] = { event, row }; // newest UPDATE payload wins, arrival slot kept
+  return next;
+}
+
 /**
  * Apply rows captured while a page load was in flight onto the freshly
  * loaded page.
@@ -115,20 +203,40 @@ export function applyMessageUpdate(
  * (nor may the commit be skipped for them — the page is authoritative for
  * everything it contains). Draining the captured rows through the same
  * merge semantics keeps order, dedupe and scoping identical to the steady
- * state: rows already in the page dedupe by id, foreign / hidden / malformed
- * rows are dropped as always.
+ * state:
+ *
+ *   - a bare `Message` entry (or an entry tagged INSERT) is merged as an
+ *     INSERT: rows already in the page dedupe by id, new rows are appended
+ *     and the list re-sorted;
+ *   - an entry tagged UPDATE is applied as an UPDATE: the loaded page row is
+ *     replaced in place by the captured row (a delete-for-everyone tombstone
+ *     captured mid-load therefore wins over the stale pre-delete row the
+ *     page was fetched with); unknown ids stay ignored, so an UPDATE never
+ *     invents a message the loaded page does not contain.
+ *
+ * Entries are processed in arrival order. Malformed / foreign / hidden rows
+ * are dropped as always (each entry is re-validated and re-scoped by the
+ * same checks the live handlers use).
  *
  * Returns the same array reference when the pending rows change nothing.
  */
 export function mergeLoadedPage(
   page: Message[],
-  pending: Message[],
+  pending: Array<Message | PendingRealtimeRow>,
   connectionId: string,
   hiddenUntil: string | null | undefined,
 ): Message[] {
   let out = page;
-  for (const row of pending) {
-    out = mergeIncomingMessage(out, row, connectionId, hiddenUntil);
+  for (const entry of pending) {
+    if (isPendingRealtimeRow(entry)) {
+      out =
+        entry.event === 'UPDATE'
+          ? applyMessageUpdate(out, entry.row, connectionId)
+          : mergeIncomingMessage(out, entry.row, connectionId, hiddenUntil);
+    } else {
+      // Untagged entry: legacy INSERT-style drain entry.
+      out = mergeIncomingMessage(out, entry, connectionId, hiddenUntil);
+    }
   }
   return out;
 }

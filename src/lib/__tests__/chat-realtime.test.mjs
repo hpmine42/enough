@@ -27,6 +27,23 @@
 //      component switched to conversation B, while the still-current
 //      conversation's results are applied unchanged.
 //
+// Audit F-02 (UPDATE / tombstone vs. initial-load race) regression suite:
+//   9. an UPDATE that arrives while the initial load is in flight is
+//      captured (tagged with its event kind) and drained ONTO the loaded
+//      page, so the commit can never overwrite the newer update with the
+//      stale pre-update row (a delete-for-everyone tombstone wins over the
+//      visible row the page was fetched with);
+//  10. multiple updates / INSERT+UPDATE for one message during the load
+//      reconcile to the newest received state in arrival order;
+//  11. the F-02 buffer is the SAME single pending-realtime structure the
+//      INSERT design (PR #94) introduced — drained in one pass at the page
+//      commit with unchanged INSERT semantics;
+//  12. F-02 stays scoped per conversation: a captured row of connection A
+//      can never be drained into a page of connection B, and a conversation
+//      switch during the load discards the previous buffer (F-01 intact);
+//  13. reconciliation never decrypts or rewrites ciphertext — the drained
+//      rows flow into the unchanged shared decryptForDisplay path.
+//
 // The static guards (accepted repo pattern, supplement — not a substitute —
 // for the runtime tests) pin the Chat.tsx wiring:
 //   - a realtime event never triggers a full reload;
@@ -49,6 +66,8 @@ import {
   isRealtimeMessageRow,
   mergeIncomingMessage,
   applyMessageUpdate,
+  captureRealtimeRow,
+  isPendingRealtimeRow,
   mergeLoadedPage,
   createChatLifecycle,
 } from '../chatRealtime.ts';
@@ -258,6 +277,256 @@ test('CR8e: an unchanged drain returns the same page reference', () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* 8f. Audit F-02: UPDATE/tombstone vs. the in-flight initial load     */
+/* ------------------------------------------------------------------ */
+//
+// Central invariant: a Realtime messages UPDATE received while the initial
+// page load is in flight must never be lost when the loaded page is
+// subsequently committed. The loader captures UPDATEs into the same queue
+// that INSERTs already used (each entry tagged with its event kind) and the
+// page commit drains the queue ONTO the fresh page. The tests exercise the
+// actual capture/drain helpers Chat.tsx delegates to.
+
+function update(row) {
+  return { event: 'UPDATE', row };
+}
+function insert(row) {
+  return { event: 'INSERT', row };
+}
+
+test('F02-1: an UPDATE arriving during the initial load survives the page commit', () => {
+  const original = msg('m1', CONN, '2026-01-01T10:00:00Z', {
+    ciphertext: 'ENVELOPE-OLD',
+    meta: { old_name: 'old' },
+  });
+  const page = [
+    msg('m0', CONN, '2026-01-01T09:00:00Z'),
+    original, // pre-update state the page was fetched with
+    msg('m2', CONN, '2026-01-01T11:00:00Z'),
+  ];
+  const updated = msg('m1', CONN, '2026-01-01T10:00:00Z', {
+    ciphertext: 'ENVELOPE-NEW',
+    meta: { new_name: 'new' },
+  });
+  // Captured while the load was in flight, then drained at the commit:
+  const drained = mergeLoadedPage(page, [update(updated)], CONN, null);
+  assert.deepEqual(drained.map((m) => m.id), ['m0', 'm1', 'm2'], 'no row added or removed');
+  assert.equal(drained[1], updated, 'the newer UPDATE payload replaces the stale page row');
+  assert.equal(drained[1].ciphertext, 'ENVELOPE-NEW');
+  assert.equal(drained[0], page[0], 'untouched rows keep identity');
+  assert.ok(!drained.includes(original), 'the stale pre-update row is gone from the committed state');
+});
+
+test('F02-2: a delete-for-everyone tombstone captured mid-load cannot be overwritten by the stale loaded row', () => {
+  const original = msg('m1', CONN, '2026-01-01T10:00:00Z', {
+    ciphertext: '{"v":1,"e":"sw","t":2,"b":"STALE-CIPHERTEXT"}',
+  });
+  const page = [
+    msg('m0', CONN, '2026-01-01T09:00:00Z'),
+    original, // the SELECT ran BEFORE the delete committed: still visible
+    msg('m2', CONN, '2026-01-01T11:00:00Z'),
+  ];
+  const tombstone = { ...original, deleted_at: '2026-01-01T12:00:00Z', ciphertext: '' };
+  const committed = mergeLoadedPage(page, [update(tombstone)], CONN, null);
+  assert.equal(committed.length, 3, 'the tombstone replaces in place — no duplicate row');
+  assert.equal(committed[1], tombstone, 'final state is the tombstone');
+  assert.equal(committed[1].deleted_at, '2026-01-01T12:00:00Z');
+  assert.equal(committed[1].ciphertext, '', 'the stale ciphertext is not reintroduced');
+  assert.ok(!committed.includes(original), 'the visible row the page was fetched with never wins');
+  // The plaintext render path keys off deleted_at: a tombstone row can never
+  // resolve display text (MessageBubble renders the deleted line). Nothing in
+  // the drain path carries or invents plaintext — see F02-9.
+  assert.equal(typeof committed[1].ciphertext, 'string');
+});
+
+test('F02-3: an UPDATE for a message absent from the loaded page is ignored (no phantom row)', () => {
+  const page = [msg('m1', CONN, '2026-01-01T10:00:00Z')];
+  const updateForAbsent = { ...msg('zzz', CONN, '2026-01-01T08:00:00Z'), deleted_at: '2026-01-01T12:00:00Z', ciphertext: '' };
+  const next = mergeLoadedPage(page, [update(updateForAbsent)], CONN, null);
+  assert.equal(next, page, 'an UPDATE never invents a row the page does not contain (same pagination/message model as the steady state)');
+});
+
+test('F02-4: an UPDATE from another conversation captured mid-load is ignored at drain time', () => {
+  const page = [msg('m1', CONN, '2026-01-01T10:00:00Z')];
+  const foreign = msg('m1', 'conn-other', '2026-01-01T10:00:00Z', {
+    deleted_at: '2026-01-01T12:00:00Z',
+    ciphertext: '',
+  });
+  const next = mergeLoadedPage(page, [update(foreign)], CONN, null);
+  assert.equal(next, page, 'the drain re-scopes every captured row (payload is not authorization)');
+  // Malformed tagged entries are dropped fail-closed as well.
+  assert.equal(
+    mergeLoadedPage(page, [{ event: 'UPDATE', row: { id: 'm1' } }], CONN, null),
+    page,
+    'the entry row is still structurally validated at drain time',
+  );
+});
+
+test('F02-5a: repeated UPDATEs for one message during the load reconcile to the newest received payload', () => {
+  // Realtime delivers one row's changes in commit order; arrival order is
+  // therefore the authoritative "newest" signal (same rule as steady state).
+  const original = msg('m1', CONN, '2026-01-01T10:00:00Z');
+  const u1 = { ...original, meta: { new_name: 'n1' } };
+  const u2 = { ...original, meta: { new_name: 'n2' }, deleted_at: '2026-01-01T12:00:00Z', ciphertext: '' };
+  let pending = [];
+  pending = captureRealtimeRow(pending, 'UPDATE', u1);
+  pending = captureRealtimeRow(pending, 'UPDATE', u2);
+  assert.equal(pending.length, 1, 'the second UPDATE supersedes the first in the queue');
+  assert.equal(pending[0].row, u2, 'the newest payload is the one the drain will apply');
+  assert.equal(pending[0].event, 'UPDATE');
+  const page = [original];
+  const committed = mergeLoadedPage(page, pending, CONN, null);
+  assert.equal(committed[0], u2, 'final state is the newest update (the tombstone)');
+  // A repeated delivery of the exact same payload object changes nothing.
+  assert.equal(captureRealtimeRow(pending, 'UPDATE', u2), pending,
+    're-delivery of the same payload object is a no-op');
+  // A re-delivery that re-serializes the same values supersedes the queued
+  // payload (same final state at drain time — newest delivery wins).
+  const redelivered = captureRealtimeRow(pending, 'UPDATE', { ...u2 });
+  assert.notEqual(redelivered, pending);
+  assert.equal(redelivered.length, 1);
+  assert.notEqual(redelivered[0].row, u2, 'the fresh payload object is kept');
+  assert.equal(redelivered[0].row.deleted_at, u2.deleted_at);
+  assert.equal(redelivered[0].row.ciphertext, '');
+  const page0 = [original];
+  assert.equal(mergeLoadedPage(page0, redelivered, CONN, null)[0].deleted_at,
+    '2026-01-01T12:00:00Z', 'final state is the tombstone either way');
+});
+
+test('F02-5b: a message INSERTed and tombstoned while the load was in flight ends up as the tombstone', () => {
+  const created = msg('mX', CONN, '2026-01-01T10:30:00Z', { ciphertext: 'ENVELOPE-X' });
+  const tombstone = { ...created, deleted_at: '2026-01-01T10:31:00Z', ciphertext: '' };
+  let pending = [];
+  pending = captureRealtimeRow(pending, 'INSERT', created);
+  pending = captureRealtimeRow(pending, 'UPDATE', tombstone);
+  assert.deepEqual(pending.map((e) => [e.event, e.row.id]), [['INSERT', 'mX'], ['UPDATE', 'mX']],
+    'the UPDATE is queued behind its INSERT so the drain appends first, then tombstones');
+  // Page fetched without mX (created after the SELECT):
+  const pageWithout = [msg('m0', CONN, '2026-01-01T09:00:00Z')];
+  const committed = mergeLoadedPage(pageWithout, pending, CONN, null);
+  assert.deepEqual(committed.map((m) => m.id), ['m0', 'mX']);
+  assert.equal(committed[1], tombstone, 'the visible row never appears — final state is the tombstone');
+  assert.equal(committed[1].ciphertext, '', 'no stale ciphertext of the deleted message');
+  // Page already fetched WITH the visible row (created before the SELECT):
+  const pageWith = [msg('m0', CONN, '2026-01-01T09:00:00Z'), created];
+  const committed2 = mergeLoadedPage(pageWith, pending, CONN, null);
+  assert.deepEqual(committed2.map((m) => m.id), ['m0', 'mX'], 'INSERT dedupes against the page');
+  assert.equal(committed2[1], tombstone, 'the tombstone replaces the stale page row');
+  // A duplicate INSERT replay never reaches the queue:
+  let once = [];
+  once = captureRealtimeRow(once, 'INSERT', created);
+  once = captureRealtimeRow(once, 'INSERT', { ...created });
+  assert.equal(once.length, 1, 'duplicate INSERT events are dropped');
+});
+
+test('F02-6: INSERT-during-load behavior is unchanged by the UPDATE tagging', () => {
+  const page = [msg('m1', CONN, '2026-01-01T10:00:00Z')];
+  // Tagged INSERT entries behave exactly like the untagged (legacy) entries:
+  const next = mergeLoadedPage(page, [
+    msg('m2', CONN, '2026-01-01T11:00:00Z'), // legacy bare row
+    insert(msg('m3', CONN, '2026-01-01T12:00:00Z')),
+    insert(msg('m1', CONN, '2026-01-01T10:00:00Z')), // already in the page → dedupe
+    insert(msg('m9', 'conn-other', '2026-01-01T13:00:00Z')), // foreign → dropped
+  ], CONN, null);
+  assert.deepEqual(next.map((m) => m.id), ['m1', 'm2', 'm3']);
+  // Empty page + tagged INSERT renders the row.
+  const fromEmpty = mergeLoadedPage([], [insert(msg('m1', CONN))], CONN, null);
+  assert.deepEqual(fromEmpty.map((m) => m.id), ['m1']);
+});
+
+test('F02-6b: pending hidden/foreign/malformed tagged entries keep failing closed at drain time', () => {
+  const page = [msg('m1', CONN, '2026-01-01T13:00:00Z')];
+  const cutoff = '2026-01-01T12:00:00Z';
+  assert.deepEqual(
+    mergeLoadedPage(page, [insert(msg('m0', CONN, '2026-01-01T09:00:00Z'))], CONN, cutoff).map((m) => m.id),
+    ['m1'],
+    'a tagged INSERT behind the chat-deletion cutoff is dropped at drain time',
+  );
+  assert.deepEqual(
+    mergeLoadedPage(page, [update(msg('m0', CONN, '2026-01-01T09:00:00Z', { deleted_at: '2026-01-01T14:00:00Z', ciphertext: '' }))], CONN, cutoff).map((m) => m.id),
+    ['m1'],
+    'an UPDATE for a message the page does not render is dropped at drain time',
+  );
+});
+
+test('F02-7: after reconciliation the list keeps the deterministic (created_at, id) order', () => {
+  const page = [
+    msg('m1', CONN, '2026-01-01T10:00:00Z'),
+    msg('m2', CONN, '2026-01-01T11:00:00Z'),
+  ];
+  const tombstoneM2 = { ...page[1], deleted_at: '2026-01-01T12:00:00Z', ciphertext: '' };
+  let pending = [];
+  pending = captureRealtimeRow(pending, 'INSERT', msg('m5', CONN, '2026-01-01T14:00:00Z'));
+  pending = captureRealtimeRow(pending, 'UPDATE', tombstoneM2);
+  pending = captureRealtimeRow(pending, 'INSERT', msg('m3', CONN, '2026-01-01T12:00:00Z'));
+  pending = captureRealtimeRow(pending, 'INSERT', msg('m4', CONN, '2026-01-01T13:00:00Z'));
+  const committed = mergeLoadedPage(page, pending, CONN, null);
+  assert.deepEqual(committed.map((m) => m.id), ['m1', 'm2', 'm3', 'm4', 'm5']);
+  assert.equal(committed[1], tombstoneM2, 'in-place replacement keeps the row position');
+  for (let i = 1; i < committed.length; i++) {
+    const a = committed[i - 1];
+    const b = committed[i];
+    assert.ok(
+      a.created_at < b.created_at || (a.created_at === b.created_at && a.id < b.id),
+      'strict (created_at, id) ascending order after the drain',
+    );
+  }
+  // Equal-timestamp tiebreak (id) survives a drain with an UPDATE in place.
+  const tie = [msg('a', CONN, '2026-01-01T10:00:00Z')];
+  const tieUpdated = msg('b', CONN, '2026-01-01T10:00:00Z', { deleted_at: '2026-01-01T12:00:00Z', ciphertext: '' });
+  const tieCommitted = mergeLoadedPage(
+    [msg('b', CONN, '2026-01-01T10:00:00Z')],
+    [update(tieUpdated)],
+    CONN,
+    null,
+  );
+  assert.equal(tieCommitted[0], tieUpdated);
+  assert.ok(!tie.includes(tieCommitted[0]), 'replacement never duplicates rows');
+});
+
+test('F02-8: buffered rows stay scoped to the conversation that loaded the page (F-01 intact)', () => {
+  // Rows captured for connection A while A was loading…
+  let pendingA = [];
+  pendingA = captureRealtimeRow(pendingA, 'UPDATE', msg('mA', 'conn-a', '2026-01-01T10:00:00Z', { deleted_at: '2026-01-01T12:00:00Z', ciphertext: '' }));
+  pendingA = captureRealtimeRow(pendingA, 'INSERT', msg('mB', 'conn-a', '2026-01-01T11:00:00Z'));
+  // …are discarded when the user switches to B (Chat's reset effect clears
+  // the shared queue synchronously with the conversation change)…
+  const pendingB = []; // = pendingRealtimeRef.current = [] on the switch
+  // …and even if a stale entry were drained for B, the drain re-scopes it.
+  const pageB = [msg('m1', CONN, '2026-01-01T10:00:00Z')];
+  const next = mergeLoadedPage(pageB, pendingA, CONN, null);
+  assert.equal(next, pageB, "conversation A's captured rows can never enter B's committed page");
+  assert.deepEqual(mergeLoadedPage(pageB, pendingB, CONN, null), pageB, 'cleared queue drains as a no-op');
+  // The lifecycle itself stays monotonic across A -> B (see CRL1–CRL6 for the
+  // full F-01 decision tests): the queue clear is the F-02 counterpart of the
+  // isCurrent() discard for the load-commit path.
+  const lc = createChatLifecycle();
+  const tokenA = lc.current();
+  lc.advance();
+  assert.equal(lc.isCurrent(tokenA), false);
+});
+
+test('F02-9: reconciliation keeps ciphertext opaque — no decrypt, no plaintext, in the buffer path', async () => {
+  const envelope = '{"v":1,"e":"sw","t":2,"b":"YmFzZTY0"}';
+  const { isEnvelope } = await import('../e2ee/message-flow.ts');
+  const live = msg('m1', CONN, '2026-01-01T10:00:00Z', { ciphertext: envelope });
+  const tombstone = { ...live, deleted_at: '2026-01-01T12:00:00Z', ciphertext: '' };
+  let pending = [];
+  pending = captureRealtimeRow(pending, 'INSERT', live);
+  pending = captureRealtimeRow(pending, 'UPDATE', tombstone);
+  const committed = mergeLoadedPage([], pending, CONN, null);
+  assert.equal(committed[0], tombstone);
+  // The INSERT that was captured (and would have been drained had the UPDATE
+  // not arrived) carried the envelope byte-identically…
+  const justInsert = mergeLoadedPage([], [insert(live)], CONN, null);
+  assert.ok(isEnvelope(justInsert[0].ciphertext), 'drained rows are still E2EE envelopes, untouched');
+  assert.equal(justInsert[0].ciphertext, envelope);
+  // …and the stale visible row (with its ciphertext) is never resurrected:
+  // the only state the drain can commit is the ciphertext rows themselves.
+  assert.equal(committed[0].ciphertext, '');
+});
+
+/* ------------------------------------------------------------------ */
 /* 9. Structural validation                                            */
 /* ------------------------------------------------------------------ */
 
@@ -428,7 +697,16 @@ test('CRG4: realtime state updates are functional and duplicate-safe', () => {
 test('CRG5: a load in flight does not drop realtime rows (gate + drain at commit)', () => {
   const wiring = realtimeWiring();
   assert.match(wiring, /if \(loadingRef\.current\)/, 'the handler checks the load gate');
-  assert.match(wiring, /pendingRealtimeRef\.current\.push\(row\)/, 'in-flight events are captured');
+  assert.match(
+    wiring,
+    /pendingRealtimeRef\.current = captureRealtimeRow\(\s*pendingRealtimeRef\.current,\s*'INSERT',\s*row,\s*\)/,
+    'in-flight INSERT events are captured into the tagged queue',
+  );
+  assert.match(
+    wiring,
+    /pendingRealtimeRef\.current = captureRealtimeRow\(\s*pendingRealtimeRef\.current,\s*'UPDATE',\s*row,\s*\)/,
+    'in-flight UPDATE events are captured into the tagged queue',
+  );
   assert.match(
     chatSrc,
     /const drained = pendingRealtimeRef\.current;/,
@@ -446,6 +724,96 @@ test('CRG5: a load in flight does not drop realtime rows (gate + drain at commit
   assert.ok(chatSrc.match(/loadingRef\.current = true/g) !== null, 'the loader opens the gate');
   const releases = chatSrc.match(/loadingRef\.current = false/g) ?? [];
   assert.ok(releases.length >= 5, `the loader releases the gate on every terminal commit, saw ${releases.length}`);
+});
+
+test('CRG-F02-1: the UPDATE handler buffers during a load and applies normally afterwards', () => {
+  const wiring = realtimeWiring();
+  // The UPDATE wiring is a single flow: gate first, capture while a page
+  // load is in flight, steady-state merge otherwise — no reload, no page
+  // fetch, no second event path.
+  const updateStart = wiring.indexOf("event: 'UPDATE'");
+  assert.ok(updateStart >= 0, 'the UPDATE subscription exists');
+  const updateHandler = wiring.slice(updateStart, wiring.indexOf("event: '*'", updateStart));
+  assert.ok(!/setReloadKey/.test(updateHandler), 'an UPDATE never triggers a reload');
+  assert.ok(!/getMessagesPage\(/.test(updateHandler), 'an UPDATE never fetches a page');
+  const gateChecks = updateHandler.match(/loadingRef\.current/g) ?? [];
+  assert.ok(gateChecks.length >= 1, `the UPDATE handler checks the load gate before capturing, saw ${gateChecks.length}`);
+  assert.match(
+    updateHandler,
+    /pendingRealtimeRef\.current = captureRealtimeRow\(\s*pendingRealtimeRef\.current,\s*'UPDATE',\s*row,\s*\)/,
+    'a mid-load UPDATE is captured, not applied',
+  );
+  assert.match(
+    updateHandler,
+    /setMessages\(\(prev\) => applyMessageUpdate\(prev, row, connectionId\)\)/,
+    'outside a load the UPDATE still merges in place via the shared helper',
+  );
+  // The steady-state path comes AFTER the gate: the capture owns the
+  // in-flight window, the direct merge owns everything else.
+  const gatePos = updateHandler.indexOf('if (loadingRef.current)');
+  const capturePos = updateHandler.indexOf('captureRealtimeRow', gatePos);
+  const applyPos = updateHandler.indexOf('applyMessageUpdate(prev, row, connectionId)');
+  assert.ok(gatePos >= 0 && capturePos > gatePos && applyPos > capturePos,
+    'gate → capture → steady-state merge, in that order');
+});
+
+test('CRG-F02-2: the drain runs once, at the page commit, after the gate flip', () => {
+  const drainStart = chatSrc.indexOf('const drained = pendingRealtimeRef.current;');
+  const drainEnd = chatSrc.indexOf('setMessages(committed);', drainStart);
+  assert.ok(drainStart >= 0 && drainEnd > drainStart, 'the drain block exists');
+  const drain = chatSrc.slice(drainStart, drainEnd);
+  assert.match(drain, /pendingRealtimeRef\.current = \[\];/, 'the queue is cleared by the drain');
+  assert.match(drain, /loadingRef\.current = false;/, 'the gate flips in the same synchronous block');
+  assert.match(drain, /const committed = mergeLoadedPage\(/, 'the drain result becomes the committed page');
+  // Queue clear happens BEFORE the gate opens (atomic in JS): an event after
+  // the flip can only compose on top of the committed page.
+  assert.ok(
+    chatSrc.indexOf('pendingRealtimeRef.current = [];', drainStart) <
+      chatSrc.indexOf('loadingRef.current = false;', drainStart),
+    'clear-then-flip order (no event can slip between the two statements)',
+  );
+});
+
+test('CRG-F02-3: the conversation switch discards the previous buffer (F-01 + F-02)', () => {
+  const resetStart = chatSrc.indexOf('// Reset display state when switching conversations.');
+  const resetEnd = chatSrc.indexOf('/* --------------------------- scroll / read');
+  assert.ok(resetStart >= 0 && resetEnd > resetStart, 'the conversation reset effect exists');
+  const reset = chatSrc.slice(resetStart, resetEnd);
+  // A captured UPDATE of conversation A must never be drained into B: the
+  // reset clears the shared queue synchronously with the conversation change.
+  assert.match(reset, /pendingRealtimeRef\.current = \[\];/, 'the buffer is cleared on every switch');
+  assert.ok(
+    reset.indexOf('pendingRealtimeRef.current = [];') >
+      reset.indexOf('resolvedRef.current = new Set();'),
+    'the queue is cleared together with the other per-conversation state',
+  );
+});
+
+test('CRG-F02-4: the buffer/reconcile path never decrypts and never touches plaintext', () => {
+  // The merge helpers operate on ciphertext-only Message rows: strip every
+  // comment, then the remaining code must contain no crypto/decrypt/plaintext
+  // import or call, and only the two pure helper modules may be imported.
+  const helperSrc = fs.readFileSync(path.join(here, '..', 'chatRealtime.ts'), 'utf8');
+  const helperCode = helperSrc
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '');
+  const imports = helperCode.split('\n').filter((l) => l.trim().startsWith('import'));
+  assert.ok(imports.length <= 2, `expected only the two pure-helper imports, saw ${imports.length}`);
+  for (const line of imports) {
+    assert.ok(!/crypto|e2ee|signal|ratchet|session|message-cache|message-flow/.test(line),
+      `no crypto/e2ee module may be imported by the reconcile helpers: ${line.trim()}`);
+  }
+  assert.ok(!/decryptForDisplay\(|getCachedPlaintext\(|cachePlaintext\(|prepareSend\(/.test(helperCode),
+    'the reconcile helpers contain no decrypt/plaintext call');
+  assert.ok(!/setPlain|setUndecryptable/.test(helperSrc), 'helpers never write display plaintext state');
+  // The Chat.tsx handlers capture/merge raw payload rows only — no decrypt
+  // call exists anywhere inside the message realtime wiring.
+  const wiring = realtimeWiring();
+  assert.ok(!/decryptForDisplay|getCachedPlaintext|cachePlaintext/.test(wiring),
+    'realtime (load window included) never resolves plaintext itself');
+  // And the shared decrypt effect is still the single path keyed on the
+  // message list (see CRG3 for its full shape).
+  assert.match(chatSrc, /const \{ plaintext \} = await decryptForDisplay\(\{/);
 });
 
 test('CRG6: Offline Read Mode is untouched by the realtime wiring', () => {
