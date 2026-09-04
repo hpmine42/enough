@@ -34,6 +34,7 @@ import { BlockState, Connection, Message, Profile } from '../lib/types';
 import {
   computeReconcileState,
   createConversationEventGate,
+  createHomeLoadLifecycle,
   createHomeRealtimeBridge,
   createReconcileScheduler,
   isConversationVisible,
@@ -45,6 +46,7 @@ import {
   withoutKey,
   withTombstone,
   type ConversationEventGate,
+  type HomeLoadLifecycle,
   type RealtimeEventPayloadLike,
 } from '../lib/homeRealtime';
 import { deletedMessagePreview } from '../lib/homePreview';
@@ -173,6 +175,17 @@ export default function Home() {
   }, [connections, lastMessages, others]);
 
   /* Reconciliation bookkeeping (P1-5). */
+  /* F-03: overlapping loads. The realtime gate stays closed while ANY load
+     is in flight, and only the newest started load may commit its snapshot.
+     See `createHomeLoadLifecycle`. */
+  const lifecycleRef = useRef<HomeLoadLifecycle | null>(null);
+  function lifecycle(): HomeLoadLifecycle {
+    if (!lifecycleRef.current) lifecycleRef.current = createHomeLoadLifecycle();
+    return lifecycleRef.current;
+  }
+  /* True while at least one full load() is running (realtime loading gate).
+     Owned by the lifecycle above, mirrored into a ref so the realtime bridge
+     reads it without re-subscribing. */
   const loadingRef = useRef(false);
   const aliveRef = useRef(true);
   const meRef = useRef(me);
@@ -184,8 +197,9 @@ export default function Home() {
      A slower asynchronous result (offline hydration or a late online load)
      may only commit when it is still the newest one — this is what stops a
      stale snapshot from overwriting fresher server state during rapid
-     online/offline transitions. */
-  const loadTokenRef = useRef(0);
+     online/offline transitions. Since F-03 the token is issued by the load
+     lifecycle, which additionally keeps the gate closed while an older load
+     is still running. */
   // The per-conversation event counter used to detect realtime events that
   // raced an in-flight reconciliation (stale-snapshot guard).
   function eventGate(): ConversationEventGate {
@@ -210,14 +224,25 @@ export default function Home() {
   useEffect(() => {
     // Account change: drop cross-account bookkeeping immediately.
     meRef.current = me;
+    // A load started for the previous account can never commit afterwards:
+    // `isCurrent` also compares `meRef.current`, and a fresh lifecycle
+    // invalidates every outstanding token.
+    lifecycleRef.current = createHomeLoadLifecycle();
+    loadingRef.current = false;
     eventGateRef.current = createConversationEventGate();
     pendingReconcileRef.current = new Set();
   }, [me]);
 
   const load = useCallback(async () => {
     if (!me) return;
-    const token = ++loadTokenRef.current;
-    const isCurrent = () => loadTokenRef.current === token && meRef.current === me;
+    // Ownership captured at START: the account-change effect installs a
+    // fresh lifecycle, so a load left over from the previous account keeps
+    // referencing its own (now detached) one and can neither commit nor
+    // release the current account's realtime gate.
+    const owner = lifecycle();
+    const token = owner.start();
+    const isCurrent = () =>
+      lifecycleRef.current === owner && owner.isCurrent(token) && meRef.current === me;
     setLoadError(null);
     loadingRef.current = true;
     try {
@@ -312,12 +337,19 @@ export default function Home() {
         deletedForMe: Array.from(deletions.messages),
       });
     } finally {
-      setLoading(false);
-      loadingRef.current = false;
-      // Realtime events that arrived while this reload was in flight had
-      // their conversations queued instead of being applied to state that is
-      // about to be replaced; now re-derive exactly those, narrowly (P1-5).
-      drainRef.current?.();
+      // F-03: only the LAST active load releases the realtime gate. An older
+      // load finishing first must not hand steady-state semantics to realtime
+      // events while a newer load is still about to replace the whole Home
+      // state (its snapshot would silently overwrite them).
+      const last = owner.finish(token);
+      if (last && lifecycleRef.current === owner && meRef.current === me) {
+        setLoading(false);
+        loadingRef.current = false;
+        // Realtime events that arrived while a reload was in flight had their
+        // conversations queued instead of being applied to state that was
+        // about to be replaced; now re-derive exactly those, narrowly (P1-5).
+        drainRef.current?.();
+      }
     }
   }, [me]);
 

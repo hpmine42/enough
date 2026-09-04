@@ -17,7 +17,7 @@
     "test:scroll": "node --test --experimental-strip-types src/lib/__tests__/chat-scroll.test.mjs",
     "test:contrast": "node --test --experimental-strip-types src/lib/__tests__/scroll-down-contrast.test.mjs",
     "test:read": "node --test --experimental-strip-types src/lib/__tests__/read-position.test.mjs",
-    "test:home": "node --test --experimental-strip-types src/lib/__tests__/home-realtime.test.mjs src/lib/__tests__/home-long-press.test.mjs",
+    "test:home": "node --test --experimental-strip-types src/lib/__tests__/home-realtime.test.mjs src/lib/__tests__/home-load-lifecycle.test.mjs src/lib/__tests__/home-long-press.test.mjs",
     "test:preview": "node --test --experimental-strip-types src/lib/__tests__/home-preview.test.mjs",
     "test:offline": "node --test --experimental-strip-types src/lib/__tests__/offline.test.mjs",
     "test:helpers": "node --test --experimental-strip-types src/lib/__tests__/helpers.test.mjs",

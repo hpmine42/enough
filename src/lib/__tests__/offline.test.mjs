@@ -401,11 +401,12 @@ test('O19: reconnection resumes the existing online loading/realtime behavior', 
 });
 
 test('O20: a stale async load result cannot overwrite current Home state', () => {
-  // Every commit of the Home loader is gated by the monotonic load token.
-  assert.match(homeSrc, /const token = \+\+loadTokenRef\.current;/);
+  // Every commit of the Home loader is gated by the monotonic load token,
+  // which since F-03 is issued by the shared Home load lifecycle.
+  assert.match(homeSrc, /const token = owner\.start\(\);/);
   assert.match(
     homeSrc,
-    /const isCurrent = \(\) =>\s*loadTokenRef\.current === token && meRef\.current === me;/,
+    /const isCurrent = \(\) =>\s*lifecycleRef\.current === owner && owner\.isCurrent\(token\) && meRef\.current === me;/,
   );
   const guards = homeSrc.match(/if \(!isCurrent\(\)\) return;/g) ?? [];
   assert.ok(guards.length >= 5, `expected the loader commits to be guarded, saw ${guards.length}`);
