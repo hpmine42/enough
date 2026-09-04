@@ -71,6 +71,31 @@ export function mergeLastMessage(
 }
 
 /**
+ * Whether an incoming message event is a GENUINELY NEW latest message for its
+ * connection (audit F-04).
+ *
+ * The unread badge must increment exactly once per new peer message. A
+ * duplicate delivery of the currently-last message (a Realtime replay, or our
+ * own send racing back from another device) is not new and must never
+ * re-increment, and an out-of-order older message that `mergeLastMessage`
+ * ignores is not new either.
+ *
+ * This is the determinate "should this count" predicate, so the caller can
+ * gate the unread counter on it while `mergeLastMessage` still applies the
+ * preview merge (the merge is idempotent, so running it unconditionally is
+ * safe).
+ */
+export function isNewLastMessage(
+  prev: Record<string, Message>,
+  msg: Message,
+): boolean {
+  const cur = prev[msg.connection_id];
+  if (!cur) return true;
+  if (cur.id === msg.id) return false;
+  return isMessageNewer(msg, cur);
+}
+
+/**
  * True when a message counts toward the unread badge. Mirrors the
  * `connection_unread` view (migration 0013), which counts only non-deleted
  * `text` messages: system events (`connection_event`, `name_change`,

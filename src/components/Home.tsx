@@ -38,6 +38,7 @@ import {
   createHomeRealtimeBridge,
   createReconcileScheduler,
   isConversationVisible,
+  isNewLastMessage,
   mergeLastMessage,
   removeConnectionById,
   removeHiddenLastMessage,
@@ -231,6 +232,15 @@ export default function Home() {
     loadingRef.current = false;
     eventGateRef.current = createConversationEventGate();
     pendingReconcileRef.current = new Set();
+    // F-06: deletion state (chat-deletion windows + revealed chats) and the
+    // per-user message tombstones belong to one account. Reset them at the
+    // account/session boundary so stale IDs from User A can never influence
+    // User B (e.g. a realtime event processed before the new load commits
+    // must not read A's chat-deletion window, and A's tombstones must not
+    // mask B's previews). The next `load()` repopulates both from the
+    // RLS-scoped query for the new user.
+    deletionsRef.current = { chatUntil: new Map(), revealed: new Set() };
+    setDeletedForMe(new Set());
   }, [me]);
 
   const load = useCallback(async () => {
@@ -593,7 +603,12 @@ export default function Home() {
         // A peer message is unread while Home is on screen; own messages
         // (sent from another device) and non-text system events are never
         // counted (matches the connection_unread view, migration 0013).
-        if (countUnread) {
+        // F-04: a duplicate delivery of the same message (Realtime replay, or
+        // our own send racing back from another device) is not a genuinely new
+        // message and must never re-increment the unread badge — the badge is
+        // incremented only when the message is the new latest for its
+        // connection.
+        if (countUnread && isNewLastMessage(lastMessagesRef.current, msg)) {
           setUnread((prev) => unreadAfterInsert(prev, msg.connection_id, true));
         }
       },

@@ -23,6 +23,34 @@ import {
   cachePlaintext,
 } from './message-cache.ts';
 
+/**
+ * Cache display plaintext, treating a persistence failure as non-fatal
+ * (audit F-07).
+ *
+ * `cachePlaintext` first updates the in-memory map and then persists a sealed
+ * snapshot to IndexedDB. If that IndexedDB write fails (the sealing key is
+ * momentarily unavailable, the store is full, a transient I/O error), the
+ * decrypt has ALREADY succeeded for the current or an earlier path — the
+ * failure is a cache concern, never a cryptographic one. It must not make a
+ * successfully decrypted message appear permanently undecryptable, and it
+ * must not weaken E2EE (no plaintext is sent anywhere; the in-memory value
+ * set by `cachePlaintext` still serves the current session).
+ *
+ * The error is deliberately swallowed here.
+ */
+async function cachePlaintextBestEffort(
+  userId: string,
+  messageId: string,
+  plaintext: string,
+): Promise<void> {
+  try {
+    await cachePlaintext(userId, messageId, plaintext);
+  } catch {
+    // Best-effort cache persistence: never turn a successful decrypt into a
+    // display failure.
+  }
+}
+
 export interface PrepareSendOptions {
   /** The session manager (null when E2EE is unavailable / not yet ready). */
   e2ee: E2EESessionManager | null;
@@ -99,13 +127,13 @@ export async function decryptForDisplay(opts: {
 
   // 2. My Notes: plaintext is stored in the row.
   if (isSelf) {
-    await cachePlaintext(me, message.id, message.ciphertext);
+    await cachePlaintextBestEffort(me, message.id, message.ciphertext);
     return { plaintext: message.ciphertext };
   }
 
   // 3. Legacy plaintext row (pre-E2EE): show as-is and cache.
   if (!isEnvelope(message.ciphertext)) {
-    await cachePlaintext(me, message.id, message.ciphertext);
+    await cachePlaintextBestEffort(me, message.id, message.ciphertext);
     return { plaintext: message.ciphertext };
   }
 
@@ -115,6 +143,6 @@ export async function decryptForDisplay(opts: {
   // 5. Incoming envelope: decrypt (establishing on the first PreKey message).
   if (!e2ee) return { plaintext: null };
   const outcome = await e2ee.decryptFromPeer(message.sender_id, connectionId, message.ciphertext);
-  await cachePlaintext(me, message.id, outcome.plaintext);
+  await cachePlaintextBestEffort(me, message.id, outcome.plaintext);
   return { plaintext: outcome.plaintext };
 }

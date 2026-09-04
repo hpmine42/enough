@@ -40,6 +40,7 @@ import { advanceReadPosition, compareMessagesAsc, displayName, effectiveStatus, 
 import {
   applyMessageUpdate,
   captureRealtimeRow,
+  countsAsNewIncoming,
   createChatLifecycle,
   isRealtimeMessageRow,
   mergeIncomingMessage,
@@ -200,6 +201,14 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   // as rows, and INSERTs keep flowing through the steady-state handler.
   const pagingInFlightRef = useRef(false);
   const pendingOlderRef = useRef<PendingRealtimeRow[]>([]);
+  // F-04: message ids already delivered by this chat's realtime channel, used
+  // to keep the "new since up" scroll badge from double-counting a duplicate
+  // INSERT. The rendered-list fast path already handles deliveries that are
+  // visible in the committed list; this set closes the remaining window where
+  // a duplicate lands before that list mirror has advanced. Cleared on
+  // conversation switch (each message id is unique, so once counted it stays
+  // counted for the life of the conversation).
+  const countedSinceUpRef = useRef<Set<string>>(new Set());
   // F-01: conversation lifecycle token. Advanced SYNCHRONOUSLY in the render
   // body when the `connectionId` prop changes, so an async continuation that
   // resolves between this render and the effect flush can never still see
@@ -377,6 +386,13 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     if (!supabase || !valid) return;
     if (shouldSkipNetwork()) return;
     const client = supabase;
+    // F-05: bind this subscription to the conversation generation it was
+    // created for. The lifecycle advances synchronously in the render body on
+    // a conversation switch, so a callback delivered by an old subscription
+    // (in flight during a switch/reconnect) fails the token check and is
+    // dropped before it can mutate the NEW conversation's state. Reusing the
+    // F-01 lifecycle avoids a second lifecycle mechanism.
+    const subToken = lifecycleRef.current.current();
     const channel = client
       .channel(`chat-${connectionId}`)
       .on(
@@ -388,6 +404,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           filter: `connection_id=eq.${connectionId}`,
         },
         (payload) => {
+          if (!lifecycleRef.current.isCurrent(subToken)) return;
           const row = payload.new as unknown;
           // A Realtime payload is not authorization: on top of the channel's
           // connection filter and RLS delivery, the row is re-scoped to the
@@ -410,17 +427,26 @@ export default function Chat({ connectionId }: { connectionId: string }) {
             return;
           }
           // Duplicate events (a replay, or our own send racing back from
-          // another device) never mutate the list: fast path here, and the
-          // merge below re-checks by id, so state stays correct either way.
+          // another device) never mutate the list: the fast path below
+          // returns, and the merge re-checks by id, so state stays correct.
           if (visibleMessagesRef.current.some((m) => m.id === row.id)) return;
+          // F-04: a duplicate that lands in the same burst (before the
+          // committed list mirror advances) must not double-count the badge.
+          if (countedSinceUpRef.current.has(row.id)) return;
           // Ciphertext-only incremental merge; the row is resolved for
           // display by the shared E2EE decrypt path (load and realtime use
           // one path — see the decrypt effect below).
           setMessages((prev) =>
             mergeIncomingMessage(prev, row, connectionId, hiddenUntil),
           );
-          if (!atBottomRef.current) {
-            setNewSinceUp((c) => c + 1);
+          // Count the badge exactly once per genuinely new message; only when
+          // the merge would actually append the row (a no-op merge — an
+          // already-recorded duplicate — never re-counts).
+          if (countsAsNewIncoming(visibleMessagesRef.current, row, connectionId, hiddenUntil)) {
+            countedSinceUpRef.current.add(row.id);
+            if (!atBottomRef.current) {
+              setNewSinceUp((c) => c + 1);
+            }
           }
           // Refresh the "new messages below" count without waiting for a scroll.
           requestAnimationFrame(() => {
@@ -437,6 +463,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           filter: `connection_id=eq.${connectionId}`,
         },
         (payload) => {
+          if (!lifecycleRef.current.isCurrent(subToken)) return;
           const row = payload.new as unknown;
           if (!isRealtimeMessageRow(row) || row.connection_id !== connectionId) {
             return;
@@ -491,6 +518,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           filter: `id=eq.${connectionId}`,
         },
         (payload) => {
+          if (!lifecycleRef.current.isCurrent(subToken)) return;
           const row = payload.new as Connection | null;
           if (row) setConn(row);
           else setValid(false);
@@ -500,6 +528,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'profiles' },
         (payload) => {
+          if (!lifecycleRef.current.isCurrent(subToken)) return;
           const row = payload.new as Profile;
           if (peer && row.id === peer.id) setPeer(row);
         },
@@ -508,6 +537,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'message_deletions' },
         (payload) => {
+          if (!lifecycleRef.current.isCurrent(subToken)) return;
           const row = payload.new as { user_id?: string; message_id?: string };
           if (row.user_id === me && row.message_id) {
             setDeletedForMe((prev) => new Set(prev).add(row.message_id!));
@@ -617,6 +647,8 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   useEffect(() => {
     resolvedRef.current = new Set();
     decryptedRef.current = new Set();
+    // F-04: the "new since up" badge dedup set belongs to this conversation.
+    countedSinceUpRef.current = new Set();
     // Captured rows belong to the previous conversation: dropping them is
     // safe (reopening that conversation re-loads its page from the server).
     pendingRealtimeRef.current = [];
