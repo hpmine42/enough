@@ -1000,6 +1000,36 @@ assert(
   dom.window.document.querySelector('.legal-contact-list a[href="mailto:hpmine@web.de"]') !== null,
   'imprint shows the configured contact address',
 );
+assert(
+  dom.window.document.querySelector('.contact-form') !== null,
+  'contact form renders in imprint',
+);
+assert(
+  dom.window.document.querySelector('#contact-email') !== null,
+  'contact form has email input',
+);
+assert(
+  dom.window.document.querySelector('#contact-message') !== null,
+  'contact form has message textarea',
+);
+assert(
+  dom.window.document.querySelector('.legal-content a[href="#/privacy"]') !== null,
+  'imprint contains link to privacy policy',
+);
+
+/* public privacy policy */
+setHash('#/datenschutz');
+await waitFor(() => text('.legal-content h1') === 'Datenschutzerklärung', 'public German privacy policy renders');
+setHash('#/privacy');
+await waitFor(() => text('.legal-content h1') === 'Privacy Policy', 'public English privacy policy renders');
+assert(
+  text('.legal-content')?.includes('Signal Protocol'),
+  'privacy policy explains E2EE architecture',
+);
+assert(
+  dom.window.document.querySelector('.legal-content a[href="#/imprint"]') !== null,
+  'privacy policy contains link to imprint',
+);
 setHash('#/login');
 await waitFor(() => text('.button') === 'Log in', 'return from imprint to login');
 
@@ -1171,6 +1201,10 @@ assert(
 assert(
   dom.window.document.querySelector('.settings-legal-link') !== null,
   'imprint link stays reachable from the overview',
+);
+assert(
+  dom.window.document.querySelector('.settings-privacy-link') !== null,
+  'privacy link stays reachable from the overview',
 );
 
 /* R4: opening a category opens its subpage; back returns to the overview */

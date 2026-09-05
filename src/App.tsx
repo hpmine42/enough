@@ -8,6 +8,7 @@ import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import Settings from './components/Settings';
 import Imprint from './components/Imprint';
+import Privacy from './components/Privacy';
 import LegalFooter from './components/LegalFooter';
 import ThemeButton from './components/ThemeButton';
 import { t, useLang } from './i18n';
@@ -19,10 +20,17 @@ export default function App() {
   // without a page reload.
   useLang();
 
-  // The imprint is public and must remain reachable without a configured
-  // backend, an account, or a completed authentication check.
+  // Public legal screens (Imprint & Privacy) must remain reachable without a
+  // configured backend, an account, or a completed authentication check.
   if (route.startsWith('#/impressum') || route.startsWith('#/imprint')) {
     return <Imprint />;
+  }
+  if (
+    route.startsWith('#/datenschutz') ||
+    route.startsWith('#/privacy') ||
+    route.startsWith('#/settings/privacy')
+  ) {
+    return <Privacy />;
   }
 
   if (!configured) {

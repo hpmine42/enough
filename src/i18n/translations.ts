@@ -86,6 +86,10 @@ export const translations = {
     legal: {
       legal: 'Legal',
       imprint: 'Imprint',
+      privacy: 'Privacy Policy',
+      privacyShort: 'Privacy',
+      imprintLinkText: 'View Imprint',
+      privacyLinkText: 'View Privacy Policy',
       pursuantTo: 'Information pursuant to Section 5 of the German Digital Services Act (DDG)',
       lastUpdated: 'Last updated: 19 August 2026',
       templateNoticeTitle: 'Template — update before publishing',
@@ -101,6 +105,86 @@ export const translations = {
       registerNumber: 'Register number',
       vatId: 'VAT identification number',
       editoriallyResponsible: 'Editorial responsibility pursuant to Section 18(2) MStV',
+    },
+
+    // contact form
+    contact: {
+      title: 'Contact form',
+      subtitle: 'Send a message to the operator of enough.',
+      nameLabel: 'Name (optional)',
+      namePlaceholder: 'Your name',
+      emailLabel: 'Email address',
+      emailPlaceholder: 'you@example.com',
+      messageLabel: 'Message',
+      messagePlaceholder: 'Write your message here…',
+      submit: 'Send message',
+      sending: 'Sending…',
+      success: 'Thank you for your message. It has been sent to the operator.',
+      sendAnother: 'Send another message',
+      sendFailed: 'Failed to send message. Please try again later or contact us directly via email.',
+      errorEmailRequired: 'Please enter your email address.',
+      errorEmailInvalid: 'Please enter a valid email address.',
+      errorMessageRequired: 'Please enter a message.',
+      errorMessageTooShort: 'Please enter a message (at least 10 characters).',
+      errorMessageTooLong: 'Message must be at most 5,000 characters.',
+      errorNameTooLong: 'Name must be at most 100 characters.',
+      privacyNote:
+        'The information entered above will only be processed to handle and respond to your inquiry.',
+    },
+
+    // privacy policy
+    privacy: {
+      kicker: 'Privacy',
+      title: 'Privacy Policy',
+      intro: 'Information on the processing of personal data in the enough. messenger.',
+      lastUpdated: 'Last updated: 5 September 2026',
+
+      sectionOverviewTitle: '1. Overview and Core Principles',
+      sectionOverviewText:
+        'enough. is designed around strict data minimization and user privacy ("Less, but enough."). We do not use tracking or advertising cookies, run no analytics scripts, display no advertisements, and request no browser push notifications. Personal data is processed exclusively to deliver secure messaging, maintain user accounts, and ensure the technical stability and security of the infrastructure.',
+
+      sectionControllerTitle: '2. Controller and Contact',
+      sectionControllerIntro: 'The controller responsible for data processing in connection with this service is:',
+
+      sectionHostingTitle: '3. Frontend Hosting (GitHub Pages) & Access Logs',
+      sectionHostingText:
+        'The web application frontend is hosted as a static web application on GitHub Pages, a service provided by GitHub, Inc. (88 Colin P Kelly Jr St, San Francisco, CA 94107, USA / Microsoft). When accessing the website, GitHub Pages automatically processes standard web server connection logs (such as client IP address, browser type/version, operating system, referrer URL, and timestamp of the request) to deliver the web assets securely and reliably. The legal basis for this processing is Art. 6(1)(f) GDPR (our legitimate interest in the secure and performant delivery of the web application). Data transfer to the USA is covered by the EU-US Data Privacy Framework (DPF) and Standard Contractual Clauses (SCCs). Technical connection logs are processed by GitHub for security, performance monitoring, and abuse defense, and are retained and purged in accordance with GitHub\'s Privacy Statement and operational retention policies.',
+
+      sectionAccountTitle: '4. Account and Profile Data',
+      sectionAccountText:
+        'When you create an account, we process your email address (for login and password recovery), your chosen @username (unique public handle), an optional display name (up to 60 characters), and your password. Passwords are cryptographically hashed using bcrypt via Supabase Auth and are never stored or readable in plaintext. In addition, an immutable internal user ID and account creation date are recorded. The legal basis is Art. 6(1)(b) GDPR (performance of the user contract). This data is stored for the duration of your account and deleted immediately upon account deletion.',
+
+      sectionE2eeTitle: '5. End-to-End Encryption (E2EE) & Metadata',
+      sectionE2eeText:
+        'All one-to-one peer conversations are end-to-end encrypted using the Signal Protocol (PQXDH key agreement and Double Ratchet with post-quantum Kyber-1024 key encapsulation) via @getmaapp/signal-wasm. Message texts are encrypted directly in your browser before network transmission. The backend receives and persists only opaque ciphertext envelopes (in the database column messages.ciphertext). Private cryptographic keys are generated in your browser, stored in sealed local IndexedDB, and never leave your device. Public prekeys (identity public keys, signed prekeys, one-time prekeys, and Kyber prekeys) are stored on the server to enable asynchronous cryptographic handshakes.',
+      sectionE2eeMetadata:
+        'Metadata processing: To route messages, maintain peer connections, and establish cryptographic sessions, the server processes unencrypted technical metadata (sender and recipient IDs, timestamps, connection request state, and public keys). Legal basis: Art. 6(1)(b) GDPR.',
+      sectionE2eeExceptions:
+        'Documented exceptions: "My Notes" (the personal self-notepad chat) stores notes unencrypted in your database row by design because there is no second participant. System notifications (such as display name updates or account deletion events) contain non-sensitive metadata only.',
+
+      sectionBackendTitle: '6. Backend Infrastructure, Database & Server Logs (Supabase)',
+      sectionBackendText:
+        'The backend infrastructure (PostgreSQL database, Supabase Auth, PostgREST API, and WebSocket Realtime engine) is operated via Supabase, Inc. as a data processor pursuant to Art. 28 GDPR. The database and authentication service are hosted exclusively in the AWS Region eu-central-1 (Frankfurt am Main, Germany). Strict Row-Level Security (RLS) policies and database triggers ensure that users can only access their own profile data and authorized conversations.',
+      sectionBackendLogs:
+        'Technical connection logs: When connecting to the Supabase APIs and Realtime WebSockets, technical connection metadata (IP address, request headers, WebSocket connection state, timestamps, and error codes) are processed at the network level for transport, rate limiting, and DDoS/abuse defense. Legal basis: Art. 6(1)(b) GDPR (service delivery) and Art. 6(1)(f) GDPR (our legitimate interest in infrastructure security and availability). Technical server logs (such as API, Auth, and database connection logs) are retained only temporarily in accordance with operational log rotation schedules and provider retention policies.',
+
+      sectionLocalStorageTitle: '7. Local Storage, IndexedDB & Offline Read Mode',
+      sectionLocalStorageText:
+        'Your cryptographic identity, private prekeys, Double Ratchet session states, and decrypted message history are stored locally in your browser\'s IndexedDB (database "enough-crypto") and sealed with AES-256-GCM under a non-extractable device key. Offline Read Mode maintains sealed local snapshots of your recent conversations and messages so you can read them without network connectivity. LocalStorage is strictly used for non-sensitive UI preferences (theme mode and selected language).',
+
+      sectionContactTitle: '8. Contact Form & Email Delivery (Resend)',
+      sectionContactText:
+        'When you submit an inquiry through the contact form in the Imprint, we process your name (if provided), email address, message text, submission timestamp, and anti-spam verification data (such as honeypot checks and rate-limiting IP). Inquiries are processed server-side in memory by a Supabase Edge Function to prevent mail-relay abuse, CRLF header injection, and automated spam.',
+      sectionContactResend:
+        'Email transmission via Resend: The message is dispatched via the API of our email delivery provider, Resend, Inc. (2261 Market Street #5039, San Francisco, CA 94114, USA), directly to the operator\'s private email inbox. Inquiries are not stored in the messenger\'s chat database tables. Legal basis: For general contact, support, or feedback inquiries, processing is based on Art. 6(1)(f) GDPR (our legitimate interest in responding to user communications and defending against abuse). Insofar as an inquiry concerns the initiation, conclusion, or fulfillment of a user agreement or contractual relationship, the legal basis is Art. 6(1)(b) GDPR. Data transfer to the USA is based on the EU-US Data Privacy Framework (DPF) / Standard Contractual Clauses (SCCs). Inquiry emails are retained in the operator\'s mailbox for as long as needed to handle the request or to fulfill statutory retention obligations (e.g. under commercial/tax laws), after which they are deleted. Resend retains delivery logs in accordance with their retention schedules (up to 30 days).',
+
+      sectionDeletionTitle: '9. Data Retention & Account Deletion',
+      sectionDeletionText:
+        'You can delete your account at any time in the settings ("Delete Account"). Deleting your account runs a database routine that removes your profile, frees your @username for new registrations, cascades your authentication record, marks existing chats with peers as ended, and triggers local removal of all cryptographic keys and cached data on your device via deleteUserCryptoState. "Delete for everyone" removes message ciphertexts from the database within 24 hours. "Delete for me" sets a local hidden cutoff timestamp.',
+
+      sectionRightsTitle: '10. Data Subject Rights (GDPR)',
+      sectionRightsText:
+        'Under Chapter III of the GDPR, you have the right to access (Art. 15), rectification (Art. 16), erasure (Art. 17), restriction of processing (Art. 18), data portability (Art. 20), and objection (Art. 21). You also have the right to lodge a complaint with a competent data protection supervisory authority (Art. 77 GDPR).',
     },
 
     // settings
@@ -377,6 +461,10 @@ export const translations = {
     legal: {
       legal: 'Rechtliches',
       imprint: 'Impressum',
+      privacy: 'Datenschutzerklärung',
+      privacyShort: 'Datenschutz',
+      imprintLinkText: 'Zum Impressum',
+      privacyLinkText: 'Zur Datenschutzerklärung',
       pursuantTo: 'Angaben gemäß § 5 Digitale-Dienste-Gesetz (DDG)',
       lastUpdated: 'Stand: 19. August 2026',
       templateNoticeTitle: 'Vorlage – vor Veröffentlichung anpassen',
@@ -392,6 +480,86 @@ export const translations = {
       registerNumber: 'Registernummer',
       vatId: 'Umsatzsteuer-Identifikationsnummer',
       editoriallyResponsible: 'Redaktionell verantwortlich gemäß § 18 Abs. 2 MStV',
+    },
+
+    // contact form
+    contact: {
+      title: 'Kontaktformular',
+      subtitle: 'Sende eine Nachricht an den Betreiber von enough.',
+      nameLabel: 'Name (optional)',
+      namePlaceholder: 'Dein Name',
+      emailLabel: 'E-Mail-Adresse',
+      emailPlaceholder: 'du@example.com',
+      messageLabel: 'Nachricht',
+      messagePlaceholder: 'Schreibe hier deine Nachricht…',
+      submit: 'Nachricht senden',
+      sending: 'Wird gesendet…',
+      success: 'Vielen Dank für deine Nachricht. Sie wurde an den Betreiber übermittelt.',
+      sendAnother: 'Weitere Nachricht senden',
+      sendFailed: 'Nachricht konnte nicht gesendet werden. Bitte versuche es später erneut oder kontaktiere uns direkt per E-Mail.',
+      errorEmailRequired: 'Bitte gib deine E-Mail-Adresse ein.',
+      errorEmailInvalid: 'Bitte gib eine gültige E-Mail-Adresse ein.',
+      errorMessageRequired: 'Bitte gib eine Nachricht ein.',
+      errorMessageTooShort: 'Bitte gib eine Nachricht ein (mindestens 10 Zeichen).',
+      errorMessageTooLong: 'Die Nachricht darf maximal 5.000 Zeichen lang sein.',
+      errorNameTooLong: 'Der Name darf maximal 100 Zeichen lang sein.',
+      privacyNote:
+        'Die eingegebenen Daten werden ausschließlich zur Bearbeitung und Beantwortung deiner Anfrage verarbeitet.',
+    },
+
+    // privacy policy
+    privacy: {
+      kicker: 'Datenschutz',
+      title: 'Datenschutzerklärung',
+      intro: 'Informationen über die Verarbeitung personenbezogener Daten im enough. Messenger.',
+      lastUpdated: 'Stand: 5. September 2026',
+
+      sectionOverviewTitle: '1. Überblick und Grundsätze',
+      sectionOverviewText:
+        'enough. basiert auf dem Grundsatz strikter Datenminimierung und Privatsphäre („Weniger, aber genug.“). Wir setzen keine Analyse- oder Werbe-Cookies ein, betreiben kein Tracking, blenden keine Werbung ein und fordern keine Browser-Berechtigungen für Push-Benachrichtigungen an. Personenbezogene Daten werden ausschließlich verarbeitet, um den verschlüsselten Messenger-Dienst bereitzustellen, Nutzerkonten zu verwalten und die Sicherheit und Stabilität der technischen Infrastruktur zu gewährleisten.',
+
+      sectionControllerTitle: '2. Verantwortlicher und Kontakt',
+      sectionControllerIntro: 'Verantwortlicher für die Datenverarbeitung im Sinne der Datenschutz-Grundverordnung (DSGVO) ist:',
+
+      sectionHostingTitle: '3. Frontend-Hosting (GitHub Pages) & Zugriffsdaten',
+      sectionHostingText:
+        'Das Frontend der Web-Anwendung wird als statische Web-App über GitHub Pages bereitgestellt, einen Dienst der GitHub, Inc. (88 Colin P Kelly Jr St, San Francisco, CA 94107, USA / Microsoft). Beim Aufruf der Anwendung verarbeitet GitHub Pages technisch notwendige Zugriffsdaten (wie die IP-Adresse des zugreifenden Geräts, Browsertyp/-version, Betriebssystem, Referrer-URL und Zugriffszeitpunkt), um die Dateien stabil und sicher auszuliefern. Rechtsgrundlage hierfür ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der sicheren und zuverlässigen Bereitstellung der Web-App). Die Datenübermittlung in die USA erfolgt auf Grundlage des EU-US Data Privacy Frameworks (DPF) sowie Standardvertragsklauseln (SCCs). Technische Zugriffsdaten und Server-Logs werden von GitHub zur Gewährleistung der Stabilität, Performance und IT-Sicherheit verarbeitet und gemäß den Aufbewahrungsrichtlinien der GitHub-Datenschutzerklärung automatisiert gelöscht.',
+
+      sectionAccountTitle: '4. Account- und Profildaten',
+      sectionAccountText:
+        'Bei der Registrierung verarbeiten wir deine E-Mail-Adresse (für Authentifizierung und Passwort-Wiederherstellung), deinen gewählten @username (eindeutiger öffentlicher Bezeichner), einen optionalen Anzeigenamen (bis zu 60 Zeichen) sowie dein Passwort. Passwörter werden über Supabase Auth mittels bcrypt kryptografisch gehasht und zu keinem Zeitpunkt im Klartext gespeichert. Zudem werden eine unveränderliche interne User-ID und das Erstellungsdatum gespeichert. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Vertragserfüllung). Die Daten werden für die Dauer deines Accounts gespeichert und bei der Account-Löschung unverzüglich entfernt.',
+
+      sectionE2eeTitle: '5. Ende-zu-Ende-Verschlüsselung (E2EE) & Metadaten',
+      sectionE2eeText:
+        'Alle 1:1-Peer-Konversationen sind mittels Signal-Protokoll (PQXDH-Handshake und Double Ratchet mit Post-Quantum Kyber-1024 Key Encapsulation via @getmaapp/signal-wasm) Ende-zu-Ende verschlüsselt. Nachrichteninhalte werden vor der Übertragung direkt im Browser verschlüsselt. Das Backend speichert ausschließlich opake Chiffrate (in der Spalte messages.ciphertext). Private kryptografische Schlüssel werden lokal generiert, verbleiben ausschließlich in der versiegelten IndexedDB deines Endgeräts und werden niemals an den Server übertragen. Öffentliche PreKeys (Identity-Keys, Signed-PreKeys, One-Time-PreKeys, Kyber-PreKeys) werden auf dem Server bereitgestellt, um asynchrone Handshakes zu ermöglichen.',
+      sectionE2eeMetadata:
+        'Metadaten: Zur Zustellung von Nachrichten, Verwaltung von Kontakten und Aushandlung von Sitzungen verarbeitet der Server unverschlüsselte technische Metadaten (Sender- und Empfänger-IDs, Zeitstempel, Verbindungsstatus und öffentliche Schlüssel). Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO.',
+      sectionE2eeExceptions:
+        'Dokumentierte Ausnahmen: „My Notes“ (der persönliche Notiz-Chat) speichert Notizen konzeptbedingt unverschlüsselt in der Datenbank, da kein zweiter Kommunikationspartner existiert. System-Ereignisse (z. B. wenn ein Kontakt seinen Namen ändert oder sein Konto löscht) enthalten ausschließlich unkritische Metadaten.',
+
+      sectionBackendTitle: '6. Backend-Infrastruktur, Datenbank & Server-Logs (Supabase)',
+      sectionBackendText:
+        'Die Backend-Infrastruktur (PostgreSQL-Datenbank, Supabase Auth, PostgREST-API und WebSocket-Realtime) wird über Supabase, Inc. als Auftragsverarbeiter gemäß Art. 28 DSGVO bereitgestellt. Das Projekt wird ausschließlich in der AWS-Region eu-central-1 (Frankfurt am Main, Deutschland) gehostet. Strikte Row-Level-Security-Richtlinien (RLS) und Datenbank-Trigger stellen sicher, dass Nutzer nur auf die für ihr Konto freigegebenen Daten zugreifen können.',
+      sectionBackendLogs:
+        'Technische Verbindungsdaten und Server-Logs: Bei der Kommunikation mit den Supabase-APIs und WebSockets werden netzwerkseitig Verbindungsdaten (IP-Adresse, Header-Informationen, Verbindungsstatus, Zeitstempel) verarbeitet, um die Echtzeit-Übertragung zu gewährleisten, Rate-Limits durchzusetzen und Angriffe abzuwehren. Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO (Diensterbringung) sowie Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an Systemsicherheit und Stabilität). Technische Server-, Auth- und API-Logs werden ausschließlich temporär im Rahmen der betrieblichen Log-Aufbewahrungs- und Rotationsrichtlinien des Infrastruktur-Providers vorgehalten und anschließend automatisiert überschrieben bzw. gelöscht.',
+
+      sectionLocalStorageTitle: '7. Lokale Speicherung, IndexedDB & Offline Read Mode',
+      sectionLocalStorageText:
+        'Deine kryptografische Identität, privaten Schlüssel, Ratchet-Zustände und entschlüsselten Nachrichten werden lokal in der IndexedDB deines Browsers (Datenbank „enough-crypto“) gespeichert und mittels AES-256-GCM versiegelt. Der Offline Read Mode speichert versiegelte lokale Snapshots der Chat-Übersicht und der letzten 40 Nachrichten pro Konversation. Der LocalStorage wird ausschließlich für unkritische UI-Einstellungen (Darstellungsmodus und Sprachauswahl) verwendet.',
+
+      sectionContactTitle: '8. Kontaktformular & E-Mail-Verarbeitung (Resend)',
+      sectionContactText:
+        'Wenn du das Kontaktformular im Impressum nutzt, verarbeiten wir deinen Namen (sofern angegeben), deine E-Mail-Adresse, deine Nachricht, den Absendezeitpunkt sowie Daten zur Spam-Abwehr (Honeypot-Feld, IP-basiertes Rate Limiting). Die Daten werden serverseitig in einer Supabase Edge Function verarbeitet, um Missbrauch als offenes Mail-Relay, CRLF-Header-Injection und Spam zu verhindern.',
+      sectionContactResend:
+        'E-Mail-Versand über Resend: Die Nachricht wird über die API unseres E-Mail-Dienstleisters Resend, Inc. (2261 Market Street #5039, San Francisco, CA 94114, USA) direkt an das E-Mail-Postfach des Betreibers übermittelt. Kontaktanfragen werden nicht in den Chat-Tabellen der Datenbank gespeichert. Rechtsgrundlage: Die Verarbeitung allgemeiner Kontakt-, Support- oder Feedback-Anfragen erfolgt auf Grundlage von Art. 6 Abs. 1 lit. f DSGVO (unser berechtigtes Interesse an der Bearbeitung von Nutzerkommunikation sowie Missbrauchsschutz). Dient die Anfrage der Anbahnung, dem Abschluss oder der Erfüllung eines Nutzungsverhältnisses bzw. Vertrags, ist die Rechtsgrundlage Art. 6 Abs. 1 lit. b DSGVO. Die Datenübermittlung in die USA erfolgt auf Basis des EU-US Data Privacy Frameworks (DPF) / Standardvertragsklauseln (SCCs). E-Mails verbleiben im Postfach des Betreibers, solange dies für die Bearbeitung erforderlich ist oder gesetzliche Aufbewahrungspflichten bestehen, und werden danach gelöscht. Resend speichert Übertragungsprotokolle gemäß den dortigen Aufbewahrungsrichtlinien (bis zu 30 Tage).',
+
+      sectionDeletionTitle: '9. Datenlöschung & Account-Löschung',
+      sectionDeletionText:
+        'Du kannst dein Konto jederzeit in den Einstellungen löschen („Konto löschen“). Die Kontolöschung führt eine Datenbankroutine aus, die dein Profil entfernt, den @username für Neuregistrierungen freigibt, den Auth-Eintrag kaskadiert löscht, bestehende Chats mit Kontakten als beendet markiert und lokal alle kryptografischen Schlüssel sowie gespeicherten Daten vom Endgerät entfernt. „Für alle löschen“ entfernt Nachrichtenchiffrate innerhalb von 24 Stunden aus der Datenbank. „Für mich löschen“ blendet Nachrichten lokal ab einem Stichtag aus.',
+
+      sectionRightsTitle: '10. Betroffenenrechte (DSGVO)',
+      sectionRightsText:
+        'Nach Kapitel III der DSGVO stehen dir das Recht auf Auskunft (Art. 15), Berichtigung (Art. 16), Löschung (Art. 17), Einschränkung der Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) und Widerspruch (Art. 21) zu. Zudem hast du das Recht auf Beschwerde bei einer zuständigen Datenschutz-Aufsichtsbehörde (Art. 77 DSGVO).',
     },
 
     settingsScreen: {

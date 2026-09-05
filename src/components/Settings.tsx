@@ -843,6 +843,12 @@ export default function Settings() {
             {t('legal.imprint')}
           </a>
           <a
+            className="link settings-privacy-link"
+            href={lang === 'de' ? '#/datenschutz' : '#/privacy'}
+          >
+            {t('legal.privacy')}
+          </a>
+          <a
             className="link settings-github"
             href={GITHUB_URL}
             target="_blank"

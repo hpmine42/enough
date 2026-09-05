@@ -4,6 +4,7 @@ import { t, useLang } from '../i18n';
 import { navigate, useHashRoute } from '../lib/router';
 import { BackIcon } from './icons';
 import ThemeButton from './ThemeButton';
+import ContactForm from './ContactForm';
 
 function isPlaceholder(value: string): boolean {
   return value.includes('[') && value.includes(']');
@@ -112,6 +113,8 @@ export default function Imprint() {
               </dd>
             </div>
           </dl>
+
+          <ContactForm />
         </section>
 
         {hasRegisterEntry && (
@@ -154,6 +157,18 @@ export default function Imprint() {
             )}
           </section>
         )}
+
+        <section className="legal-section">
+          <h2>{t('legal.privacy')}</h2>
+          <p>
+            <a
+              className="link"
+              href={lang === 'de' ? '#/datenschutz' : '#/privacy'}
+            >
+              {t('legal.privacyLinkText')}
+            </a>
+          </p>
+        </section>
       </article>
     </main>
   );

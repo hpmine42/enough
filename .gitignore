@@ -9,6 +9,7 @@ dist
 # ephemeral embedded-postgres data (local F3 harness)
 data/db
 .tmp-pg
+supabase/.temp/
 
 
 # environment files — never commit real credentials

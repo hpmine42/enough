@@ -65,6 +65,15 @@ export function createSupabaseMock(responses = []) {
     };
   }
 
+  function makeFunctions() {
+    return {
+      invoke: (name, options) => {
+        log.push({ function: name, options });
+        return Promise.resolve(nextResponse());
+      },
+    };
+  }
+
   const client = {
     from(table) {
       return makeBuilder(table);
@@ -72,6 +81,7 @@ export function createSupabaseMock(responses = []) {
     rpc(name, params) {
       return makeRpc(name, params);
     },
+    functions: makeFunctions(),
     // Test introspection / control.
     _log: log,
     _responses: responses,
