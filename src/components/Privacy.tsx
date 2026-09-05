@@ -171,7 +171,10 @@ const PROVIDER_REFERENCES: readonly { label: TranslationKey; url: string }[] = [
     label: 'privacy.refGitHubPages',
     url: 'https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages#data-collection',
   },
-  { label: 'privacy.refSupabaseDpa', url: 'https://supabase.com/legal/dpa' },
+  {
+    label: 'privacy.refSupabaseDpa',
+    url: 'https://supabase.com/legal/customer-resources/data-processing-addendum',
+  },
   {
     label: 'privacy.refSupabaseGdpr',
     url: 'https://supabase.com/docs/guides/security/gdpr-compliance',

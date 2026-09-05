@@ -262,6 +262,28 @@ test('E2EE is described as content protection with server-visible metadata', () 
   for (const needle of ['timestamp', 'user ID', 'prekey', 'Realtime']) {
     assert.ok(metadata.toLowerCase().includes(needle.toLowerCase()), `metadata list must include ${needle}`);
   }
+  // The message row is described exactly as the schema has it: the recipient is
+  // not stored per message, and the only size the server can see is the length
+  // of the ciphertext envelope.
+  assert.match(
+    metadata,
+    /length of the stored ciphertext/,
+    'the observable size must be the ciphertext length, not a claimed message-size field',
+  );
+  assert.match(
+    metadata,
+    /recipient is not a column of its own|follows from the two members/,
+    'the recipient must be described as derived from the conversation, never as a stored field',
+  );
+  // Realtime usage must be disclosed as metadata, including what the filters
+  // leak (Home.tsx and Chat.tsx subscribe per conversation and per block pair).
+  assert.match(metadata, /Realtime subscriptions are metadata/, 'the subscriptions must be named as metadata');
+  assert.match(
+    metadata,
+    /channel[^.]{0,160}conversation ID|bound to that conversation ID/,
+    'the per-chat Realtime channel and the conversation ID it carries must be disclosed',
+  );
+  assert.match(metadata, /filters/, 'the Realtime filter values must be disclosed as visible metadata');
 
   const limits = en.sectionE2eeLimits;
   assert.match(limits, /trust on first use/, 'the missing key verification must be disclosed');
@@ -271,12 +293,71 @@ test('E2EE is described as content protection with server-visible metadata', () 
   const exceptions = en.sectionE2eeExceptions;
   assert.match(exceptions, /My Notes/i, 'the plaintext self-chat exception must be documented');
   assert.match(exceptions, /System events|system event/, 'unencrypted system events must be documented');
+  assert.match(
+    exceptions,
+    /empty ciphertext[\s\S]{0,200}unencrypted metadata column/,
+    'system events must be disclosed as messages with a cleared ciphertext and plaintext in meta',
+  );
+  assert.match(
+    de.sectionE2eeExceptions,
+    /leerem Chiffrat[\s\S]{0,200}unverschl\u00fcsselten Metadaten-Spalte/,
+    'DE must state the same system-event storage',
+  );
 
   // The same four distinctions in German.
   assert.match(de.sectionE2eeText, /messages\.ciphertext|Chiffrate/);
   assert.match(de.sectionE2eeMetadata, /Metadaten/);
   assert.match(de.sectionE2eeLimits, /trust on first use|Schlüsselverifikation/);
   assert.match(de.sectionE2eeExceptions, /Meine Notizen/);
+});
+
+test('the overview states the CSP and the read marker at the precision the code allows', () => {
+  const overview = [en.sectionOverviewText, en.sectionOverviewText2].join(' ');
+  const overviewDe = [de.sectionOverviewText, de.sectionOverviewText2].join(' ');
+  // index.html: connect-src 'self' https://*.supabase.co wss://*.supabase.co — a
+  // wildcard, so the policy must not claim the browser is pinned to this project.
+  assert.match(overview, /https:\/\/\*\.supabase\.co/, 'the CSP wildcard must be quoted as it is written');
+  assert.match(overview, /wss:\/\/\*\.supabase\.co/, 'the Realtime wildcard belongs in the same sentence');
+  assert.match(
+    overview,
+    /does not pin the browser to the project host|limits which hosts can be reached/,
+    'the wildcard must not be presented as pinning the instance',
+  );
+  assert.doesNotMatch(
+    overview,
+    /read position[\s\S]{0,200}unreadable for anyone else/,
+    'the read row is protected against other users, not against the operator',
+  );
+  assert.match(
+    overview,
+    /read position[\s\S]{0,240}operator, who holds the database, can\b/,
+    'the operator access to the read row must be stated next to the restriction',
+  );
+  assert.doesNotMatch(
+    overview,
+    /operator[^.]{0,60}(cannot|is unable|is excluded)/i,
+    'the read row must not be presented as hidden from the operator',
+  );
+  assert.doesNotMatch(
+    overviewDe,
+    /Betreiber[^.]{0,60}(kann[^.]{0,12}nicht|ist nicht in der Lage)/i,
+    'DE must not claim the operator cannot read the row either',
+  );
+  assert.match(overviewDe, /Platzhalter-Domains https:\/\/\*\.supabase\.co/, 'DE must name the wildcard too');
+  assert.match(overviewDe, /Betreiber als Inhaber der Datenbank/, 'DE must state the operator access');
+  // Section 14 repeats the CSP claim, so it has to stay as precise as the
+  // header in index.html: Supabase is a third-party origin that IS allowed.
+  const security = `${en.sectionSecurityText} ${de.sectionSecurityText}`;
+  assert.match(
+    security,
+    /admits no origin besides the app itself and the Supabase hosts|nur die Supabase-Hosts zulässt/,
+    'the security section must name the Supabase hosts it allows',
+  );
+  assert.doesNotMatch(
+    security,
+    /Content-Security-Policy without third-party origins|ohne Dritt-Herk\u00fcnfte/,
+    'a wildcard Supabase origin is third-party, so that wording is not accurate',
+  );
 });
 
 test('the policy never claims that nothing at all is visible', () => {
@@ -321,7 +402,7 @@ test('account, profile and auth data match the schema and the registration form'
   assert.match(de.sectionAccountText2, /jede angemeldete Person/, 'DE must state the same profile visibility');
 });
 
-test('Supabase is described with the services actually used and the EU project region', () => {
+test('Supabase is described with the services actually used and the configured project region', () => {
   const backend = [en.sectionBackendText, en.sectionBackendText2, en.sectionBackendLogs].join(' ');
   for (const needle of [
     'Supabase Auth',
@@ -342,8 +423,123 @@ test('Supabase is described with the services actually used and the EU project r
     'no invented Supabase log retention may be claimed',
   );
   assert.match(backend, /processor/i, 'the Art. 28 role must be stated');
+  // supabase-js attaches the access token to PostgREST and Realtime; the
+  // refresh token is only exchanged with the auth endpoint.
+  assert.match(
+    en.sectionBackendLogs,
+    /data API and to Realtime carries your access token/,
+    'REST and Realtime must be described as carrying the access token',
+  );
+  assert.match(
+    en.sectionBackendLogs,
+    /refresh token is sent only to the auth service/,
+    'the refresh token must be told apart from the access token',
+  );
+  assert.doesNotMatch(
+    backend,
+    /access or refresh token|Zugriffs- oder Refresh-Token/,
+    'the policy must not claim that every request carries the refresh token',
+  );
+  // The region is a project setting the operator picked; nothing in this
+  // repository fixes it, so the sentence must attribute it.
+  assert.match(
+    en.sectionBackendText2,
+    /configured by the operator|setting of this instance/,
+    'the project region must be attributed to the operator configuration',
+  );
+  assert.match(de.sectionBackendText2, /von dem Betreiber gew\u00e4hlten AWS-Region/);
+  // The DPA names Supabase Pte. Ltd. as the contracting party and data importer;
+  // Supabase, Inc. is only the US affiliate of the group.
+  assert.match(en.sectionBackendText2, /Supabase Pte\. Ltd\./, 'the DPA entity must be named in the backend section');
+  assert.match(en.sectionBackendText2, /data importer/, 'its role under the SCCs must be stated');
+  assert.match(de.sectionBackendText2, /Supabase Pte\. Ltd\./, 'DE must name the same contracting entity');
+  assert.match(de.sectionBackendText2, /Datenimporteur/, 'DE must state the importer role');
+  // The vague hedge about backups is replaced by the documented default.
+  assert.match(en.sectionBackendLogs, /daily backups/, 'the backup default must be quoted as documented');
+  assert.doesNotMatch(
+    backend,
+    /backups? exist only to the extent/,
+    'the unverified backup hedge must not come back now that the measure is sourced',
+  );
   assert.match(de.sectionBackendText, /Row-Level-Security|Datenbank-Trigger/);
   assert.match(de.sectionBackendText2, /eu-central-1/);
+});
+
+test('the non-extractable claim belongs to the sealing key and never to the identity key', () => {
+  // What the code really does: `sealed-state.ts` mints a non-extractable
+  // AES-256-GCM key per account (`vaultkeys` store) and `device-store.ts`
+  // writes the serialized identity key pair of the wasm engine as a SEALED
+  // RECORD under that key. The identity key is therefore not a Web Crypto key,
+  // and the policy must not imply that it is.
+  const keys = ['sectionLocalStorageText2', 'sectionSecurityText'];
+  for (const key of keys) {
+    for (const [lang, dict] of [['en', en], ['de', de]]) {
+      const sentences = String(dict[key])
+        .split(/(?<=[.!?])\s+/)
+        .filter((s) => /non-extractab|nicht exportierbar/i.test(s));
+      assert.ok(
+        sentences.length > 0,
+        `privacy.${key} (${lang}) must state which key is non-extractable`,
+      );
+      for (const sentence of sentences) {
+        assert.match(
+          sentence,
+          /sealing key|Versiegelungsschlüssel/i,
+          `privacy.${key} (${lang}) may call only the sealing key non-extractable: ${sentence}`,
+        );
+        assert.doesNotMatch(
+          sentence,
+          /identity key|private key|Identit\u00e4tsschlüssel/i,
+          `privacy.${key} (${lang}) attaches the claim to a key that is not non-extractable: ${sentence}`,
+        );
+      }
+    }
+  }
+  // And the identity key must be described as a sealed serialized record.
+  assert.match(
+    en.sectionLocalStorageText2,
+    /serialized key pair inside one of these sealed records/,
+    'the identity key pair must be disclosed as a sealed serialized record',
+  );
+  assert.match(de.sectionLocalStorageText2, /serialisiertes Schlüsselpaar/);
+});
+
+test('the policy names the Supabase entity its own DPA contracts with', () => {
+  const entity = [
+    en.sectionBackendText2,
+    en.sectionTransfersText,
+    en.sectionTransfersText2,
+    de.sectionBackendText2,
+    de.sectionTransfersText,
+    de.sectionTransfersText2,
+  ].join(' ');
+  assert.match(entity, /Supabase Pte\. Ltd\./, 'the contracting entity of the DPA must be named');
+  assert.match(entity, /Singapore|Singapur/, 'and its seat, because that is the third-country question');
+  assert.match(entity, /data importer|Datenimporteur/, 'the importer role under the SCCs must be stated');
+  // Supabase, Inc. may appear only as the affiliated operator, never as the
+  // processor the contract is held with.
+  for (const key of enKeys) {
+    for (const [lang, dict] of [['en', en], ['de', de]]) {
+      assert.doesNotMatch(
+        dict[key],
+        /Supabase,? Inc\.[^.]{0,40}(acts as|ist|is)\s+(our|unser|the\s+)?(processor|Auftragsverarbeiter)/i,
+        `privacy.${key} (${lang}) describes the US affiliate as the contracting processor`,
+      );
+    }
+  }
+  // Singapore has no general adequacy decision, so the SCC basis must stay.
+  assert.match(
+    en.sectionTransfersText2,
+    /no general EU adequacy decision|rather than on adequacy/,
+    'the SCC basis for Singapore must be explained instead of a claimed adequacy',
+  );
+  assert.match(de.sectionTransfersText2, /kein allgemeiner Angemessenheitsbeschluss/);
+  // The published DPA link must be the canonical document, not a redirect.
+  assert.match(
+    privacySource,
+    /url: 'https:\/\/supabase\.com\/legal\/customer-resources\/data-processing-addendum'/,
+    'the reference must point at the canonical DPA URL',
+  );
 });
 
 test('local browser storage is distinguished from cookies', () => {
@@ -361,6 +557,28 @@ test('local browser storage is distinguished from cookies', () => {
   assert.match(local, /AES-256-GCM/, 'the sealing of local state must be named');
   assert.match(local, /Offline Read Mode/, 'offline snapshots must be documented');
   assert.match(local, /sb-<project-ref>-auth-token/, 'the Supabase Auth session in LocalStorage must be documented');
+  // The PKCE verifier is a sibling entry of the session, not part of it
+  // (@supabase/auth-js writes `${storageKey}-code-verifier`).
+  assert.match(
+    local,
+    /sb-<project-ref>-auth-token-code-verifier/,
+    'the PKCE verifier must be documented as its own LocalStorage entry',
+  );
+  assert.match(local, /separate entry next to it/, 'the verifier must not be described as stored inside the token entry');
+  assert.match(de.sectionLocalStorageText3, /eigener Eintrag daneben/, 'DE must place the verifier in its own entry');
+  // Pre-F6 releases persisted decrypted message text unencrypted in
+  // LocalStorage (message-cache.ts `enough-msgplain-<userId>`); the policy has
+  // to disclose the leftover and the way out.
+  assert.match(
+    local,
+    /enough-msgplain-<userID>/,
+    'the legacy unencrypted message cache must be documented',
+  );
+  assert.match(local, /clear the site data|clearing the site data/, 'the removal path for the leftover must be given');
+  assert.match(de.sectionLocalStorageText3, /enough-msgplain-<Benutzer-ID>/, 'DE must document it as well');
+  assert.match(de.sectionLocalStorageText3, /Site-Daten löschst/);
+  // Only the sealing key is non-extractable (see the dedicated test below).
+  assert.match(local, /AES-256-GCM sealed records under one sealing key per account/);
   assert.match(local, /access token.*refresh token|refresh token/, 'stored tokens must be named honestly');
   assert.match(
     de.sectionLocalStorageText,
@@ -404,6 +622,18 @@ test('the contact form section matches the shipped edge function protections', (
   }
   assert.ok(edgeFunctionSource.includes("'jsr:@supabase/functions-js/edge-runtime.d.ts'"), 'edge function intact');
   assert.match(contact, /not written to any database table/, 'the transient nature of the IP must be stated');
+  // index.ts skips isRateLimited() when no client-address header is present.
+  assert.match(
+    contact,
+    /skipped when a request arrives without a client-address header/,
+    'the rate-limit bypass for an unknown client IP must be disclosed',
+  );
+  assert.match(
+    contact,
+    /counter lives only in the memory of the function instance/,
+    'the per-instance nature of the counter must be stated',
+  );
+  assert.match(de.sectionContactText, /ohne Header mit der Client-Adresse eintrifft/);
   assert.match(contact, /logs the HTTP status only/, 'log redaction must be stated');
   assert.match(contact, /Resend/, 'the mail provider must be named');
   assert.match(
@@ -427,6 +657,22 @@ test('retention and deletion describe the real deletion paths', () => {
   const retention = [en.sectionRetentionText, en.sectionRetentionText2].join(' ');
   assert.match(retention, /no expiry dates|no automatic/, 'the absence of message expiry must be stated');
   assert.match(retention, /14 days/, 'connection-request expiry must be documented');
+  assert.match(
+    retention,
+    /constant of the app rather than a scheduled job/,
+    'the expiry must be described as client logic, not as a running database scheduler',
+  );
+  assert.match(
+    retention,
+    /set to .expired. once/,
+    'the one-time migration write must be told apart from the client-side expiry',
+  );
+  assert.doesNotMatch(
+    retention,
+    /are marked expired by the database once/,
+    'the policy must not imply a running database job expires requests',
+  );
+  assert.match(de.sectionRetentionText2, /kein Zeitplanjob in der Datenbank/);
   assert.match(retention, /30 days/, 'signed prekey rotation must be documented');
 
   const deletion = [
@@ -505,6 +751,10 @@ test('documented references point at the providers\u0027 own publications', () =
   const hosts = urls.map((u) => new URL(u).host);
   assert.ok(hosts.includes('docs.github.com'), 'GitHub documentation must be linked');
   assert.ok(hosts.includes('supabase.com'), 'the Supabase DPA must be linked');
+  assert.ok(
+    urls.includes('https://supabase.com/legal/customer-resources/data-processing-addendum'),
+    'the DPA must be linked at its canonical path, not a redirect',
+  );
   assert.ok(hosts.includes('resend.com'), 'the Resend GDPR page must be linked');
   const labelKeys = [...privacySource.matchAll(/label: 'privacy\.(ref[A-Za-z]+)'/g)].map((m) => m[1]);
   assert.equal(labelKeys.length, urls.length, 'every reference needs a label key');
@@ -605,7 +855,16 @@ test('retention figures are only stated where a source exists', () => {
 
   // The retention statements in the Supabase paragraph must not read as claims
   // about the messenger data itself.
-  assert.match(backend, /Database backups exist only to the extent/);
+  assert.match(
+    backend,
+    /Backups belong to the documented defaults of the platform/,
+    'the backup statement must be attributed to the documented platform default',
+  );
+  assert.match(
+    backend,
+    /for the provider's backup window/,
+    'the afterlife of deleted content must stay bounded to the provider window',
+  );
   assert.match(en.sectionRetentionText, /no expiry dates|no automatic/);
 
   // Legacy generator boilerplate: the old text asserted a Pages log window and
