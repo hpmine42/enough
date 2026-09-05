@@ -100,50 +100,59 @@ export default function Privacy() {
           </dl>
         </section>
 
-        {/* 3. Account & Profile Data */}
+        {/* 3. Frontend Hosting (GitHub Pages) */}
+        <section className="legal-section">
+          <h2>{t('privacy.sectionHostingTitle')}</h2>
+          <p>{t('privacy.sectionHostingText')}</p>
+        </section>
+
+        {/* 4. Account & Profile Data */}
         <section className="legal-section">
           <h2>{t('privacy.sectionAccountTitle')}</h2>
           <p>{t('privacy.sectionAccountText')}</p>
         </section>
 
-        {/* 4. End-to-End Encryption */}
+        {/* 5. End-to-End Encryption & Metadata */}
         <section className="legal-section">
           <h2>{t('privacy.sectionE2eeTitle')}</h2>
           <p>{t('privacy.sectionE2eeText')}</p>
+          <p style={{ marginTop: '8px' }}>{t('privacy.sectionE2eeMetadata')}</p>
           <p style={{ marginTop: '8px' }}>{t('privacy.sectionE2eeExceptions')}</p>
         </section>
 
-        {/* 5. Local Storage & IndexedDB */}
+        {/* 6. Backend Infrastructure & Server Logs (Supabase) */}
+        <section className="legal-section">
+          <h2>{t('privacy.sectionBackendTitle')}</h2>
+          <p>{t('privacy.sectionBackendText')}</p>
+          <p style={{ marginTop: '8px' }}>{t('privacy.sectionBackendLogs')}</p>
+        </section>
+
+        {/* 7. Local Storage & IndexedDB */}
         <section className="legal-section">
           <h2>{t('privacy.sectionLocalStorageTitle')}</h2>
           <p>{t('privacy.sectionLocalStorageText')}</p>
         </section>
 
-        {/* 6. Backend & Realtime */}
-        <section className="legal-section">
-          <h2>{t('privacy.sectionBackendTitle')}</h2>
-          <p>{t('privacy.sectionBackendText')}</p>
-        </section>
-
-        {/* 7. Contact Form */}
+        {/* 8. Contact Form & Email Delivery (Resend) */}
         <section className="legal-section">
           <h2>{t('privacy.sectionContactTitle')}</h2>
           <p>{t('privacy.sectionContactText')}</p>
+          <p style={{ marginTop: '8px' }}>{t('privacy.sectionContactResend')}</p>
         </section>
 
-        {/* 8. Deletion */}
+        {/* 9. Deletion */}
         <section className="legal-section">
           <h2>{t('privacy.sectionDeletionTitle')}</h2>
           <p>{t('privacy.sectionDeletionText')}</p>
         </section>
 
-        {/* 9. GDPR Rights */}
+        {/* 10. GDPR Rights */}
         <section className="legal-section">
           <h2>{t('privacy.sectionRightsTitle')}</h2>
           <p>{t('privacy.sectionRightsText')}</p>
         </section>
 
-        {/* 10. Link to Imprint */}
+        {/* Link to Imprint */}
         <section className="legal-section">
           <h2>{t('legal.imprint')}</h2>
           <p>

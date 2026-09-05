@@ -6,13 +6,6 @@
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 
-const corsHeaders: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
 // In-memory sliding-window rate limiting per IP address
 const rateLimitMap = new Map<string, number[]>();
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
@@ -30,6 +23,34 @@ function isRateLimited(ip: string): boolean {
   history.push(now);
   rateLimitMap.set(ip, history);
   return false;
+}
+
+/** Check if the request origin matches allowed enough. domains or local development */
+function isAllowedOrigin(origin: string | null): boolean {
+  if (!origin) return false;
+  if (origin === 'https://enough.im') return true;
+  if (origin === 'https://hpmine42.github.io') return true;
+  if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) return true;
+  if (origin.endsWith('.e2b.app')) return true;
+
+  const envAllowed = Deno.env.get('ALLOWED_ORIGIN');
+  if (envAllowed && origin === envAllowed) return true;
+
+  return false;
+}
+
+function getCorsHeaders(req: Request): Record<string, string> {
+  const reqOrigin = req.headers.get('origin');
+  const allowed = isAllowedOrigin(reqOrigin);
+  const allowOriginValue = allowed && reqOrigin ? reqOrigin : 'https://enough.im';
+
+  return {
+    'Access-Control-Allow-Origin': allowOriginValue,
+    'Access-Control-Allow-Headers':
+      'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Vary': 'Origin',
+  };
 }
 
 /** Remove CRLF and control characters to prevent email header injection */
@@ -50,16 +71,18 @@ function escapeHtml(str: string): string {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 Deno.serve(async (req: Request) => {
+  const cors = getCorsHeaders(req);
+
   // CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: cors });
   }
 
   // Enforce POST method only
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
       status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
@@ -75,7 +98,7 @@ Deno.serve(async (req: Request) => {
         JSON.stringify({ error: 'Too many requests. Please try again later.' }),
         {
           status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...cors, 'Content-Type': 'application/json' },
         },
       );
     }
@@ -87,27 +110,32 @@ Deno.serve(async (req: Request) => {
     } catch {
       return new Response(JSON.stringify({ error: 'Invalid JSON payload.' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
 
-    const { name, email, message, hp, clientTime } = body;
+    const { name, email, message, hp, clientTime } = body ?? {};
 
-    // 3. Anti-Spam: Honeypot check (must be empty)
+    // 3. Anti-Spam Heuristic: Honeypot check (must be empty)
     if (typeof hp === 'string' && hp.trim().length > 0) {
       // Silently accept bot submission without sending email
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
 
-    // 4. Anti-Spam: Sub-second form submission check
-    if (typeof clientTime === 'number' && Date.now() - clientTime < 1500) {
+    // 4. Anti-Spam Heuristic: Sub-second form submission check
+    if (
+      typeof clientTime === 'number' &&
+      Number.isFinite(clientTime) &&
+      Date.now() - clientTime < 1500 &&
+      Date.now() - clientTime >= 0
+    ) {
       // Form submitted too quickly to be human; drop silently
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
 
@@ -115,7 +143,7 @@ Deno.serve(async (req: Request) => {
     if (!email || typeof email !== 'string') {
       return new Response(JSON.stringify({ error: 'Invalid email address.' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
 
@@ -123,7 +151,7 @@ Deno.serve(async (req: Request) => {
     if (cleanEmail.length > 255 || !EMAIL_REGEX.test(cleanEmail)) {
       return new Response(JSON.stringify({ error: 'Invalid email address.' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
 
@@ -131,7 +159,7 @@ Deno.serve(async (req: Request) => {
     if (!message || typeof message !== 'string') {
       return new Response(JSON.stringify({ error: 'Message is required.' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
 
@@ -143,7 +171,7 @@ Deno.serve(async (req: Request) => {
         }),
         {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...cors, 'Content-Type': 'application/json' },
         },
       );
     }
@@ -153,22 +181,17 @@ Deno.serve(async (req: Request) => {
       typeof name === 'string' ? sanitizeHeader(name).slice(0, 100) : '';
 
     // 8. Operator Configuration & Open-Relay Protection
-    // The recipient `to` address is strictly bound to the environment variable.
-    // The caller CANNOT supply or override the recipient.
+    // Secrets and operator email are strictly read from environment variables.
+    // There is NO hardcoded fallback recipient email in source code.
     const resendApiKey = Deno.env.get('RESEND_API_KEY');
     const contactToEmail =
-      Deno.env.get('CONTACT_TO_EMAIL') ||
-      Deno.env.get('OPERATOR_EMAIL') ||
-      'hpmine@web.de';
+      Deno.env.get('CONTACT_TO_EMAIL') || Deno.env.get('OPERATOR_EMAIL');
     const contactFromEmail =
       Deno.env.get('RESEND_FROM_EMAIL') || 'enough. <contact@resend.dev>';
 
-    // If Resend API key is not configured (e.g. dev or unconfigured test environment),
-    // log a notice and succeed safely without throwing.
+    // If Resend API key is not configured (e.g. local dev / test), succeed in mock mode.
     if (!resendApiKey) {
-      console.warn(
-        'RESEND_API_KEY environment variable is not set. Contact email cannot be sent to provider.',
-      );
+      console.warn('RESEND_API_KEY is not configured on the server.');
       return new Response(
         JSON.stringify({
           ok: true,
@@ -176,7 +199,21 @@ Deno.serve(async (req: Request) => {
         }),
         {
           status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        },
+      );
+    }
+
+    // If API key is present but no recipient is configured, fail safely with server error.
+    if (!contactToEmail) {
+      console.warn('CONTACT_TO_EMAIL is not configured on the server.');
+      return new Response(
+        JSON.stringify({
+          error: 'Contact email recipient is not configured on server.',
+        }),
+        {
+          status: 500,
+          headers: { ...cors, 'Content-Type': 'application/json' },
         },
       );
     }
@@ -226,28 +263,29 @@ ${escapeHtml(trimmedMessage)}
     });
 
     if (!resendRes.ok) {
-      const errText = await resendRes.text();
-      console.error('Resend API dispatch failure:', errText);
+      // Redact sensitive personal payload details from logs — log status code only
+      console.error('Resend API dispatch error: HTTP', resendRes.status);
       return new Response(
         JSON.stringify({ error: 'Failed to send message via email provider.' }),
         {
           status: 502,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...cors, 'Content-Type': 'application/json' },
         },
       );
     }
 
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
-  } catch (err) {
-    console.error('send-contact-email uncaught error:', err);
+  } catch (_err) {
+    // Redact internal error object to prevent leaking request memory or credentials
+    console.error('send-contact-email handler error');
     return new Response(
       JSON.stringify({ error: 'Internal server error.' }),
       {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       },
     );
   }

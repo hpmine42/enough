@@ -37,7 +37,7 @@ test('Edge function strictly enforces POST and OPTIONS methods only', () => {
   );
 });
 
-test('Edge function protects against Open Mail Relay by binding the recipient to server config', () => {
+test('Edge function protects against Open Mail Relay and contains NO hardcoded fallback recipient', () => {
   // Recipient MUST NOT be extracted from req.body
   const bodyDestructuringMatch = edgeFunctionSource.match(
     /const\s*\{\s*([^}]+)\s*\}\s*=\s*body/,
@@ -56,11 +56,56 @@ test('Edge function protects against Open Mail Relay by binding the recipient to
     'Caller MUST NOT be able to provide a "recipient" address',
   );
 
-  // Recipient must come from environment
+  // Recipient must come exclusively from environment secrets without hardcoded email string
   assert.ok(
     edgeFunctionSource.includes("Deno.env.get('CONTACT_TO_EMAIL')") ||
       edgeFunctionSource.includes("Deno.env.get('OPERATOR_EMAIL')"),
     'Recipient email must be fetched from server environment variables',
+  );
+
+  // Ensure no literal email address is hardcoded as a fallback
+  const hardcodedEmailPattern = /['"][a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}['"]/;
+  const codeWithoutResendDefaults = edgeFunctionSource
+    .replace("contact@resend.dev", "PLACEHOLDER")
+    .replace("https://api.resend.com/emails", "PLACEHOLDER");
+  assert.ok(
+    !hardcodedEmailPattern.test(codeWithoutResendDefaults),
+    'Edge function must not contain hardcoded operator email addresses',
+  );
+});
+
+test('Edge function restricts CORS to allowed enough origins', () => {
+  assert.ok(
+    edgeFunctionSource.includes('isAllowedOrigin'),
+    'Origin check function must exist',
+  );
+  assert.ok(
+    edgeFunctionSource.includes('https://enough.im'),
+    'enough.im domain must be in origin allowlist',
+  );
+  assert.ok(
+    edgeFunctionSource.includes('https://hpmine42.github.io'),
+    'GitHub Pages domain must be in origin allowlist',
+  );
+  assert.ok(
+    edgeFunctionSource.includes("'Vary': 'Origin'"),
+    'Vary: Origin header must be set for dynamic CORS',
+  );
+});
+
+test('Edge function redacts error logs and prevents leaking personal data into server logs', () => {
+  // Check that full Resend error body or raw inputs are not passed to console.error
+  assert.ok(
+    !edgeFunctionSource.includes('console.error(errText)'),
+    'Full provider error body must not be logged',
+  );
+  assert.ok(
+    !edgeFunctionSource.includes('console.error(body)'),
+    'Raw request body must not be logged',
+  );
+  assert.ok(
+    !edgeFunctionSource.includes('console.error(email)'),
+    'User email address must not be logged',
   );
 });
 

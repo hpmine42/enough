@@ -27,7 +27,7 @@
     "test:api-errors": "node --test src/lib/__tests__/api-error-surface.test.mjs",
     "test:api": "node --test --experimental-strip-types src/lib/__tests__/api.test.mjs",
     "test:errors": "node --test --experimental-strip-types src/lib/__tests__/errors.test.mjs",
-    "test:privacy": "node --test --experimental-strip-types src/lib/__tests__/privacy-routing.test.mjs src/lib/__tests__/privacy-contact.test.mjs",
+    "test:privacy": "node --test --experimental-strip-types src/lib/__tests__/privacy-routing.test.mjs src/lib/__tests__/privacy-contact.test.mjs src/lib/__tests__/edge-function-runtime.test.mjs",
     "test:a11y": "node --test --experimental-strip-types src/lib/__tests__/accessibility.test.mjs",
     "test:crypto:prekeys": "node scripts/run-crypto-prekeys-tests.mjs",
     "test:rls": "node scripts/run-rls-tests.mjs",

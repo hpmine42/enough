@@ -10,23 +10,12 @@
 // Run with:
 //   node --test --experimental-strip-types src/lib/__tests__/privacy-routing.test.mjs
 
-import { test, before, after } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const store = new Map();
-globalThis.window = {
-  localStorage: {
-    getItem: (k) => (store.has(k) ? store.get(k) : null),
-    setItem: (k, v) => store.set(k, String(v)),
-    removeItem: (k) => store.delete(k),
-  },
-};
-globalThis.document = { documentElement: { lang: 'en' } };
-
-const { t, setLang, getLang } = await import('../../i18n/index.ts');
 
 const appSource = fs.readFileSync(`${__dirname}/../../App.tsx`, 'utf-8');
 const privacySource = fs.readFileSync(
@@ -46,12 +35,7 @@ const contactFormSource = fs.readFileSync(
   'utf-8',
 );
 
-before(() => {
-  setLang('en');
-});
-after(() => {
-  setLang('en');
-});
+const { translations } = await import('../../i18n/translations.ts');
 
 // ---------------------------------------------------------------------------
 // Routing & Navigation Checks
@@ -117,23 +101,28 @@ test('Privacy links back to Imprint', () => {
 // Privacy Policy Content & Structure Verification
 // ---------------------------------------------------------------------------
 
-test('Privacy translations exist for all 9 GDPR sections in EN and DE', () => {
+test('Privacy translations exist for all 10 GDPR sections in EN and DE', () => {
   const sections = [
     'sectionOverviewTitle',
     'sectionOverviewText',
     'sectionControllerTitle',
     'sectionControllerIntro',
+    'sectionHostingTitle',
+    'sectionHostingText',
     'sectionAccountTitle',
     'sectionAccountText',
     'sectionE2eeTitle',
     'sectionE2eeText',
+    'sectionE2eeMetadata',
     'sectionE2eeExceptions',
-    'sectionLocalStorageTitle',
-    'sectionLocalStorageText',
     'sectionBackendTitle',
     'sectionBackendText',
+    'sectionBackendLogs',
+    'sectionLocalStorageTitle',
+    'sectionLocalStorageText',
     'sectionContactTitle',
     'sectionContactText',
+    'sectionContactResend',
     'sectionDeletionTitle',
     'sectionDeletionText',
     'sectionRightsTitle',
@@ -141,25 +130,20 @@ test('Privacy translations exist for all 9 GDPR sections in EN and DE', () => {
   ];
 
   // In English
-  setLang('en');
   for (const s of sections) {
-    const text = t(`privacy.${s}`);
+    const text = translations.en.privacy[s];
     assert.ok(text && text.length > 0, `privacy.${s} in EN must not be empty`);
-    assert.ok(!text.includes('privacy.'), `privacy.${s} in EN must be translated`);
   }
 
   // In German
-  setLang('de');
   for (const s of sections) {
-    const text = t(`privacy.${s}`);
+    const text = translations.de.privacy[s];
     assert.ok(text && text.length > 0, `privacy.${s} in DE must not be empty`);
-    assert.ok(!text.includes('privacy.'), `privacy.${s} in DE must be translated`);
   }
 });
 
-test('Privacy Policy accurately reflects technical architecture', () => {
-  setLang('en');
-  const e2ee = t('privacy.sectionE2eeText');
+test('Privacy Policy accurately reflects technical architecture and legal bases', () => {
+  const e2ee = translations.en.privacy.sectionE2eeText;
   assert.ok(
     e2ee.includes('Signal Protocol') || e2ee.includes('PQXDH'),
     'E2EE section must mention Signal / PQXDH protocol',
@@ -177,7 +161,31 @@ test('Privacy Policy accurately reflects technical architecture', () => {
     'E2EE section must mention server stores only ciphertext envelopes',
   );
 
-  const storage = t('privacy.sectionLocalStorageText');
+  const e2eeMetadata = translations.en.privacy.sectionE2eeMetadata;
+  assert.ok(
+    e2eeMetadata.includes('metadata') || e2eeMetadata.includes('Metadata'),
+    'E2EE section must transparently detail metadata processing',
+  );
+
+  const backend = translations.en.privacy.sectionBackendText;
+  assert.ok(
+    backend.includes('Supabase') && backend.includes('eu-central-1') && backend.includes('Frankfurt'),
+    'Backend section must mention Supabase Frankfurt eu-central-1 region',
+  );
+
+  const hosting = translations.en.privacy.sectionHostingText;
+  assert.ok(
+    hosting.includes('GitHub Pages') && hosting.includes('GitHub, Inc.'),
+    'Hosting section must mention GitHub Pages',
+  );
+
+  const contactResend = translations.en.privacy.sectionContactResend;
+  assert.ok(
+    contactResend.includes('Resend') && contactResend.includes('Resend, Inc.'),
+    'Contact section must explicitly name Resend as email delivery provider',
+  );
+
+  const storage = translations.en.privacy.sectionLocalStorageText;
   assert.ok(
     storage.includes('enough-crypto') && storage.includes('AES-256-GCM'),
     'Storage section must mention enough-crypto and AES-256-GCM',
@@ -187,7 +195,7 @@ test('Privacy Policy accurately reflects technical architecture', () => {
     'Storage section must mention Offline Read Mode',
   );
 
-  const deletion = t('privacy.sectionDeletionText');
+  const deletion = translations.en.privacy.sectionDeletionText;
   assert.ok(
     deletion.includes('Delete Account') || deletion.includes('delete your account'),
     'Deletion section must explain account deletion',
