@@ -798,3 +798,84 @@ test('getUnreadCounts falls back to the batched count when the view is incomplet
 
   assert.deepEqual(res, { c1: 2 });
 });
+
+// ---------------------------------------------------------------------------
+// Contact form & Edge function dispatch
+// ---------------------------------------------------------------------------
+
+test('sendContactMessage validates required email format before invoking edge function', async () => {
+  const client = createSupabaseMock([]);
+  __setSupabase(client);
+
+  // Missing email
+  const resEmpty = await api.sendContactMessage({ email: '', message: 'Hello there! This is a valid message.' });
+  assert.equal(resEmpty.ok, false);
+  assert.equal(client._log.filter((op) => op.function === 'send-contact-email').length, 0);
+
+  // Invalid email
+  const resInvalid = await api.sendContactMessage({ email: 'invalid-email', message: 'Hello there! This is a valid message.' });
+  assert.equal(resInvalid.ok, false);
+  assert.equal(client._log.filter((op) => op.function === 'send-contact-email').length, 0);
+});
+
+test('sendContactMessage validates message length constraints before invoking edge function', async () => {
+  const client = createSupabaseMock([]);
+  __setSupabase(client);
+
+  // Message too short (< 10 chars)
+  const resShort = await api.sendContactMessage({ email: 'test@example.com', message: 'short' });
+  assert.equal(resShort.ok, false);
+  assert.equal(client._log.filter((op) => op.function === 'send-contact-email').length, 0);
+
+  // Message too long (> 5000 chars)
+  const resLong = await api.sendContactMessage({
+    email: 'test@example.com',
+    message: 'a'.repeat(5001),
+  });
+  assert.equal(resLong.ok, false);
+  assert.equal(client._log.filter((op) => op.function === 'send-contact-email').length, 0);
+});
+
+test('sendContactMessage invokes edge function with sanitized payload and returns success', async () => {
+  const client = createSupabaseMock([
+    { data: { ok: true }, error: null },
+  ]);
+  __setSupabase(client);
+
+  const res = await api.sendContactMessage({
+    name: ' Alice Tester ',
+    email: ' alice@example.com ',
+    message: ' Hello, I have a question regarding enough! ',
+    hp: '',
+    clientTime: 1234567890,
+  });
+
+  assert.equal(res.ok, true);
+  assert.equal(res.error, null);
+
+  const calls = client._log.filter((op) => op.function === 'send-contact-email');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].options.body, {
+    name: 'Alice Tester',
+    email: 'alice@example.com',
+    message: 'Hello, I have a question regarding enough!',
+    hp: '',
+    clientTime: 1234567890,
+  });
+});
+
+test('sendContactMessage surfaces backend edge function errors', async () => {
+  const client = createSupabaseMock([
+    { data: null, error: { message: 'Edge Function returned a non-2xx status code' } },
+  ]);
+  __setSupabase(client);
+
+  const res = await api.sendContactMessage({
+    name: 'Bob',
+    email: 'bob@example.com',
+    message: 'Testing error propagation from function.',
+  });
+
+  assert.equal(res.ok, false);
+  assert.ok(res.error);
+});

@@ -86,6 +86,10 @@ export const translations = {
     legal: {
       legal: 'Legal',
       imprint: 'Imprint',
+      privacy: 'Privacy Policy',
+      privacyShort: 'Privacy',
+      imprintLinkText: 'View Imprint',
+      privacyLinkText: 'View Privacy Policy',
       pursuantTo: 'Information pursuant to Section 5 of the German Digital Services Act (DDG)',
       lastUpdated: 'Last updated: 19 August 2026',
       templateNoticeTitle: 'Template — update before publishing',
@@ -101,6 +105,76 @@ export const translations = {
       registerNumber: 'Register number',
       vatId: 'VAT identification number',
       editoriallyResponsible: 'Editorial responsibility pursuant to Section 18(2) MStV',
+    },
+
+    // contact form
+    contact: {
+      title: 'Contact form',
+      subtitle: 'Send a message to the operator of enough.',
+      nameLabel: 'Name (optional)',
+      namePlaceholder: 'Your name',
+      emailLabel: 'Email address',
+      emailPlaceholder: 'you@example.com',
+      messageLabel: 'Message',
+      messagePlaceholder: 'Write your message here…',
+      submit: 'Send message',
+      sending: 'Sending…',
+      success: 'Thank you for your message. It has been sent to the operator.',
+      sendAnother: 'Send another message',
+      sendFailed: 'Failed to send message. Please try again later or contact us directly via email.',
+      errorEmailRequired: 'Please enter your email address.',
+      errorEmailInvalid: 'Please enter a valid email address.',
+      errorMessageRequired: 'Please enter a message.',
+      errorMessageTooShort: 'Please enter a message (at least 10 characters).',
+      errorMessageTooLong: 'Message must be at most 5,000 characters.',
+      errorNameTooLong: 'Name must be at most 100 characters.',
+      privacyNote:
+        'The information entered above will only be processed to handle and respond to your inquiry.',
+    },
+
+    // privacy policy
+    privacy: {
+      kicker: 'Privacy',
+      title: 'Privacy Policy',
+      intro: 'Information on the processing of personal data in the enough. messenger.',
+      lastUpdated: 'Last updated: 5 September 2026',
+
+      sectionOverviewTitle: '1. Overview and Core Principles',
+      sectionOverviewText:
+        'enough. is designed with a radical focus on privacy and data minimization ("Less, but enough."). We do not track users, do not use analytics or tracking cookies, display no advertisements, and do not request browser notification permissions. Peer-to-peer conversations are end-to-end encrypted so that nobody — including the operator and hosting provider — can read your peer messages.',
+
+      sectionControllerTitle: '2. Controller and Contact',
+      sectionControllerIntro: 'The controller responsible for data processing in connection with this service is:',
+
+      sectionAccountTitle: '3. Account and Profile Data',
+      sectionAccountText:
+        'When you register an account, we process your email address, chosen @username, optional display name, and password. Passwords are cryptographically hashed using bcrypt via Supabase Auth and are never stored or visible in plaintext. Your @username and display name are visible to other registered users when they search for you or communicate with you. Your internal user ID, username, and account creation date are immutable.',
+
+      sectionE2eeTitle: '4. End-to-End Encryption (E2EE)',
+      sectionE2eeText:
+        'All one-to-one peer conversations are end-to-end encrypted using the Signal Protocol (PQXDH and Double Ratchet with post-quantum Kyber-1024 key encapsulation) via @getmaapp/signal-wasm. Messages are encrypted in your browser before transmission. The server receives and persists only opaque ciphertext envelopes. Private cryptographic keys never leave your device. Public cryptographic prekeys (identity public keys, signed prekeys, one-time prekeys, and Kyber prekeys) are stored on the server to enable asynchronous session handshakes.',
+      sectionE2eeExceptions:
+        'Documented exceptions: "My Notes" (the personal self-notepad chat) stores notes in plaintext on the database since there is no second participant. System events (e.g. notifications when a contact changes their display name or deletes their account) contain non-confidential metadata only.',
+
+      sectionLocalStorageTitle: '5. Local Storage and IndexedDB',
+      sectionLocalStorageText:
+        'Your cryptographic identity, private prekeys, Double Ratchet session states, and decrypted message history are stored locally in your browser\'s IndexedDB (database "enough-crypto") and sealed with AES-256-GCM under a non-extractable device key. Offline Read Mode stores sealed local snapshots of your recent conversations and messages so you can read them without network connectivity. LocalStorage is strictly used for non-sensitive UI preferences (theme mode and selected language).',
+
+      sectionBackendTitle: '6. Backend, Database and Realtime',
+      sectionBackendText:
+        'The backend infrastructure is provided via Supabase (PostgreSQL database, Supabase Auth, PostgREST API, and WebSockets for Realtime updates). Strict Row-Level Security (RLS) policies and database triggers ensure that users can only access data belonging to their own account and active connections.',
+
+      sectionContactTitle: '7. Contact Form and Email Communication',
+      sectionContactText:
+        'If you submit a message through the contact form on the Imprint page, your name (if provided), email address, and message text are processed server-side via a secure edge function to deliver your inquiry to the operator via email. Inquiries are not permanently stored in the messenger database.',
+
+      sectionDeletionTitle: '8. Data Retention and Account Deletion',
+      sectionDeletionText:
+        'You can delete your account at any time in the settings ("Delete Account"). Deleting your account removes your profile, frees your @username for new registrations, cascades your authentication record, marks existing chats with peers as ended, and removes your local cryptographic keys and cached data from the device. "Delete for everyone" clears message content on the server within 24 hours. "Delete for me" hides messages locally for your account.',
+
+      sectionRightsTitle: '9. Data Subject Rights (GDPR)',
+      sectionRightsText:
+        'Under the European General Data Protection Regulation (GDPR), you have the right to access (Art. 15), rectification (Art. 16), erasure (Art. 17), restriction of processing (Art. 18), data portability (Art. 20), and objection (Art. 21). You also have the right to lodge a complaint with a competent data protection supervisory authority.',
     },
 
     // settings
@@ -377,6 +451,10 @@ export const translations = {
     legal: {
       legal: 'Rechtliches',
       imprint: 'Impressum',
+      privacy: 'Datenschutzerklärung',
+      privacyShort: 'Datenschutz',
+      imprintLinkText: 'Zum Impressum',
+      privacyLinkText: 'Zur Datenschutzerklärung',
       pursuantTo: 'Angaben gemäß § 5 Digitale-Dienste-Gesetz (DDG)',
       lastUpdated: 'Stand: 19. August 2026',
       templateNoticeTitle: 'Vorlage – vor Veröffentlichung anpassen',
@@ -392,6 +470,76 @@ export const translations = {
       registerNumber: 'Registernummer',
       vatId: 'Umsatzsteuer-Identifikationsnummer',
       editoriallyResponsible: 'Redaktionell verantwortlich gemäß § 18 Abs. 2 MStV',
+    },
+
+    // contact form
+    contact: {
+      title: 'Kontaktformular',
+      subtitle: 'Sende eine Nachricht an den Betreiber von enough.',
+      nameLabel: 'Name (optional)',
+      namePlaceholder: 'Dein Name',
+      emailLabel: 'E-Mail-Adresse',
+      emailPlaceholder: 'du@example.com',
+      messageLabel: 'Nachricht',
+      messagePlaceholder: 'Schreibe hier deine Nachricht…',
+      submit: 'Nachricht senden',
+      sending: 'Wird gesendet…',
+      success: 'Vielen Dank für deine Nachricht. Sie wurde an den Betreiber übermittelt.',
+      sendAnother: 'Weitere Nachricht senden',
+      sendFailed: 'Nachricht konnte nicht gesendet werden. Bitte versuche es später erneut oder kontaktiere uns direkt per E-Mail.',
+      errorEmailRequired: 'Bitte gib deine E-Mail-Adresse ein.',
+      errorEmailInvalid: 'Bitte gib eine gültige E-Mail-Adresse ein.',
+      errorMessageRequired: 'Bitte gib eine Nachricht ein.',
+      errorMessageTooShort: 'Bitte gib eine Nachricht ein (mindestens 10 Zeichen).',
+      errorMessageTooLong: 'Die Nachricht darf maximal 5.000 Zeichen lang sein.',
+      errorNameTooLong: 'Der Name darf maximal 100 Zeichen lang sein.',
+      privacyNote:
+        'Die eingegebenen Daten werden ausschließlich zur Bearbeitung und Beantwortung deiner Anfrage verarbeitet.',
+    },
+
+    // privacy policy
+    privacy: {
+      kicker: 'Datenschutz',
+      title: 'Datenschutzerklärung',
+      intro: 'Informationen über die Verarbeitung personenbezogener Daten im enough. Messenger.',
+      lastUpdated: 'Stand: 5. September 2026',
+
+      sectionOverviewTitle: '1. Überblick und Grundsätze',
+      sectionOverviewText:
+        'enough. basiert auf dem Grundsatz der Datenminimierung („Weniger, aber genug.“). Wir betreiben kein Tracking, setzen keine Analyse- oder Werbe-Cookies ein, blenden keine Werbung ein und fordern keine Browser-Berechtigungen für Push-Benachrichtigungen an. Alle 1:1-Chats zwischen Nutzern sind Ende-zu-Ende verschlüsselt, sodass niemand — auch nicht der Betreiber oder Hosting-Anbieter — deine Chat-Inhalte mitlesen kann.',
+
+      sectionControllerTitle: '2. Verantwortlicher und Kontakt',
+      sectionControllerIntro: 'Verantwortlicher für die Datenverarbeitung im Sinne der Datenschutz-Grundverordnung (DSGVO) ist:',
+
+      sectionAccountTitle: '3. Account- und Profildaten',
+      sectionAccountText:
+        'Bei der Registrierung verarbeiten wir deine E-Mail-Adresse, deinen gewählten @username, einen optionalen Anzeigenamen sowie dein Passwort. Passwörter werden über Supabase Auth mittels bcrypt kryptografisch gehasht und niemals im Klartext gespeichert. Dein @username und dein Anzeigename sind für andere registrierte Nutzer bei der Suche und in Konversationen sichtbar. Die interne User-ID, der Username und das Erstellungsdatum sind unveränderlich.',
+
+      sectionE2eeTitle: '4. Ende-zu-Ende-Verschlüsselung (E2EE)',
+      sectionE2eeText:
+        'Alle 1:1-Peer-Konversationen sind mittels Signal-Protokoll (PQXDH und Double Ratchet mit Post-Quantum Kyber-1024 Key Encapsulation via @getmaapp/signal-wasm) Ende-zu-Ende verschlüsselt. Nachrichten werden direkt im Browser vor dem Absenden verschlüsselt. Der Server speichert für Peer-Nachrichten ausschließlich opake Chiffrate. Private Schlüssel verlassen niemals dein Endgerät. Öffentliche PreKey-Materialien (Identity-Keys, Signed-PreKeys, One-Time-PreKeys, Kyber-PreKeys) werden auf dem Server bereitgestellt, um asynchrone Handshakes zu ermöglichen.',
+      sectionE2eeExceptions:
+        'Dokumentierte Ausnahmen: „My Notes“ (der persönliche Notiz-Chat) speichert Notizen im Klartext in der Datenbank, da kein zweiter Kommunikationspartner existiert. System-Ereignisse (z. B. wenn ein Kontakt seinen Namen ändert oder sein Konto löscht) enthalten ausschließlich unkritische Metadaten.',
+
+      sectionLocalStorageTitle: '5. Lokale Speicherung und IndexedDB',
+      sectionLocalStorageText:
+        'Deine kryptografische Identität, privaten Schlüssel, Ratchet-Zustände und entschlüsselten Nachrichten werden lokal in der IndexedDB deines Browsers (Datenbank „enough-crypto“) gespeichert und mittels AES-256-GCM versiegelt. Der Offline Read Mode speichert versiegelte lokale Snapshots der Chat-Übersicht und der letzten 40 Nachrichten pro Konversation. Der LocalStorage wird ausschließlich für unkritische UI-Einstellungen (Darstellungsmodus und Sprachauswahl) verwendet.',
+
+      sectionBackendTitle: '6. Backend, Datenbank und Realtime',
+      sectionBackendText:
+        'Die Backend-Infrastruktur wird über Supabase bereitgestellt (PostgreSQL-Datenbank, Supabase Auth, PostgREST-API und WebSockets für Realtime-Aktualisierungen). Strikte Row-Level-Security-Richtlinien (RLS) und Datenbank-Trigger stellen sicher, dass Nutzer nur auf Daten ihres eigenen Kontos und aktiver Verbindungen zugreifen können.',
+
+      sectionContactTitle: '7. Kontaktformular und E-Mail-Kommunikation',
+      sectionContactText:
+        'Wenn du das Kontaktformular im Impressum nutzt, werden dein Name (optional), deine E-Mail-Adresse und deine Nachricht serverseitig über eine Edge Function verarbeitet, um dein Anliegen per E-Mail an den Betreiber zu übermitteln. Die Anfragen werden nicht dauerhaft in der Messenger-Datenbank gespeichert.',
+
+      sectionDeletionTitle: '8. Datenlöschung und Account-Löschung',
+      sectionDeletionText:
+        'Du kannst dein Konto jederzeit in den Einstellungen löschen („Konto löschen“). Dadurch wird dein Profil entfernt, der @username für Neuregistrierungen freigegeben, dein Auth-Eintrag gelöscht, bestehende Chats mit Kontakten als beendet markiert und alle lokalen kryptografischen Schlüssel sowie gespeicherten Daten vom Endgerät entfernt. „Für alle löschen“ entfernt Nachrichteninhalte innerhalb von 24 Stunden auf dem Server. „Für mich löschen“ verbirgt Nachrichten nur lokal.',
+
+      sectionRightsTitle: '9. Betroffenenrechte (DSGVO)',
+      sectionRightsText:
+        'Nach der DSGVO hast du das Recht auf Auskunft (Art. 15), Berichtigung (Art. 16), Löschung (Art. 17), Einschränkung der Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) und Widerspruch (Art. 21). Zudem steht dir ein Beschwerderecht bei einer zuständigen Datenschutz-Aufsichtsbehörde zu.',
     },
 
     settingsScreen: {

@@ -1331,3 +1331,84 @@ export async function deleteOwnAccount(): Promise<string | null> {
   if (error) return errorMessage(error, 'account deletion');
   return null;
 }
+
+/* ------------------------------------------------------------------ */
+/* contact form                                                       */
+/* ------------------------------------------------------------------ */
+
+export interface ContactMessagePayload {
+  name?: string;
+  email: string;
+  message: string;
+  hp?: string;
+  clientTime?: number;
+}
+
+export interface SendContactResult {
+  ok: boolean;
+  error: string | null;
+}
+
+/**
+ * Send an inquiry to the operator via Supabase Edge Function (`send-contact-email`).
+ * Validates payload on client-side before dispatching.
+ */
+export async function sendContactMessage(
+  payload: ContactMessagePayload,
+): Promise<SendContactResult> {
+  const cleanEmail = (payload.email ?? '').trim();
+  const cleanMessage = (payload.message ?? '').trim();
+  const cleanName = (payload.name ?? '').trim();
+
+  if (!cleanEmail) {
+    return { ok: false, error: t('contact.errorEmailRequired') };
+  }
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (cleanEmail.length > 255 || !emailRegex.test(cleanEmail)) {
+    return { ok: false, error: t('contact.errorEmailInvalid') };
+  }
+  if (!cleanMessage) {
+    return { ok: false, error: t('contact.errorMessageRequired') };
+  }
+  if (cleanMessage.length < 10) {
+    return { ok: false, error: t('contact.errorMessageTooShort') };
+  }
+  if (cleanMessage.length > 5000) {
+    return { ok: false, error: t('contact.errorMessageTooLong') };
+  }
+  if (cleanName.length > 100) {
+    return { ok: false, error: t('contact.errorNameTooLong') };
+  }
+
+  if (!supabase) {
+    return { ok: false, error: t('errors.network') };
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke('send-contact-email', {
+      body: {
+        name: cleanName,
+        email: cleanEmail,
+        message: cleanMessage,
+        hp: payload.hp ?? '',
+        clientTime: payload.clientTime ?? Date.now(),
+      },
+    });
+
+    if (error) {
+      return { ok: false, error: t('contact.sendFailed') };
+    }
+
+    if (data && typeof data === 'object' && 'error' in data && data.error) {
+      return {
+        ok: false,
+        error: typeof data.error === 'string' ? data.error : t('contact.sendFailed'),
+      };
+    }
+
+    return { ok: true, error: null };
+  } catch {
+    return { ok: false, error: t('contact.sendFailed') };
+  }
+}
+
