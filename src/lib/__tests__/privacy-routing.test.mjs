@@ -300,7 +300,7 @@ test('E2EE is described as content protection with server-visible metadata', () 
   );
   assert.match(
     de.sectionE2eeExceptions,
-    /leerem Chiffrat[\s\S]{0,200}unverschl\u00fcsselten Metadaten-Spalte/,
+    /leerem Chiffrat[\s\S]{0,200}unverschlüsselten Metadaten-Spalte/,
     'DE must state the same system-event storage',
   );
 
@@ -355,7 +355,7 @@ test('the overview states the CSP and the read marker at the precision the code 
   );
   assert.doesNotMatch(
     security,
-    /Content-Security-Policy without third-party origins|ohne Dritt-Herk\u00fcnfte/,
+    /Content-Security-Policy without third-party origins|ohne Dritt-Herkünfte/,
     'a wildcard Supabase origin is third-party, so that wording is not accurate',
   );
 });
@@ -447,7 +447,7 @@ test('Supabase is described with the services actually used and the configured p
     /configured by the operator|setting of this instance/,
     'the project region must be attributed to the operator configuration',
   );
-  assert.match(de.sectionBackendText2, /von dem Betreiber gew\u00e4hlten AWS-Region/);
+  assert.match(de.sectionBackendText2, /von dem Betreiber gewählten AWS-Region/);
   // The DPA names Supabase Pte. Ltd. as the contracting party and data importer;
   // Supabase, Inc. is only the US affiliate of the group.
   assert.match(en.sectionBackendText2, /Supabase Pte\. Ltd\./, 'the DPA entity must be named in the backend section');
@@ -489,7 +489,7 @@ test('the non-extractable claim belongs to the sealing key and never to the iden
         );
         assert.doesNotMatch(
           sentence,
-          /identity key|private key|Identit\u00e4tsschlüssel/i,
+          /identity key|private key|Identitätsschlüssel/i,
           `privacy.${key} (${lang}) attaches the claim to a key that is not non-extractable: ${sentence}`,
         );
       }
