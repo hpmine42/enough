@@ -1949,6 +1949,118 @@ button,
   text-underline-offset: 3px;
 }
 
+/* ---------- privacy policy: contents + section rhythm ---------- */
+
+/* The policy is long, so it gets a quiet table of contents: same rules as the
+   sections (a top border, small-caps label), no boxes and no card chrome. */
+.legal-toc {
+  margin-top: 32px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.legal-toc-title {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.legal-toc-list {
+  display: grid;
+  /* min(240px, 100%) keeps a single column instead of overflowing on a
+     320px-wide phone. */
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  gap: 0 24px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legal-toc-link {
+  display: block;
+  width: 100%;
+  /* German section titles contain long compounds ("Ende-zu-Ende-…") that must
+     not push the narrow column wider than the viewport. */
+  overflow-wrap: anywhere;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+}
+
+.legal-toc-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Privacy sections get a slightly looser paragraph rhythm than the imprint,
+   because their paragraphs are long blocks rather than single lines. The
+   doubled class keeps the rule above `.legal-section p + p` in specificity. */
+.legal-section-privacy {
+  scroll-margin-top: 16px;
+}
+
+/* The policy quotes identifiers verbatim (@getmaapp/signal-wasm,
+   sb-<project-ref>-auth-token, messages.ciphertext); they must wrap rather than
+   widen the column on small screens. */
+.legal-section-privacy p {
+  overflow-wrap: anywhere;
+}
+
+.legal-section-privacy > * + * {
+  margin-top: 10px;
+}
+
+.legal-section-privacy > h2 + * {
+  margin-top: 0;
+}
+
+/* Programmatic focus after a contents jump must not draw a box around the
+   whole section, while keyboard focus keeps the global outline. */
+.legal-section-privacy:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Published sources for the provider statements; muted, not a call-to-action. */
+.legal-refs {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.legal-refs-title {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.legal-refs-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.legal-refs-list .link {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- legal / contact form ---------- */
 
 .contact-form {
