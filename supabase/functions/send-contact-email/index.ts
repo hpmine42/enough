@@ -25,10 +25,17 @@ function isRateLimited(ip: string): boolean {
   return false;
 }
 
-/** Check if the request origin matches allowed enough. domains or local development */
+/**
+ * Check if the request origin may call this function.
+ *
+ * The list holds the deployment origins this repository actually ships to
+ * (GitHub Pages) plus local development and sandbox previews. Any other
+ * deployment — a self-hosted instance on its own domain — registers its exact
+ * origin through the `ALLOWED_ORIGIN` secret (see docs/self-hosting.md), so no
+ * aspirational domain needs to be hardcoded here.
+ */
 function isAllowedOrigin(origin: string | null): boolean {
   if (!origin) return false;
-  if (origin === 'https://enough.im') return true;
   if (origin === 'https://hpmine42.github.io') return true;
   if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) return true;
   if (origin.endsWith('.e2b.app')) return true;
@@ -41,16 +48,22 @@ function isAllowedOrigin(origin: string | null): boolean {
 
 function getCorsHeaders(req: Request): Record<string, string> {
   const reqOrigin = req.headers.get('origin');
-  const allowed = isAllowedOrigin(reqOrigin);
-  const allowOriginValue = allowed && reqOrigin ? reqOrigin : 'https://enough.im';
-
-  return {
-    'Access-Control-Allow-Origin': allowOriginValue,
+  const cors: Record<string, string> = {
     'Access-Control-Allow-Headers':
       'authorization, x-client-info, apikey, content-type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Vary': 'Origin',
   };
+
+  // Fail closed: an origin that is not allowlisted gets no
+  // `Access-Control-Allow-Origin` header at all, so the browser blocks the
+  // response. Echoing a fixed production domain instead would only claim an
+  // origin the caller never used.
+  if (reqOrigin && isAllowedOrigin(reqOrigin)) {
+    cors['Access-Control-Allow-Origin'] = reqOrigin;
+  }
+
+  return cors;
 }
 
 /** Remove CRLF and control characters to prevent email header injection */

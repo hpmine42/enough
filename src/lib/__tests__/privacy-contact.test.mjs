@@ -74,18 +74,36 @@ test('Edge function protects against Open Mail Relay and contains NO hardcoded f
   );
 });
 
-test('Edge function restricts CORS to allowed enough origins', () => {
+test('Edge function restricts CORS to the origins that actually exist', () => {
   assert.ok(
     edgeFunctionSource.includes('isAllowedOrigin'),
     'Origin check function must exist',
   );
   assert.ok(
-    edgeFunctionSource.includes('https://enough.im'),
-    'enough.im domain must be in origin allowlist',
+    edgeFunctionSource.includes('https://hpmine42.github.io'),
+    'the deployed GitHub Pages origin must be in the origin allowlist',
+  );
+  // Self-hosting registers its own origin instead of the code guessing one.
+  assert.ok(
+    edgeFunctionSource.includes("Deno.env.get('ALLOWED_ORIGIN')"),
+    'ALLOWED_ORIGIN must stay the configurable mechanism',
+  );
+  // No domain that this repository does not deploy to may be hardcoded — that
+  // was `https://enough.im`, which no doc, Pages setting or workflow mentions.
+  assert.ok(
+    !edgeFunctionSource.includes('enough.im'),
+    'the function must not hardcode an un-deployed domain',
+  );
+  // A disallowed origin gets no Access-Control-Allow-Origin header rather
+  // than a fixed production one, so the header value is never a literal.
+  assert.doesNotMatch(
+    edgeFunctionSource,
+    /Access-Control-Allow-Origin['"]?:\s*['"]https:\/\//,
+    'a hardcoded fallback origin would let any caller read responses framed as coming from it',
   );
   assert.ok(
-    edgeFunctionSource.includes('https://hpmine42.github.io'),
-    'GitHub Pages domain must be in origin allowlist',
+    edgeFunctionSource.includes('cors[\'Access-Control-Allow-Origin\'] = reqOrigin'),
+    'the header must be set only for an allowed request origin',
   );
   assert.ok(
     edgeFunctionSource.includes("'Vary': 'Origin'"),

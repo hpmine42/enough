@@ -726,6 +726,60 @@ test('recipients and third-country transfers are documented per provider', () =>
   assert.match(de.sectionTransfersText2, /haben wir nicht geprüft/);
 });
 
+test('the Irish-law statement stays scoped to the Standard Contractual Clauses', () => {
+  // What the Supabase DPA (Version 1, 1 August 2026) actually says: Schedule 2
+  // ¶1.5 completes Clause 17 with Irish law and ¶1.6 with the courts of
+  // Ireland. Both are choices about the Standard Contractual Clauses; the
+  // addendum itself states no governing law for the rest of the agreement, so
+  // the policy must not attribute Irish law to "the DPA" as a whole.
+  const irishLaw = /irish law|irisches Recht|irischem Recht|Irish|Ireland|Irland/i;
+  const clauseWord = /contractual clauses|Standardvertragsklauseln|clauses|klauseln/i;
+  for (const key of enKeys) {
+    for (const [lang, dict] of [['en', en], ['de', de]]) {
+      const sentences = String(dict[key]).split(/(?<=[.!?])\s+/);
+      for (const sentence of sentences) {
+        if (!irishLaw.test(sentence)) continue;
+        assert.match(
+          sentence,
+          clauseWord,
+          `privacy.${key} (${lang}) mentions Irish law without naming the Clauses it applies to: ${sentence}`,
+        );
+      }
+    }
+  }
+  // The blanket claims this replaces must not come back.
+  const falseClaims = [
+    /(?:Data Processing Agreement|the DPA|the agreement|this agreement|addendum)[^.]{0,60}\bis governed by Irish law/i,
+    /incorporates under Irish law|places? the agreement under Irish law/i,
+    /(?:Datenverarbeitungsvereinbarung|die Vereinbarung|diese Vereinbarung)[^.]{0,80}unterliegt irischem Recht/i,
+    /nach irischem Recht (?:enthält|gilt die Vereinbarung)/i,
+  ];
+  for (const key of enKeys) {
+    for (const [lang, dict] of [['en', en], ['de', de]]) {
+      for (const pattern of falseClaims) {
+        assert.doesNotMatch(
+          dict[key],
+          pattern,
+          `privacy.${key} (${lang}) attributes Irish law to the whole DPA: ${pattern}`,
+        );
+      }
+    }
+  }
+  // And the correct scope has to be stated where the transfer is explained.
+  assert.match(
+    en.sectionBackendText2,
+    /for those Clauses alone, Irish law and the courts of Ireland/,
+    'section 7 must scope Irish law to the Clauses',
+  );
+  assert.match(
+    de.sectionBackendText2,
+    /dass für diese Klauseln irisches Recht und der Gerichtsstand Irland gelten/,
+    'Abschnitt 7 muss irisches Recht auf die Klauseln begrenzen',
+  );
+  assert.match(en.sectionTransfersText2, /for which that agreement sets Irish law/);
+  assert.match(de.sectionTransfersText2, /für die sie irisches Recht sowie den Gerichtsstand Irland festlegt/);
+});
+
 test('rights, authority and practical limits are stated', () => {
   const rights = [en.sectionRightsText, en.sectionRightsText2, en.sectionRightsAuthority].join(' ');
   for (const article of ['Article 15', 'Article 16', 'Article 17', 'Article 18', 'Article 20', 'Article 21', 'Article 77']) {
