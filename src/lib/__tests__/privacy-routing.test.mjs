@@ -780,6 +780,66 @@ test('the Irish-law statement stays scoped to the Standard Contractual Clauses',
   assert.match(de.sectionTransfersText2, /für die sie irisches Recht sowie den Gerichtsstand Irland festlegt/);
 });
 
+test('the DPA is described as applying automatically, not as a contract to be signed', () => {
+  // Supabase incorporates its Data Processing Addendum into the Terms of Service,
+  // so a customer organisation gets its protections without signing anything
+  // separately. The policy must not describe a conclusion step the provider says
+  // does not exist, and it must not claim a separately signed DPA is on file.
+  assert.match(
+    en.sectionBackendText2,
+    /incorporated into its Terms of Service and therefore applies[^.]*without a separate signature/,
+    'section 7 must state that the agreement applies without a separate signature',
+  );
+  assert.match(
+    de.sectionBackendText2,
+    /in die Nutzungsbedingungen eingebunden und gilt[^.]*ohne gesonderte Unterzeichnung/,
+    'Abschnitt 7 muss die automatische Geltung der Vereinbarung nennen',
+  );
+  for (const key of enKeys) {
+    for (const [lang, dict] of [['en', en], ['de', de]]) {
+      assert.doesNotMatch(
+        dict[key],
+        /responsible for concluding (?:the|this) (?:contract|agreement)/i,
+        `privacy.${key} (${lang}) still demands a separate conclusion step for the DPA`,
+      );
+      assert.doesNotMatch(
+        dict[key],
+        /verantwortlich, den Vertrag abzuschlie/i,
+        `privacy.${key} (${lang}) verlangt weiterhin einen gesonderten Vertragsabschluss`,
+      );
+    }
+  }
+});
+
+test('the policy states one revision date in both languages', () => {
+  // `privacy.lastUpdated` is the date the policy text itself was last revised,
+  // so EN and DE must state the same one. A one-sided bump (EN edited, DE
+  // forgotten) is what this catches; the assertion is on the parsed date and
+  // never on today, so it cannot rot.
+  const months = {
+    en: ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august',
+      'september', 'october', 'november', 'december'],
+    de: ['januar', 'februar', 'märz', 'april', 'mai', 'juni', 'juli', 'august',
+      'september', 'oktober', 'november', 'dezember'],
+  };
+  const parsed = [];
+  for (const [lang, dict] of [['en', en], ['de', de]]) {
+    const value = String(dict.lastUpdated);
+    const match = value.match(new RegExp(`(\\d{1,2})\\.?\\s+(${months[lang].join('|')})\\s+(\\d{4})`, 'i'));
+    assert.ok(match, `privacy.lastUpdated (${lang}) must state a full date, found: ${value}`);
+    const day = Number(match[1]);
+    const index = months[lang].indexOf(match[2].toLowerCase());
+    const year = Number(match[3]);
+    const lastDay = new Date(Date.UTC(year, index + 1, 0)).getUTCDate();
+    assert.ok(
+      day >= 1 && day <= lastDay,
+      `privacy.lastUpdated (${lang}) is not a real calendar date: ${value}`,
+    );
+    parsed.push(`${year}-${index + 1}-${day}`);
+  }
+  assert.equal(parsed[0], parsed[1], 'EN and DE must state the same policy revision date');
+});
+
 test('rights, authority and practical limits are stated', () => {
   const rights = [en.sectionRightsText, en.sectionRightsText2, en.sectionRightsAuthority].join(' ');
   for (const article of ['Article 15', 'Article 16', 'Article 17', 'Article 18', 'Article 20', 'Article 21', 'Article 77']) {
