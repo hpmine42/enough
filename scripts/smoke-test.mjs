@@ -1020,16 +1020,134 @@ assert(
 /* public privacy policy */
 setHash('#/datenschutz');
 await waitFor(() => text('.legal-content h1') === 'Datenschutzerklärung', 'public German privacy policy renders');
+
+// The policy is rendered data: the DE route must show the German section set in
+// full, in order, without leaking a single i18n key path.
+{
+  const doc = dom.window.document;
+  const deHeadings = [...doc.querySelectorAll('.legal-section-privacy h2')].map((h) => h.textContent.trim());
+  assert(deHeadings.length === 16, 'German policy renders all 16 sections');
+  assert(
+    deHeadings.every((h, i) => h.startsWith(`${i + 1}. `)),
+    'German sections are numbered consecutively',
+  );
+  assert(
+    deHeadings.some((h) => h.includes('Ende-zu-Ende-Verschlüsselung')),
+    'German policy has an E2EE section in German',
+  );
+  const deBody = doc.querySelector('.legal-content').textContent;
+  assert(!deBody.includes('privacy.section'), 'German policy leaks no i18n key paths');
+  assert(deBody.includes('Signal Protocol'), 'German policy explains E2EE architecture');
+  assert(deBody.includes('keinerlei Cookies'), 'German policy states that no cookies are set');
+  assert(
+    doc.querySelector('.legal-toc-list').children.length === 16,
+    'German contents navigation lists every section',
+  );
+}
+
 setHash('#/privacy');
 await waitFor(() => text('.legal-content h1') === 'Privacy Policy', 'public English privacy policy renders');
-assert(
-  text('.legal-content')?.includes('Signal Protocol'),
-  'privacy policy explains E2EE architecture',
-);
+{
+  const doc = dom.window.document;
+  const body = doc.querySelector('.legal-content').textContent;
+  const headings = [...doc.querySelectorAll('.legal-section-privacy h2')].map((h) => h.textContent.trim());
+  assert(body.includes('Signal Protocol'), 'privacy policy explains E2EE architecture');
+  assert(
+    headings.every((h, i) => h.startsWith(`${i + 1}. `)),
+    'English sections are numbered consecutively',
+  );
+  assert(!body.includes('privacy.section'), 'English policy leaks no i18n key paths');
+  // Every documented provider appears in the rendered text, not only in the source.
+  for (const provider of ['GitHub Pages', 'Supabase', 'Resend', 'eu-central-1']) {
+    assert(body.includes(provider), `privacy policy documents ${provider}`);
+  }
+  assert(
+    body.includes('does not publish a fixed retention period'),
+    'policy states unknown retention instead of inventing one',
+  );
+  assert(!/7 to 30 days/.test(body), 'policy carries no unsupported Pages log window');
+  assert(
+    body.includes('sets no cookies at all'),
+    'policy distinguishes LocalStorage from cookies instead of mislabelling it',
+  );
+  assert(
+    body.includes('IndexedDB') && body.includes('Offline Read Mode'),
+    'policy documents the sealed local cache',
+  );
+  assert(
+    body.includes('Landesbeauftragte für Datenschutz'),
+    'policy names the competent supervisory authority',
+  );
+  assert(
+    doc.querySelector('.legal-content address')?.textContent.includes('Jakob Gregory'),
+    'controller block renders the configured address',
+  );
+  assert(
+    doc.querySelector('.legal-contact-list a[href="mailto:hpmine@web.de"]') !== null,
+    'controller contact is a working mail link',
+  );
+  // Provider references are external https links with translated labels.
+  const refs = [...doc.querySelectorAll('.legal-refs-list a')];
+  assert(refs.length === 6, 'policy links the provider documents it quotes from');
+  assert(
+    refs.every((a) => a.getAttribute('href').startsWith('https://')) &&
+      refs.every((a) => a.getAttribute('rel') === 'noreferrer'),
+    'policy references are https links opened without referrer leakage',
+  );
+  assert(
+    refs.every((a) => a.textContent.trim().length > 3),
+    'policy references are labelled, not bare URLs',
+  );
+}
+
+/* contents navigation: scrolls without touching the hash route */
+{
+  const doc = dom.window.document;
+  const tocLinks = [...doc.querySelectorAll('.legal-toc-link')];
+  assert(tocLinks.length === 16, 'contents navigation renders one entry per section');
+  assert(
+    tocLinks.every((el) => el.tagName === 'BUTTON'),
+    'contents entries are buttons: an in-page href would replace the hash route',
+  );
+  const headings = [...doc.querySelectorAll('.legal-section-privacy h2')].map((h) => h.textContent.trim());
+  assert(
+    tocLinks.map((el) => el.textContent.trim()).join('|') === headings.join('|'),
+    'contents navigation and body list the same sections in the same order',
+  );
+
+  // Jumping to a section must move focus to it (keyboard/screen-reader follow)
+  // and must NOT rewrite the route.
+  const rightsButton = tocLinks[14];
+  rightsButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await waitFor(
+    () => doc.activeElement?.id === 'privacy-section-rights',
+    'contents navigation focuses the target section',
+  );
+  assert(dom.window.location.hash === '#/privacy', 'contents navigation leaves the route untouched');
+}
+
+/* language switch on the privacy screen keeps route and language in sync */
+click('.legal-header .lang-button');
+await waitFor(() => text('.legal-content h1') === 'Datenschutzerklärung', 'privacy language switch → German');
+assert(dom.window.location.hash === '#/datenschutz', 'German switch updates the hash route');
+click('.legal-header .lang-button');
+await waitFor(() => text('.legal-content h1') === 'Privacy Policy', 'privacy language switch → English');
+assert(dom.window.location.hash === '#/privacy', 'English switch restores the hash route');
+
 assert(
   dom.window.document.querySelector('.legal-content a[href="#/imprint"]') !== null,
   'privacy policy contains link to imprint',
 );
+// Nothing inside the policy may hijack the router with a bare fragment link.
+const legalAnchors = [...dom.window.document.querySelectorAll('.legal-content a')];
+assert(
+  legalAnchors.every((a) => {
+    const href = a.getAttribute('href') ?? '';
+    return !href.startsWith('#') || href.startsWith('#/');
+  }),
+  'no in-page fragment links inside the legal screens',
+);
+
 setHash('#/login');
 await waitFor(() => text('.button') === 'Log in', 'return from imprint to login');
 

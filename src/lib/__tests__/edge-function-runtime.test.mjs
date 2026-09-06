@@ -69,29 +69,84 @@ function createFunctionInstance(env = {}, fetchMock = null) {
 test('Edge Function handles CORS preflight OPTIONS with origin allowlist', async () => {
   const handler = createFunctionInstance();
 
-  // Allowed origin
+  // Deployed origin: echoed back verbatim.
   const reqAllowed = new Request('https://functions.supabase.co/send-contact-email', {
     method: 'OPTIONS',
-    headers: { origin: 'https://enough.im' },
+    headers: { origin: 'https://hpmine42.github.io' },
   });
   const resAllowed = await handler(reqAllowed);
   assert.equal(resAllowed.status, 200);
   assert.equal(
     resAllowed.headers.get('Access-Control-Allow-Origin'),
-    'https://enough.im',
+    'https://hpmine42.github.io',
   );
   assert.equal(resAllowed.headers.get('Vary'), 'Origin');
 
-  // Disallowed origin falls back safely to primary production origin
+  // Disallowed origin: NO Access-Control-Allow-Origin at all. A hardcoded
+  // production fallback used to be sent here, which framed a foreign caller
+  // as if it were the app; the browser is the thing that must reject it.
   const reqDisallowed = new Request('https://functions.supabase.co/send-contact-email', {
     method: 'OPTIONS',
     headers: { origin: 'https://evil-phishing-site.com' },
   });
   const resDisallowed = await handler(reqDisallowed);
   assert.equal(resDisallowed.status, 200);
+  assert.equal(resDisallowed.headers.get('Access-Control-Allow-Origin'), null);
+  assert.equal(resDisallowed.headers.get('Vary'), 'Origin');
+
+  // Same on the POST path, not only on the preflight.
+  const reqPostDisallowed = new Request('https://functions.supabase.co/send-contact-email', {
+    method: 'POST',
+    headers: { origin: 'https://evil-phishing-site.com', 'Content-Type': 'application/json' },
+    body: '{ not-json',
+  });
+  const resPostDisallowed = await handler(reqPostDisallowed);
+  assert.equal(resPostDisallowed.status, 400);
+  assert.equal(resPostDisallowed.headers.get('Access-Control-Allow-Origin'), null);
+
+  // Request without an Origin header (same-origin, curl, server-to-server).
+  const reqNoOrigin = new Request('https://functions.supabase.co/send-contact-email', {
+    method: 'OPTIONS',
+  });
+  const resNoOrigin = await handler(reqNoOrigin);
+  assert.equal(resNoOrigin.headers.get('Access-Control-Allow-Origin'), null);
+});
+
+test('Edge Function accepts only the exact ALLOWED_ORIGIN of a self-hosted deployment', async () => {
+  const handler = createFunctionInstance({ ALLOWED_ORIGIN: 'https://chat.example.com' });
+
+  const reqOwn = new Request('https://functions.supabase.co/send-contact-email', {
+    method: 'OPTIONS',
+    headers: { origin: 'https://chat.example.com' },
+  });
   assert.equal(
-    resDisallowed.headers.get('Access-Control-Allow-Origin'),
-    'https://enough.im',
+    (await handler(reqOwn)).headers.get('Access-Control-Allow-Origin'),
+    'https://chat.example.com',
+    'the configured origin must be allowed',
+  );
+
+  // A suffix/prefix trick must not pass: the comparison is an exact match, and
+  // an unconfigured run must not accept the configured origin either.
+  const reqLookalike = new Request('https://functions.supabase.co/send-contact-email', {
+    method: 'OPTIONS',
+    headers: { origin: 'https://chat.example.com.attacker.test' },
+  });
+  assert.equal(
+    (await handler(reqLookalike)).headers.get('Access-Control-Allow-Origin'),
+    null,
+    'a lookalike suffix must not be allowed',
+  );
+
+  // Without the secret, the very same origin must not be accepted.
+  const unsetHandler = createFunctionInstance();
+  const reqWithoutConfig = new Request('https://functions.supabase.co/send-contact-email', {
+    method: 'OPTIONS',
+    headers: { origin: 'https://chat.example.com' },
+  });
+  assert.equal(
+    (await unsetHandler(reqWithoutConfig)).headers.get('Access-Control-Allow-Origin'),
+    null,
+    'without ALLOWED_ORIGIN the same origin must not be allowed',
   );
 });
 
@@ -276,7 +331,7 @@ test('Edge Function correctly dispatches email to Resend API with fixed to addre
   const handler = createFunctionInstance(
     {
       RESEND_API_KEY: 're_secret_key_123',
-      CONTACT_TO_EMAIL: 'operator@enough.im',
+      CONTACT_TO_EMAIL: 'operator@example.com',
     },
     fetchMock,
   );
@@ -285,7 +340,7 @@ test('Edge Function correctly dispatches email to Resend API with fixed to addre
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'origin': 'https://enough.im',
+      'origin': 'https://hpmine42.github.io',
       'x-forwarded-for': '198.51.100.42',
     },
     body: JSON.stringify({
@@ -305,7 +360,7 @@ test('Edge Function correctly dispatches email to Resend API with fixed to addre
   assert.equal(capturedHeaders['Authorization'], 'Bearer re_secret_key_123');
 
   // Assert open relay protection: `to` MUST be the operator email, NEVER hijacked
-  assert.deepEqual(capturedPayload.to, ['operator@enough.im']);
+  assert.deepEqual(capturedPayload.to, ['operator@example.com']);
 
   // Assert header injection protection on subject: CRLF in name stripped
   assert.ok(!capturedPayload.subject.includes('\r'));

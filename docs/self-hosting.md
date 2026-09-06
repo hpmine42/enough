@@ -194,6 +194,20 @@ Never put a `service_role` or secret key into a `VITE_*` variable. The app
 only uses the public client; security comes from Supabase Auth + Row Level
 Security.
 
+### Contact-form Edge Function variables
+
+If you deploy the `send-contact-email` Edge Function (the imprint page's
+contact form), those variables are **server-side secrets** — set them with
+`supabase secrets set` (or in the project's Edge Function settings), never in
+`.env`, because everything in `.env` ends up in the public bundle:
+
+| Variable | Description |
+|---|---|
+| `RESEND_API_KEY` | API key of the email service used for delivery |
+| `CONTACT_TO_EMAIL` | Destination address of the inquiry; `OPERATOR_EMAIL` is accepted as a fallback. The function never takes a recipient from the request body |
+| `RESEND_FROM_EMAIL` | Optional sender address, defaults to `enough. <contact@resend.dev>` |
+| `ALLOWED_ORIGIN` | Optional: the exact origin (scheme + host, no trailing slash, e.g. `https://chat.example.com`) that may call the function. The function answers CORS only to an allowlisted origin and sends no `Access-Control-Allow-Origin` header to any other caller, so a deployment on its own domain must set this variable — the built-in list only covers the upstream GitHub Pages origin, `localhost`, `127.0.0.1` and sandbox previews |
+
 ## 9. Run locally
 
 ```sh
