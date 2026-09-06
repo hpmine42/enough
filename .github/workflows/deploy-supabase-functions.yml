@@ -46,6 +46,7 @@ jobs:
         uses: supabase/setup-cli@v1
         with:
           version: latest
+          node-version: 20
 
       - name: Resolve project ref from VITE_SUPABASE_URL
         id: project
@@ -63,10 +64,15 @@ jobs:
       - name: Deploy send-contact-email
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ steps.project.outputs.ref }}
         run: |
           set -euo pipefail
           if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ]; then
             echo "::error::Secret SUPABASE_ACCESS_TOKEN is not configured. Add it under Settings → Secrets and actions → Actions (a Supabase access token with Edge Functions deploy permission for this project)."
+            exit 1
+          fi
+          if [ -z "${PROJECT_REF:-}" ]; then
+            echo "::error::Project ref could not be resolved from VITE_SUPABASE_URL. Ensure the secret is a valid https://<ref>.supabase.co URL."
             exit 1
           fi
           supabase functions deploy send-contact-email \
