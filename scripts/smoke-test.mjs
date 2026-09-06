@@ -1017,6 +1017,35 @@ assert(
   'imprint contains link to privacy policy',
 );
 
+/* imprint layout: two separate, equal-ranking surfaces stacked one below the
+   other — provider details (address + e-mail) on top, the contact form below
+   in a surface of its own, never a box inside a box. */
+{
+  const doc = dom.window.document;
+
+  const surfaces = [...doc.querySelectorAll('.legal-content > .legal-card')];
+  assert(surfaces.length === 2, 'imprint renders exactly two top-level surfaces');
+  assert(
+    doc.querySelector('.legal-card .legal-card') === null,
+    'no legal surface is nested inside another legal surface',
+  );
+
+  const providerBlock = doc.querySelector('.legal-imprint-card .legal-section');
+  assert(
+    providerBlock?.textContent?.includes('Jakob Gregory') === true &&
+      providerBlock?.querySelector('.legal-contact-list a[href="mailto:hpmine@web.de"]') !== null,
+    'the provider block carries both the postal address and the e-mail',
+  );
+
+  const contactCard = doc.querySelector('.legal-contact-card');
+  assert(
+    contactCard?.parentElement?.classList.contains('legal-content') === true &&
+      contactCard?.querySelector('.contact-form') !== null &&
+      contactCard?.querySelector('#contact-message') !== null,
+    'the contact form fills the lower surface instead of a nested card',
+  );
+}
+
 /* public privacy policy */
 setHash('#/datenschutz');
 await waitFor(() => text('.legal-content h1') === 'Datenschutzerklärung', 'public German privacy policy renders');

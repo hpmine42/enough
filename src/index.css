@@ -1843,10 +1843,15 @@ button,
   padding: 48px 28px 0;
 }
 
-/* The imprint and contact form use separate surfaces so the legal details do
-   not visually merge with the interactive form. Both surfaces inherit the
-   existing theme variables and remain fluid on narrow screens. */
+/* Two separate, equal-ranking surfaces stacked one below the other: the
+   imprint on top, the contact form below. The form is a SIBLING of the
+   imprint surface, never a card inside it — the second nesting level cost it
+   48px of usable width and made it unnecessarily narrow. Both surfaces
+   inherit the existing theme variables and share one inset, so their content
+   edges stay aligned and the layout remains fluid on narrow screens. */
 .legal-card {
+  --legal-card-inset: clamp(18px, 5vw, 24px);
+
   border: 1px solid var(--border);
   border-radius: 18px;
   background: var(--bg);
@@ -1854,7 +1859,7 @@ button,
 
 .legal-imprint-card {
   margin-top: 32px;
-  padding: 0 24px;
+  padding: 0 var(--legal-card-inset);
 }
 
 .legal-imprint-card > .legal-section {
@@ -1865,14 +1870,23 @@ button,
   border-bottom: 0;
 }
 
-.legal-contact-section {
-  padding-right: 0;
-  padding-left: 0;
+.legal-contact-card {
+  /* Generous, clearly readable gap between the two surfaces. */
+  margin-top: 40px;
+  padding: 24px var(--legal-card-inset);
 }
 
-.legal-contact-card {
-  margin: 28px 0 20px;
-  padding: 24px;
+.legal-contact-card h2 {
+  margin: 0 0 16px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* The card heading provides the gap, so the form keeps its internal rhythm
+   without adding the spacing it needed as a standalone block. */
+.legal-contact-card .contact-form,
+.legal-contact-card .contact-success-box {
+  margin-top: 0;
 }
 
 .legal-kicker {
@@ -1979,6 +1993,12 @@ button,
 .legal-contact-list .link {
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+/* The contact e-mail belongs to the "Service provider" block, directly below
+   the postal address, so it needs a small gap instead of the section rhythm. */
+.legal-contact-list.legal-provider-contact {
+  margin-top: 12px;
 }
 
 /* ---------- privacy policy: contents + section rhythm ---------- */
