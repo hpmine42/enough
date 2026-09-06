@@ -1,0 +1,132 @@
+# Deploys the Supabase Edge Functions to the production Supabase project and
+# runs a real end-to-end check of the contact-form function afterwards.
+#
+# Required GitHub Actions secrets:
+# - SUPABASE_ACCESS_TOKEN   Supabase management access token (secret: never
+#                           committed, only referenced here by name).
+# - VITE_SUPABASE_URL       Already used by deploy.yml; the project ref for the
+#                           CLI is derived from this production project URL.
+#
+# The per-function settings (verify_jwt = false for send-contact-email) are
+# read from supabase/config.toml by the Supabase CLI.
+#
+# Function runtime secrets (RESEND_API_KEY, CONTACT_TO_EMAIL, RESEND_FROM_EMAIL,
+# ALLOWED_ORIGIN) are NOT managed here — set them on the Supabase project with
+# `supabase secrets set` (see docs/self-hosting.md). Their values never pass
+# through this repository.
+
+name: Deploy Supabase Edge Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/**'
+      - 'supabase/config.toml'
+      - '.github/workflows/deploy-supabase-functions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-supabase-functions
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy send-contact-email
+    runs-on: ubuntu-latest
+    if: github.repository == 'hpmine42/enough'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Resolve project ref from VITE_SUPABASE_URL
+        id: project
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        run: |
+          set -euo pipefail
+          ref="$(printf '%s' "$VITE_SUPABASE_URL" | sed -nE 's#^https://([a-z0-9]{20})\.supabase\.co/?$#\1#p')"
+          if [ -z "$ref" ]; then
+            echo "::error::Secret VITE_SUPABASE_URL is unset or not a https://<ref>.supabase.co URL — cannot resolve the production project ref."
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy send-contact-email
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+            echo "::error::Secret SUPABASE_ACCESS_TOKEN is not configured. Add it under Settings → Secrets and actions → Actions (a Supabase access token with Edge Functions deploy permission for this project)."
+            exit 1
+          fi
+          supabase functions deploy send-contact-email \
+            --project-ref "$PROJECT_REF"
+        # verify_jwt = false comes from supabase/config.toml [functions.send-contact-email]
+
+      - name: End-to-end test (contact-form submission)
+        env:
+          PROJECT_REF: ${{ steps.project.outputs.ref }}
+        run: |
+          set -euo pipefail
+          url="https://${PROJECT_REF}.supabase.co/functions/v1/send-contact-email"
+          origin="https://hpmine42.github.io"
+
+          # 1) CORS preflight: must answer and echo the allowlisted origin.
+          preflight_headers="$(curl -sS --max-time 30 -D - -o /dev/null \
+            -X OPTIONS "$url" \
+            -H "Origin: $origin" \
+            -H 'Access-Control-Request-Method: POST')"
+          preflight_status="$(printf '%s' "$preflight_headers" | head -n1 | awk '{print $2}')"
+          preflight_acao="$(printf '%s\n' "$preflight_headers" | tr -d '\r' | sed -n 's/^[Aa]ccess-[Cc]ontrol-[Aa]llow-[Oo]rigin: //p')"
+
+          # 2) Method guard: GET must be rejected with 405.
+          get_status="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' "$url" -H "Origin: $origin")"
+
+          # 3) Real POST with the exact JSON shape the contact form sends
+          #    (supabase.functions.invoke('send-contact-email', { body })).
+          #    clientTime 10s in the past clears the sub-minute bot heuristic.
+          client_time="$(($(date +%s%3N) - 10000))"
+          payload="$(printf '{"name":"enough. CI E2E","email":"e2e-test@example.com","message":"Automated end-to-end test of the contact form pipeline.","hp":"","clientTime":%s}' "$client_time")"
+          post_status="$(curl -sS --max-time 30 -o /tmp/e2e-response.json -w '%{http_code}' \
+            -X POST "$url" \
+            -H "Origin: $origin" \
+            -H 'Content-Type: application/json' \
+            --data "$payload")"
+          post_body="$(cat /tmp/e2e-response.json)"
+
+          {
+            echo '### send-contact-email end-to-end check'
+            echo ''
+            echo '| check | expected | actual |'
+            echo '|---|---|---|'
+            echo "| OPTIONS preflight | 200 | ${preflight_status} |"
+            echo "| preflight Access-Control-Allow-Origin | ${origin} | ${preflight_acao:-<absent>} |"
+            echo "| GET method guard | 405 | ${get_status} |"
+            echo "| POST form payload | 200 | ${post_status} |"
+            echo ''
+            echo '```json'
+            echo "$post_body"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if printf '%s' "$post_body" | grep -q 'Mock mode'; then
+            echo "::warning::Function replied in mock mode: RESEND_API_KEY is not set on the Supabase project, so no real email was dispatched. Set the function secrets (RESEND_API_KEY, CONTACT_TO_EMAIL, RESEND_FROM_EMAIL) with \`supabase secrets set\`."
+          fi
+
+          fail=0
+          [ "$preflight_status" = "200" ] || { echo "::error::CORS preflight returned HTTP ${preflight_status}, expected 200."; fail=1; }
+          [ "$preflight_acao" = "$origin" ] || { echo "::error::CORS preflight did not echo the allowlisted origin (got: ${preflight_acao:-<absent>})."; fail=1; }
+          [ "$get_status" = "405" ] || { echo "::error::GET returned HTTP ${get_status}, expected 405 (method guard)."; fail=1; }
+          [ "$post_status" = "200" ] || { echo "::error::POST form payload returned HTTP ${post_status}, expected 200. Inspect the function logs in the Supabase dashboard."; fail=1; }
+          printf '%s' "$post_body" | grep -q '"ok"[[:space:]]*:[[:space:]]*true' || { echo "::error::POST response body does not contain ok:true: ${post_body}"; fail=1; }
+          exit "$fail"

@@ -208,6 +208,40 @@ contact form), those variables are **server-side secrets** — set them with
 | `RESEND_FROM_EMAIL` | Optional sender address, defaults to `enough. <contact@resend.dev>` |
 | `ALLOWED_ORIGIN` | Optional: the exact origin (scheme + host, no trailing slash, e.g. `https://chat.example.com`) that may call the function. The function answers CORS only to an allowlisted origin and sends no `Access-Control-Allow-Origin` header to any other caller, so a deployment on its own domain must set this variable — the built-in list only covers the upstream GitHub Pages origin, `localhost`, `127.0.0.1` and sandbox previews |
 
+### Automated function deployment
+
+The upstream deployment does not run `supabase functions deploy` by hand:
+`.github/workflows/deploy-supabase-functions.yml` deploys
+`send-contact-email` on every push to `main` that touches
+`supabase/functions/**` or `supabase/config.toml` (plus manual
+`workflow_dispatch`), and then submits a real test message through the
+deployed function and fails the run on any non-200 answer. It needs the
+repository secret `SUPABASE_ACCESS_TOKEN` (a Supabase access token for the
+project; the project ref is derived from the existing `VITE_SUPABASE_URL`
+secret), and it applies `verify_jwt = false` from `supabase/config.toml`
+automatically. Because session tokens cannot edit workflow files, the
+workflow is stored at `scripts/deploy-supabase-functions.yml` and installed
+by moving it into `.github/workflows/` — see
+`scripts/ci-deploy-contact-function.md`. The job skips itself on forks.
+
+`scripts/deploy-contact-function.mjs` performs the same deploy + end-to-end
+check locally (it is also how the check can be run before the workflow is
+installed):
+
+```sh
+SUPABASE_ACCESS_TOKEN=<token> node scripts/deploy-contact-function.mjs
+```
+
+Manual deployment stays possible at any time:
+
+```sh
+export SUPABASE_ACCESS_TOKEN=<your access token>
+supabase functions deploy send-contact-email --project-ref <project-ref>
+```
+
+The CLI reads `verify_jwt = false` for this function from
+`supabase/config.toml`, so no extra flags are needed.
+
 ## 9. Run locally
 
 ```sh
