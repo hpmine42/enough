@@ -1843,6 +1843,38 @@ button,
   padding: 48px 28px 0;
 }
 
+/* The imprint and contact form use separate surfaces so the legal details do
+   not visually merge with the interactive form. Both surfaces inherit the
+   existing theme variables and remain fluid on narrow screens. */
+.legal-card {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--bg);
+}
+
+.legal-imprint-card {
+  margin-top: 32px;
+  padding: 0 24px;
+}
+
+.legal-imprint-card > .legal-section {
+  border-top: 0;
+}
+
+.legal-imprint-card > .legal-section:last-child {
+  border-bottom: 0;
+}
+
+.legal-contact-section {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.legal-contact-card {
+  margin: 28px 0 20px;
+  padding: 24px;
+}
+
 .legal-kicker {
   margin: 0 0 10px;
   color: var(--muted);

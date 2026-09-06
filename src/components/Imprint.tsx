@@ -74,7 +74,8 @@ export default function Imprint() {
           <strong>{t('legal.lastUpdated')}</strong>
         </p>
 
-        <section className="legal-section">
+        <div className="legal-card legal-imprint-card">
+          <section className="legal-section">
           <h2>{t('legal.provider')}</h2>
 
           <address>
@@ -95,8 +96,9 @@ export default function Imprint() {
           </section>
         )}
 
-        <section className="legal-section">
-          <h2>{t('legal.contact')}</h2>
+        <section className="legal-section legal-contact-section">
+          <div className="legal-card legal-contact-card">
+            <h2>{t('legal.contact')}</h2>
 
           <dl className="legal-contact-list">
             <div>
@@ -115,6 +117,7 @@ export default function Imprint() {
           </dl>
 
           <ContactForm />
+          </div>
         </section>
 
         {hasRegisterEntry && (
@@ -169,6 +172,7 @@ export default function Imprint() {
             </a>
           </p>
         </section>
+        </div>
       </article>
     </main>
   );
