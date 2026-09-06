@@ -74,105 +74,110 @@ export default function Imprint() {
           <strong>{t('legal.lastUpdated')}</strong>
         </p>
 
+        {/* Upper surface: the provider details (postal address and contact
+            e-mail belong to the same section) plus the remaining imprint. */}
         <div className="legal-card legal-imprint-card">
           <section className="legal-section">
-          <h2>{t('legal.provider')}</h2>
+            <h2>{t('legal.provider')}</h2>
 
-          <address>
-            <strong>{imprintConfig.providerName}</strong>
-            <br />
-            {address.street}
-            <br />
-            {address.postalCode} {address.city}
-            <br />
-            {address.country}
-          </address>
-        </section>
+            <address>
+              <strong>{imprintConfig.providerName}</strong>
+              <br />
+              {address.street}
+              <br />
+              {address.postalCode} {address.city}
+              <br />
+              {address.country}
+            </address>
 
-        {imprintConfig.representedBy && (
-          <section className="legal-section">
-            <h2>{t('legal.representedBy')}</h2>
-            <p>{imprintConfig.representedBy}</p>
+            <dl className="legal-contact-list legal-provider-contact">
+              <div>
+                <dt>{t('legal.email')}</dt>
+
+                <dd>
+                  {isPlaceholder(contact.email) ? (
+                    contact.email
+                  ) : (
+                    <a className="link" href={`mailto:${contact.email}`}>
+                      {contact.email}
+                    </a>
+                  )}
+                </dd>
+              </div>
+            </dl>
           </section>
-        )}
 
-        <section className="legal-section legal-contact-section">
-          <div className="legal-card legal-contact-card">
-            <h2>{t('legal.contact')}</h2>
+          {imprintConfig.representedBy && (
+            <section className="legal-section">
+              <h2>{t('legal.representedBy')}</h2>
+              <p>{imprintConfig.representedBy}</p>
+            </section>
+          )}
 
-          <dl className="legal-contact-list">
-            <div>
-              <dt>{t('legal.email')}</dt>
+          {hasRegisterEntry && (
+            <section className="legal-section">
+              <h2>{t('legal.registerEntry')}</h2>
 
-              <dd>
-                {isPlaceholder(contact.email) ? (
-                  contact.email
-                ) : (
-                  <a className="link" href={`mailto:${contact.email}`}>
-                    {contact.email}
-                  </a>
-                )}
-              </dd>
-            </div>
-          </dl>
+              {register.name && <p>{register.name}</p>}
+
+              {register.court && (
+                <p>
+                  {t('legal.registerCourt')}: {register.court}
+                </p>
+              )}
+
+              {register.number && (
+                <p>
+                  {t('legal.registerNumber')}: {register.number}
+                </p>
+              )}
+            </section>
+          )}
+
+          {imprintConfig.vatId && (
+            <section className="legal-section">
+              <h2>{t('legal.vatId')}</h2>
+              <p>{imprintConfig.vatId}</p>
+            </section>
+          )}
+
+          {hasEditorialResponsibility && (
+            <section className="legal-section">
+              <h2>{t('legal.editoriallyResponsible')}</h2>
+
+              {editoriallyResponsible.name && (
+                <p>{editoriallyResponsible.name}</p>
+              )}
+
+              {editoriallyResponsible.address && (
+                <p>{editoriallyResponsible.address}</p>
+              )}
+            </section>
+          )}
+
+          <section className="legal-section">
+            <h2>{t('legal.privacy')}</h2>
+            <p>
+              <a
+                className="link"
+                href={lang === 'de' ? '#/datenschutz' : '#/privacy'}
+              >
+                {t('legal.privacyLinkText')}
+              </a>
+            </p>
+          </section>
+        </div>
+
+        {/* Lower surface: the contact form as an equal-ranking sibling of the
+            imprint surface, not a card nested inside it. */}
+        <section
+          className="legal-card legal-contact-card"
+          aria-labelledby="legal-contact-heading"
+        >
+          <h2 id="legal-contact-heading">{t('legal.contact')}</h2>
 
           <ContactForm />
-          </div>
         </section>
-
-        {hasRegisterEntry && (
-          <section className="legal-section">
-            <h2>{t('legal.registerEntry')}</h2>
-
-            {register.name && <p>{register.name}</p>}
-
-            {register.court && (
-              <p>
-                {t('legal.registerCourt')}: {register.court}
-              </p>
-            )}
-
-            {register.number && (
-              <p>
-                {t('legal.registerNumber')}: {register.number}
-              </p>
-            )}
-          </section>
-        )}
-
-        {imprintConfig.vatId && (
-          <section className="legal-section">
-            <h2>{t('legal.vatId')}</h2>
-            <p>{imprintConfig.vatId}</p>
-          </section>
-        )}
-
-        {hasEditorialResponsibility && (
-          <section className="legal-section">
-            <h2>{t('legal.editoriallyResponsible')}</h2>
-
-            {editoriallyResponsible.name && (
-              <p>{editoriallyResponsible.name}</p>
-            )}
-
-            {editoriallyResponsible.address && (
-              <p>{editoriallyResponsible.address}</p>
-            )}
-          </section>
-        )}
-
-        <section className="legal-section">
-          <h2>{t('legal.privacy')}</h2>
-          <p>
-            <a
-              className="link"
-              href={lang === 'de' ? '#/datenschutz' : '#/privacy'}
-            >
-              {t('legal.privacyLinkText')}
-            </a>
-          </p>
-        </section>
-        </div>
       </article>
     </main>
   );
