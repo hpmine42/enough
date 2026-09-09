@@ -214,6 +214,11 @@ fallback for auto-confirm setups.
 - `npm run test:i18n` / `npm run test:input` / `npm run test:a11y` /
   `npm run test:api` / `npm run test:errors` / `npm run test:helpers` —
   localization, input hardening, accessibility, API, error mapping, helpers
+- `npm run test:license` — license declaration guards (audit C4): `LICENSE` is
+  the pinned canonical AGPL-3.0-only text, the copy served by the deployed app
+  is identical to it, `package.json` and `package-lock.json` declare that same
+  SPDX id, and `NOTICE` accounts for every runtime dependency — so adding a
+  dependency fails CI until `NOTICE` records its license id
 - `npm run test:home` / `npm run test:chatblocks` / `npm run test:api-errors` —
   Home realtime updates, chat block-channel behavior, API error surfacing
 - `npm run test:crypto:prekeys` — **live PostgreSQL** RPC/RLS tests for
@@ -320,3 +325,30 @@ enough. can be self-hosted with your own Supabase project. See
 database setup, environment configuration, build options, and the security
 model. A self-hosted instance has its own Supabase backend, users, messages,
 and database — it is fully independent of the upstream deployment.
+
+## License
+
+enough. is licensed under the **GNU Affero General Public License version 3.0
+only** (`AGPL-3.0-only`). The full text lives in
+[`LICENSE`](LICENSE) at the repository root, and the same document is served
+at `/LICENSE` on any deployment (copied from
+[`public/LICENSE`](public/LICENSE)) because the built bundle carries no
+attribution of its own.
+
+Why this matters for this repository specifically: the E2EE engine
+`@getmaapp/signal-wasm@0.6.6`, the libsignal release it wraps, and the Kyber
+code compiled into its WASM are all AGPL-3.0. That code is conveyed to every
+visitor's browser and the app is interacted with over a network, so AGPL's
+source-availability obligations apply to the released client and to anyone
+self-hosting it. [`NOTICE`](NOTICE) records the verified third-party inventory,
+the Signal trademark non-endorsement statement, and the single item that is
+**not** verified: the per-crate license status of the 240 transitive Rust
+crates in the engine's pinned `Cargo.lock` (open gate `Gate H` in
+[`docs/e2ee-2c-readiness-gate.md`](docs/e2ee-2c-readiness-gate.md) §13).
+
+The license choice and the documented acceptance of that open item are a
+project-owner decision, recorded on 2026-09-09 in
+[`docs/e2ee-2c-legal-review.md`](docs/e2ee-2c-legal-review.md) §8. It is not
+legal advice, and no legal counsel reviewed or approved it. The app remains
+`private` in npm terms and is not published to a registry; the declaration in
+`package.json` is a grant to recipients of the source and of the built app.

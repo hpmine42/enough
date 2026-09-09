@@ -392,3 +392,30 @@ npm run test:crypto
 npm run test:crypto:engine
 npm run test:crypto:prekeys
 ```
+
+## 15. License — and what it means for your deployment
+
+enough. is licensed under the **GNU Affero General Public License version 3.0
+only**. The full text is in `LICENSE` at the repository root; `NOTICE` records
+the third-party components and their licenses.
+
+That choice is not cosmetic for a self-hoster. The engine that provides
+end-to-end encryption (`@getmaapp/signal-wasm`, the libsignal release it wraps,
+and the Kyber code compiled into the same WASM) is AGPL-3.0, and your
+deployment conveys that code to every visitor's browser while users interact
+with the service over a network. The obligations therefore attach to **your**
+instance, not only to the upstream one:
+
+| Obligation | What it means for you |
+|---|---|
+| License availability | Ship the license text with the app. The built bundle contains no attribution at all, which is why `public/LICENSE` is copied into `dist/` and served at `/LICENSE` — keep that file (and `NOTICE`) when you build. |
+| Corresponding Source | Make the complete source of the exact version you run available to your users under the same license: application source, `package.json` / `package-lock.json`, `vite.config.ts`, `scripts/`, the migrations, and your own modifications. |
+| Modified builds | If you change the app and serve it, the source you offer must correspond to what you serve — a link to an unmodified upstream repository is not enough once you have changed the build. |
+| Upstream inventory | `NOTICE` §4 marks the per-crate license status of the 240 transitive Rust crates inside the engine's WASM as **not verified**; nobody has run `cargo about`. Assume that work is still ahead of you, not done for you. |
+
+Upstream enough. meets these by being a public repository whose releases carry
+the source; that is a mechanism, not a magic. Choosing your own equivalent is
+your decision, and nothing in this document is legal advice. The license
+decision for enough. is the project owner's, documented in
+`docs/e2ee-2c-legal-review.md` §8 — it was **not** reviewed or approved by
+legal counsel, and the same caveat applies to any reading of the above.

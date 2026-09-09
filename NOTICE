@@ -1,0 +1,139 @@
+enough. — NOTICE
+================
+
+Third-party components, their licenses, and the limits of what has actually
+been verified about them. This file supplements `LICENSE` (the license grant
+itself) and never replaces or narrows it. It exists because enough. conveys a
+WebAssembly build of AGPL-licensed code to every visitor's browser, and an
+AGPL recipient is entitled to know whose code that is and under what terms.
+
+Every statement below was verified against package metadata, an upstream
+license file, or a build of this repository on **2026-09-09**, unless it is
+explicitly marked as **NOT VERIFIED**. Items that are not marked are not
+therefore clean merely because they are unmentioned — see §4.
+
+## 1. enough. (this repository)
+
+- License: **AGPL-3.0-only** (SPDX). Full verbatim text: `LICENSE` at the
+  repository root, served at `/LICENSE` by any deployment of the app (§5).
+- `package.json` declares the same SPDX id. This repository is `private` in
+  npm terms and is not published to a registry; the declaration is a grant to
+  recipients of the source and of the built app, not packaging metadata.
+- The grant was made by the **project owner** on 2026-09-09 as a documented
+  residual-risk acceptance (`docs/e2ee-2c-legal-review.md` §8). This document
+  and that decision record are **not legal advice**, and this decision was
+  **not** reviewed or approved by legal counsel. No written legal opinion on
+  the AGPL questions in `docs/e2ee-2c-legal-review.md` §5 is on record.
+- Per-file SPDX headers are not used in this repository; the grant is made by
+  this `LICENSE`/`NOTICE` pair.
+
+## 2. npm runtime dependencies
+
+One bullet per declared runtime dependency, as a backticked `name@version`
+pair followed by an em dash and the SPDX license id of the pinned version in
+`package-lock.json`. This list is machine-checked against `package.json` by
+`npm run test:license`, so a new runtime dependency fails CI until it is
+recorded here with a verified license id.
+
+- `@getmaapp/signal-wasm@0.6.6` — AGPL-3.0-only
+- `@supabase/supabase-js@2.112.3` — MIT
+- `react@18.3.1` — MIT
+- `react-dom@18.3.1` — MIT
+
+Dev dependencies are not conveyed to users and are not covered by this notice.
+
+## 3. `@getmaapp/signal-wasm@0.6.6` — the E2EE engine
+
+- Declared license: **AGPL-3.0-only** (`license` field of the package
+  `package.json`, confirmed via the registry on 2026-09-09).
+- The package's own `LICENSE` file is **1,174 bytes / 29 lines — a notice, not
+  the license text**. It states `Copyright (C) 2026 The Cannabis App`, that
+  the WASM bridge is built on libsignal (AGPL-3.0), and it grants "either
+  version 3 of the License, or (at your option) any later version".
+- **Recorded ambiguity, not resolved here:** that notice says "or any later
+  version" while the same package declares `AGPL-3.0-only` in its metadata.
+  enough. adopts the narrower **AGPL-3.0-only** and does not rely on the
+  "or later" option. If the upstream text is authoritative for the "or later"
+  grant, taking the narrower option remains permitted; the discrepancy is
+  flagged so it is not mistaken for an oversight.
+- What is actually conveyed to the browser, byte-for-byte:
+  `signal_wasm_bg.wasm` (797,749 bytes, SHA-256
+  `71b456b8a1bfc93111be86fdff9726ed397de55f223ee9136dab619a6620d6c1`) and
+  `signal_wasm.js` (78,213 bytes, SHA-256
+  `c72af7ae13a17fca0b0c2a2b8acb948c9eb9c71a17f9c4194c53bdf2ab883410`).
+  These hashes are the audited values in `docs/e2ee-2c-provenance.md` §1 and
+  are asserted on every CI run by `npm run verify:signal-wasm`
+  (`docs/e2ee-f5-supply-chain.md`).
+- **Attribution does not survive the build:** neither the shipped WASM nor the
+  JS glue carries any license or copyright text (verified 2026-09-09: zero
+  case-insensitive matches for "agpl" or "copyright" in `signal_wasm.js` and
+  `signal_wasm.d.ts`). A user who only downloads the bundle therefore receives
+  no attribution from it, which is why `LICENSE` is additionally served as a
+  same-origin static file at the deployed site root (§5).
+- No forking or source modification of the package is made; it is consumed
+  unmodified from the npm registry. The build was **not** reproduced
+  (`docs/e2ee-2c-provenance.md`, `docs/e2ee-f5-supply-chain.md` §5), so the
+  correspondence between those bytes and the upstream source commit is
+  asserted by hash pin, not by a reproducible build.
+
+## 4. Code compiled into the WASM, and the open inventory
+
+- **libsignal** `v0.101.0`, commit `b056faa6dd02961cff24064c54c089c52e1a0753`,
+  by Signal Technology Foundation — **AGPL-3.0-only**.
+- **spqr** (SparsePostQuantumRatchet) `v1.5.3`, git dependency pinned to
+  `fd320484dcec89004021e6fdc7481825f5f261fa` of
+  `github.com/signalapp/SparsePostQuantumRatchet` — its `LICENSE` at that
+  commit is the **full AGPL-3.0 text** (34,523 bytes, verified 2026-09-09).
+  The Kyber/KEM code in the shipped WASM is therefore also AGPL, and adds no
+  license class beyond the one recorded above.
+- **Transitive Rust crates — NOT VERIFIED (open item).** The `Cargo.lock` of
+  the pinned upstream commit `0a5e3cb8bf282efb3521d7cdac5476caf3fb1acd`
+  contains exactly **240** `[[package]]` entries. No per-crate license
+  inventory (`cargo about` / `cargo license`) has been generated, because the
+  crate registry was unreachable from the environment that produced this file
+  and no Rust toolchain is available here. **No claim is made that these 240
+  crates are individually license-reviewed or compatible**; the corresponding
+  gate remains open (`docs/e2ee-2c-readiness-gate.md` §13 "Gate H",
+  `docs/e2ee-2c-architecture.md` §21 "License inventory"). Closing it is an
+  owner action in an unrestricted environment, recorded as an accepted
+  residual risk in `docs/e2ee-2c-legal-review.md` §8 until then.
+
+## 5. Distribution, conveyed object code, and source availability
+
+- The public instance is a static site; the built JavaScript and the 797 kB
+  WASM asset are transferred to, and executed by, every visitor. That is
+  conveyance of object code, and visitors also interact with the service over
+  a network, so the source-availability obligations of AGPL-3.0 §§ 13 and 5(c)
+  apply to the released version.
+- Complete Corresponding Source for any released version is the public
+  repository <https://github.com/hpmine42/enough> at the corresponding tag or
+  commit (releases are published there with matching tags): the application
+  source, `package.json`, `package-lock.json`, the build configuration
+  (`vite.config.ts`, `scripts/`), the SQL migrations, and CI definitions —
+  i.e. everything needed to regenerate the conveyed app. The `LICENSE` text
+  itself is additionally served at the site root as a same-origin static file
+  (`public/LICENSE` → `/LICENSE`), because the bundle carries none (§3).
+- Self-hosting is permitted under the same terms, and the same obligations
+  transfer to the self-hoster (`docs/self-hosting.md`).
+
+## 6. Trademarks
+
+The license notice inside the `@getmaapp/signal-wasm` package states that
+"Signal Protocol and libsignal are trademarks of Signal Technology
+Foundation" and that the package "is not affiliated with or endorsed by" that
+foundation. enough. adopts the same position: it is **not affiliated with, not
+endorsed by, and not sponsored by** Signal Technology Foundation, it uses no
+Signal name, logo, or mark in its own branding, name, or interface labels, and
+every mention of Signal in this repository — in the code, the documentation,
+the privacy notice and this file — is a descriptive statement about the
+protocol the software implements.
+
+## 7. No warranty
+
+`enough.` and every component listed above are distributed **without any
+warranty**, to the extent described in AGPL-3.0 §§ 15–16. In particular,
+end-to-end encryption in a browser protects message content from the server
+and the network; it does not protect content from anyone who can execute
+JavaScript as enough. in the user's browser. That boundary is recorded as part
+of the engine architecture (`docs/e2ee-2c-architecture.md` §24) and published
+to users in the app's own privacy notice (`privacy.sectionE2eeLimits`).
