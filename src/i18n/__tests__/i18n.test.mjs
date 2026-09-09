@@ -404,3 +404,51 @@ test('C1-5: EN and DE dictionaries still expose exactly the same key set', async
   assert.deepEqual([...de].filter((k) => !en.has(k)).sort(), [], 'no DE-only keys');
   assert.equal(en.size, de.size, 'same key count');
 });
+
+/* ------------------------------------------------------------------ */
+/* C2 — identity-recovery strings (IR10)                                */
+/* ------------------------------------------------------------------ */
+
+const C2_RECOVERY_KEYS = [
+  'chat.e2eeIdentityChanged',
+  'chat.e2eeReviewSecurity',
+  'chat.e2eeResetPeerTitle',
+  'chat.e2eeResetPeerText',
+  'chat.e2eeResetConfirm',
+  'chat.e2eeResetMenu',
+  'chat.e2eeResetFailed',
+  'chat.e2eeDeviceResetButton',
+  'chat.e2eeDeviceResetTitle',
+  'chat.e2eeDeviceResetText',
+];
+
+test('IR10: every C2 recovery string resolves in EN and DE with no fallback', async () => {
+  for (const key of C2_RECOVERY_KEYS) {
+    setLang('en');
+    const en = t(key);
+    assert.ok(typeof en === 'string' && en.length > 0, `${key} resolves in EN`);
+    assert.equal(en.includes('{'), false, `${key} has no placeholders (EN)`);
+    await inGerman(() => {
+      const de = t(key);
+      assert.ok(typeof de === 'string' && de.length > 0, `${key} resolves in DE`);
+      assert.equal(de.includes('{'), false, `${key} has no placeholders (DE)`);
+      assert.notEqual(de, en, `${key} is translated (not an EN fallback)`);
+    });
+  }
+});
+
+test('IR10: C2 warning texts state irreversibility and leak no crypto internals', async () => {
+  for (const run of [async () => {}, inGerman]) {
+    await run(async () => {
+      for (const key of ['chat.e2eeResetPeerText', 'chat.e2eeDeviceResetText']) {
+        const msg = t(key);
+        // The user must understand that unreadable stays unreadable.
+        assert.match(msg, /unreadable|unlesbar/i, `${key} warns about lost readability`);
+        // No implementation detail may reach the UI.
+        for (const leak of ['WASM', 'IndexedDB', 'ratchet', 'prekey', 'CryptoError', 'TOFU', 'signal:']) {
+          assert.ok(!msg.includes(leak), `no "${leak}" in ${key}`);
+        }
+      }
+    });
+  }
+});

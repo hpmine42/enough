@@ -712,5 +712,49 @@ export async function deleteUserRatchetState(userId: string): Promise<void> {
   }
 }
 
+/**
+ * Delete the ratchet session (record AND watermark) for ONE (user, connection).
+ *
+ * This is the storage primitive behind peer-scoped identity recovery (audit
+ * C2): after the user explicitly confirms that a peer's identity changed, the
+ * stale session for the affected conversation is removed so the next send
+ * establishes a fresh session over the normal PQXDH/Signal path.
+ *
+ * Both keys are deleted in a SINGLE transaction: a record without its
+ * watermark (or vice versa) would load as `WEDGED`/`ROLLBACK_DETECTED`, so a
+ * partial delete must be impossible. Deleting only the record while keeping
+ * the watermark would additionally wedge every future establishment (the new
+ * session at revision 1 would sit below the surviving high-water mark).
+ *
+ * Scope: exactly this (user, connection) pair — every other session of this
+ * user and every other user scope is untouched. Deleting an absent session is
+ * a no-op (idempotent): callers must be able to retry a confirmed recovery
+ * without a second state transition.
+ *
+ * This weakens no invariant: it neither overwrites a committed state with an
+ * older one (both keys vanish together, so no stale pair can ever compare as
+ * current) nor synthesizes a session (the slot returns to `MISSING`, and only
+ * the explicit establishment path may fill it again).
+ */
+export async function deleteRatchetSession(
+  userId: string,
+  connectionId: string,
+): Promise<void> {
+  if (!userId || !connectionId) return;
+  if (typeof indexedDB === 'undefined') return;
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction(CRYPTO_STORE_RATCHET, 'readwrite', {
+      durability: 'strict',
+    });
+    const store = transaction.objectStore(CRYPTO_STORE_RATCHET);
+    store.delete(ratchetKeyFor(userId, connectionId));
+    store.delete(watermarkKeyFor(userId, connectionId));
+    await txComplete(transaction);
+  } finally {
+    db.close();
+  }
+}
+
 export type { SealedEnvelope };
 export { decodeRevision, encodeRevision };

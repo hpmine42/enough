@@ -71,6 +71,17 @@ import { isCryptoError } from '../lib/crypto/errors';
  *   second session architecture, never touches the ratchet or trust state, and
  *   never introduces a plaintext or weaker-crypto fallback: if initialization
  *   fails again the state simply stays 'error'.
+ *
+ * Device reset (audit C2):
+ *   When initialization fails with a LOCAL state/identity error (see
+ *   `e2eeRecoveryOffersReset`), retrying would drive the same broken state
+ *   again. `resetDeviceState()` instead wipes the broken device state through
+ *   the manager's explicit `resetDeviceIdentity()` (own `signal:*` records +
+ *   own ratchet sessions; sealing key, message cache and snapshots are kept)
+ *   and then re-runs the normal initialization effect, which mints and
+ *   publishes a fresh identity. It is only available while `status === 'error'`
+ *   and only runs after the UI obtained an explicit user confirmation — the
+ *   provider itself never resets anything on its own.
  */
 export type E2EEStatus = 'initializing' | 'ready' | 'error';
 
@@ -87,6 +98,13 @@ interface E2EEContextValue {
   errorCode: E2EEErrorCode | null;
   /** Re-run initialization after a failure. Idempotent and fail-closed. */
   retry: () => void;
+  /**
+   * Wipe the broken local device state and re-run initialization (audit C2).
+   * Only runs while `status === 'error'`; the UI must confirm explicitly
+   * before calling. Resolves true when the reset itself succeeded (a fresh
+   * initialization follows in both cases and reports its own outcome).
+   */
+  resetDeviceState: () => Promise<boolean>;
 }
 
 const E2EEContext = createContext<E2EEContextValue>({
@@ -95,6 +113,7 @@ const E2EEContext = createContext<E2EEContextValue>({
   ready: false,
   errorCode: null,
   retry: () => {},
+  resetDeviceState: async () => false,
 });
 
 /**
@@ -214,6 +233,44 @@ export function E2EEProvider({ children }: { children: ReactNode }) {
     setAttempt((n) => n + 1);
   }, []);
 
+  // Device reset (audit C2): wipe the broken local device state, then re-run
+  // the normal initialization effect on the fresh state. Only available after
+  // a settled failure — never during 'initializing' (nothing is known to be
+  // broken yet) and never while 'ready' (a healthy identity must not be
+  // wiped). The reset manager is separate from the session manager and is
+  // destroyed right away; the effect builds the session manager afterwards.
+  const resetDeviceState = useCallback(async (): Promise<boolean> => {
+    if (!userId || status !== 'error') return false;
+    let ok = true;
+    try {
+      const testFactory = readTestFactory();
+      const m = testFactory
+        ? testFactory(userId)
+        : new E2EESessionManager({
+            userId,
+            publisher: (material) => publishDeviceMaterial(userId, material),
+            bundleProvider: (peerUserId) => fetchPeerBundle(peerUserId),
+          });
+      try {
+        await m.resetDeviceIdentity();
+      } finally {
+        m.destroy();
+      }
+    } catch (e) {
+      ok = false;
+      // Same non-sensitive classification discipline as the init failure path.
+      const code = isCryptoError(e) ? e.code : 'INIT_FAILED';
+      console.error('enough. e2ee device reset failed:', {
+        code,
+        name: e instanceof Error ? e.name : typeof e,
+      });
+    }
+    // Re-run initialization on the (possibly fresh) state; the effect
+    // reports the outcome through the usual status/errorCode channel.
+    setAttempt((n) => n + 1);
+    return ok;
+  }, [userId, status]);
+
   // Account isolation: expose the manager only while the user who owns it is
   // still the signed-in user. Never hand another user's session to the UI.
   const manager =
@@ -227,6 +284,7 @@ export function E2EEProvider({ children }: { children: ReactNode }) {
         ready: status !== 'initializing',
         errorCode,
         retry,
+        resetDeviceState,
       }}
     >
       {children}

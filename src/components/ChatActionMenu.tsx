@@ -26,6 +26,12 @@ interface ChatActionMenuProps {
   onBlock: () => void;
   /** Delete the chat for me (existing deletion flow, after confirmation). */
   onDeleteChat: () => void;
+  /**
+   * Open the C2 peer-recovery dialog ("Reset secure conversation…"). Optional:
+   * only the Chat screen offers it (it owns the connection + manager needed
+   * for the reset); Home leaves it absent and the item stays hidden.
+   */
+  onResetSecurity?: () => void;
 }
 
 /**
@@ -35,7 +41,9 @@ interface ChatActionMenuProps {
  * One implementation serves both entry points:
  *   - "Block user" (or "Unblock" while the current user has blocked the
  *     peer) → the existing block confirmation dialog;
- *   - "Delete chat for me" → the existing chat-deletion confirmation dialog.
+ *   - "Delete chat for me" → the existing chat-deletion confirmation dialog;
+ *   - "Reset secure conversation…" (Chat only, via `onResetSecurity`) →
+ *     the C2 peer-recovery dialog owned by the Chat screen.
  *
  * The component is fully presentational: the parent owns the sheet/confirm
  * state and performs the actual block/delete/unblock API calls, so both
@@ -54,6 +62,7 @@ export default function ChatActionMenu({
   onUnblock,
   onBlock,
   onDeleteChat,
+  onResetSecurity,
 }: ChatActionMenuProps) {
   return (
     <>
@@ -85,6 +94,19 @@ export default function ChatActionMenu({
               danger: true,
               onSelect: () => onConfirmChange('delete'),
             },
+            // Manual C2 recovery entry for silent receive-side wedges (the
+            // sheet closes before onSelect runs, so the parent can open the
+            // confirmation dialog directly). Hidden unless offered.
+            ...(onResetSecurity
+              ? [
+                  {
+                    key: 'reset-security',
+                    label: t('chat.e2eeResetMenu'),
+                    danger: true,
+                    onSelect: onResetSecurity,
+                  },
+                ]
+              : []),
           ]}
         />
       )}

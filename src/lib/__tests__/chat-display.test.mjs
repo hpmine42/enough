@@ -25,7 +25,7 @@ import { register } from 'node:module';
 
 register(new URL('../../../scripts/load-enough-ts.mjs', import.meta.url), import.meta.url);
 
-const { resolveBubbleText, canSendEncrypted } = await import('../chatDisplay.ts');
+const { resolveBubbleText, canSendEncrypted, e2eeRecoveryOffersReset, classifyUserMismatch } = await import('../chatDisplay.ts');
 
 /* ------------------------------------------------------------------ */
 /* 1. Resolved plaintext wins                                          */
@@ -208,5 +208,87 @@ test('CD11: the pending state is actually rendered and styled', async () => {
   assert.ok(
     css.includes('@media (prefers-reduced-motion: reduce)'),
     'the global reduced-motion block still neutralizes the pending animation',
+  );
+});
+
+/* ------------------------------------------------------------------ */
+/* C2 — recovery UI decisions (IR13: purely statutory table tests)      */
+/* ------------------------------------------------------------------ */
+
+test('IR13: only local state/identity failures offer the device reset', () => {
+  // Re-running initialization over broken local state cannot help — wiping
+  // first is the only way forward, so the reset is offered.
+  for (const code of ['USER_MISMATCH', 'CORRUPT_STATE', 'UNSEAL_FAILED', 'KEY_MISSING', 'WEDGED']) {
+    assert.equal(e2eeRecoveryOffersReset(code), true, `${code} offers the reset`);
+  }
+  // Transient/operational failures (and everything unknown) offer a retry
+  // ONLY — a destructive reset must never be suggested for a failure that a
+  // retry can fix.
+  for (const code of ['NOT_AVAILABLE', 'STORAGE_ERROR', 'INIT_FAILED', 'NEEDS_ESTABLISH', null, '', 'BOGUS']) {
+    assert.equal(e2eeRecoveryOffersReset(code), false, `${String(code)} offers no reset`);
+  }
+});
+
+test('IR11b: a USER_MISMATCH is classified blocked-first, then identity-changed', () => {
+  // A block in EITHER direction is shown as a block, even when the trust
+  // record is marked — a block must never be mistaken for an identity change.
+  for (const block of ['blockedByMe', 'blockedByThem']) {
+    assert.equal(
+      classifyUserMismatch({ blockState: block, trustState: 'identity_changed' }),
+      'blocked',
+      `${block} with a marked trust record is still a block`,
+    );
+  }
+  // The recoverable case: no block, but the trust record was persistently
+  // marked identity_changed by the failed send.
+  assert.equal(
+    classifyUserMismatch({ blockState: 'none', trustState: 'identity_changed' }),
+    'identity-changed',
+    'unblocked plus marked record offers peer recovery',
+  );
+  // Without the mark no reset is offered — a missing or unreadable trust
+  // record never leads a user into a destructive dialog.
+  for (const trust of [null, 'unverified', 'verified', '']) {
+    assert.equal(
+      classifyUserMismatch({ blockState: 'none', trustState: trust }),
+      'generic',
+      `trust ${String(trust)} offers no reset`,
+    );
+  }
+});
+
+test('IR9b: Chat resets only from explicit confirmation (single call sites)', async () => {
+  // Structural tripwire (same discipline as CD10 and the IR12c whitelist):
+  // the peer reset must be callable from exactly one place — the onConfirm
+  // handler performPeerReset — and the device reset from performDeviceReset.
+  // Any second call site (auto-reset on error, realtime, effect) fails here.
+  const { readFileSync } = await import('node:fs');
+  const chat = readFileSync(
+    new URL('../../components/Chat.tsx', import.meta.url),
+    'utf8',
+  );
+  const count = (haystack, needle) => haystack.split(needle).length - 1;
+
+  assert.equal(count(chat, 'resetPeerSecurityState('), 1, 'exactly one peer-reset call site');
+  assert.equal(count(chat, 'async function performPeerReset'), 1, 'peer reset has one handler');
+  assert.equal(count(chat, 'onConfirm={performPeerReset}'), 1, 'peer reset runs from onConfirm only');
+
+  assert.equal(count(chat, 'resetDeviceE2EE()'), 1, 'exactly one device-reset call site');
+  assert.equal(count(chat, 'async function performDeviceReset'), 1, 'device reset has one handler');
+  assert.equal(count(chat, 'onConfirm={performDeviceReset}'), 1, 'device reset runs from onConfirm only');
+
+  // Cancel closes the dialog and nothing else — no reset on cancel; and the
+  // Review button only OPENS the dialog (no direct reset from the notice).
+  assert.ok(
+    chat.includes('onCancel={() => setResetDialog(null)}'),
+    'cancel closes the peer dialog without side effects',
+  );
+  assert.ok(
+    chat.includes('onCancel={() => setDeviceResetOpen(false)}'),
+    'cancel closes the device dialog without side effects',
+  );
+  assert.ok(
+    chat.includes('if (conn) setResetDialog({ peerId: identityChangedPeer, connectionId: conn.id })'),
+    'the Review button opens the dialog instead of resetting',
   );
 });
