@@ -388,6 +388,13 @@ export const translations = {
       e2eeUnavailable:
         'Secure messaging is unavailable in this browser. Update or reopen the app to send messages.',
       e2eeFailed: 'Message could not be encrypted. It was not sent.',
+      // C1 — explicit E2EE lifecycle states. A peer message must never render
+      // as an empty bubble: it is either visibly pending or visibly failed.
+      decrypting: 'Decrypting…',
+      e2eePreparing: 'Preparing secure messaging…',
+      e2eeUnavailableState:
+        'Secure messaging could not be started, so messages in this chat can neither be sent nor read right now. Nothing was sent in the meantime.',
+      e2eeRetry: 'Try again',
       deleteChatForMe: 'Delete chat for me',
       deleteChatConfirmTitle: 'Delete chat?',
       deleteChatConfirmText:
@@ -830,6 +837,13 @@ export const translations = {
       e2eeUnavailable:
         'Sichere Nachrichten sind in diesem Browser nicht verfügbar. Aktualisiere oder öffne die App erneut, um Nachrichten zu senden.',
       e2eeFailed: 'Die Nachricht konnte nicht verschlüsselt werden und wurde nicht gesendet.',
+      // C1 — explizite E2EE-Zustände. Eine Peer-Nachricht darf nie als leere
+      // Bubble erscheinen: sie ist entweder sichtbar ausstehend oder fehlgeschlagen.
+      decrypting: 'Entschlüsseln…',
+      e2eePreparing: 'Sichere Nachrichten werden vorbereitet…',
+      e2eeUnavailableState:
+        'Sichere Nachrichten konnten nicht gestartet werden. Nachrichten in diesem Chat können deshalb gerade weder gesendet noch gelesen werden. Es wurde in der Zwischenzeit nichts gesendet.',
+      e2eeRetry: 'Erneut versuchen',
       deleteChatForMe: 'Chat für mich löschen',
       deleteChatConfirmTitle: 'Chat löschen?',
       deleteChatConfirmText:

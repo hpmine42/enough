@@ -368,8 +368,20 @@ test('O16: Chat renders cached messages offline without a network request', () =
 });
 
 test('O17: sending is disabled offline and nothing is queued', () => {
-  assert.match(chatSrc, /disabled=\{!canChat \|\| blocked \|\| offline\}/);
-  assert.match(chatSrc, /if \(offline\) return;/);
+  // Other features add further disabling terms to the composer (C1 adds the
+  // E2EE readiness gate), so assert `offline` is one of them rather than
+  // pinning the whole expression.
+  const composerTag = chatSrc.match(/<MessageComposer[^>]*\/>/s);
+  assert.ok(composerTag, 'the MessageComposer element exists');
+  const disabledExpr = composerTag[0].match(/disabled=\{([^}]*)\}/);
+  assert.ok(disabledExpr, 'the composer has a disabled expression');
+  assert.ok(
+    disabledExpr[1].split('||').map((t) => t.trim()).includes('offline'),
+    'the composer stays disabled while offline',
+  );
+  // The send guard refuses offline. It returns `false` so the composer keeps
+  // the draft instead of discarding text that was never queued or sent.
+  assert.match(chatSrc, /if \(offline\) return false;/);
   // No outbox anywhere.
   for (const src of [homeSrc, chatSrc, composerSrc]) {
     assert.ok(!/outbox/i.test(src), 'no offline outbox may exist');

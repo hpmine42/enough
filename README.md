@@ -207,6 +207,10 @@ fallback for auto-confirm setups.
 - `npm run test:unread` / `npm run test:read` / `npm run test:scroll` /
   `npm run test:contrast` — unread, monotonic read position, initial chat
   anchoring, and scroll-down contrast regressions
+- `npm run test:e2eestate` — E2EE display-state resolution: an unresolved peer
+  message is never an empty bubble, a failed engine reports instead of spinning
+  forever, plaintext is passed through verbatim, and a peer send requires an
+  explicitly ready engine (fail-closed; My Notes stays writable)
 - `npm run test:i18n` / `npm run test:input` / `npm run test:a11y` /
   `npm run test:api` / `npm run test:errors` / `npm run test:helpers` —
   localization, input hardening, accessibility, API, error mapping, helpers
@@ -231,9 +235,24 @@ fallback for auto-confirm setups.
   using your two existing test users (see `docs/MIGRATIONS.md`).
   `npm run test:rls` runs that suite against embedded Postgres
 
-CI (`.github/workflows/deploy.yml`) runs signal-wasm verification, build,
-crypto/engine tests, smoke, and live prekey tests **before** the Pages deploy
-steps, so a failed gate blocks shipping.
+GitHub Actions coverage:
+
+- **`.github/workflows/deploy.yml`** — the release gate. Runs signal-wasm
+  verification, build, crypto/engine tests, smoke, and the live prekey tests
+  **before** the Pages deploy steps, so a failed gate blocks shipping.
+- **Pull-request gate — PROPOSED, NOT YET ACTIVE.** The complete workflow is
+  ready at [`docs/ci-workflow-proposal.yml`](docs/ci-workflow-proposal.yml) and
+  only needs to be copied to `.github/workflows/ci.yml`. It runs on every
+  `pull_request` and on `push` to `main`: signal-wasm verification, build,
+  **every** `test:*` script discovered from `package.json` at runtime (so a new
+  suite is picked up automatically and the gate cannot drift away from the
+  inventory), and the smoke test. It references **no secrets** — every suite
+  runs against stubs or the embedded PostgreSQL started by
+  `scripts/run-*.mjs` — so fork PRs are safe: they run under `pull_request`
+  with a read-only token and no access to repository credentials.
+
+  Until that file is in place, only the four suites listed in `deploy.yml`
+  run automatically. Run the rest locally before merging.
 
 ## Theme
 

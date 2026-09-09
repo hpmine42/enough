@@ -448,6 +448,13 @@ button,
   text-underline-offset: 3px;
 }
 
+/* Separator between the two legal links (imprint · privacy policy). Decorative
+   only, so it is hidden from assistive technology in the markup. */
+.legal-footer-sep {
+  margin: 0 8px;
+  opacity: 0.6;
+}
+
 .auth-legal-footer {
   margin-top: auto;
   padding-top: 32px;
@@ -1496,6 +1503,30 @@ button,
   -webkit-touch-callout: none;
 }
 
+/*
+ * Unresolved peer message (audit C1 / F-01). The display plaintext is still on
+ * its way, so the bubble shows a visible placeholder instead of rendering
+ * empty — an empty bubble is indistinguishable from a blank or broken message.
+ * The pulse needs no reduced-motion exception of its own: the global
+ * `prefers-reduced-motion` block at the end of this file neutralizes every
+ * animation and iteration count (v0.2 accessibility contract D1).
+ */
+.message.pending {
+  color: var(--muted);
+  font-style: italic;
+  animation: msg-pending 1.4s ease-in-out infinite;
+}
+
+@keyframes msg-pending {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
 @keyframes msg-in {
   from {
     opacity: 0;
@@ -1712,6 +1743,16 @@ button,
   gap: 8px;
   padding: 10px 18px;
   line-height: 1.45;
+}
+
+/*
+ * E2EE initialization failed (audit C1). Reuses the .composer-disabled.blocked
+ * layout (text + action, stacked) but reads as a state that needs attention
+ * rather than a passive hint, so the explanation is set in the normal text
+ * colour instead of --muted. No new colours are introduced.
+ */
+.composer-disabled.e2ee-error {
+  color: var(--text);
 }
 
 .send {

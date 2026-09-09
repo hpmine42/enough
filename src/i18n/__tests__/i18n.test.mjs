@@ -323,3 +323,84 @@ test('F10-1c: the reuse text tells the user to pick a different password', async
     assert.doesNotMatch(t('errors.samePassword'), /schwach/i);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* C1 — E2EE lifecycle states                                          */
+/* ------------------------------------------------------------------ */
+/* A peer message must never render as an empty bubble, and a failed engine     */
+/* must be explainable. Both need real, distinct, translated strings in EN and  */
+/* DE. A missing DE key would silently fall back to English, so the German      */
+/* values are asserted in German rather than compared with English.             */
+
+const E2EE_STATE_KEYS = [
+  'chat.decrypting',
+  'chat.e2eePreparing',
+  'chat.e2eeUnavailableState',
+  'chat.e2eeRetry',
+];
+
+test('C1-1: every E2EE state string exists and is non-empty in both languages', async () => {
+  for (const key of E2EE_STATE_KEYS) {
+    const en = t(key);
+    assert.notEqual(en, key, `${key} resolves in English`);
+    assert.ok(en.trim().length > 0, `${key} is non-empty in English`);
+  }
+  await inGerman(async () => {
+    for (const key of E2EE_STATE_KEYS) {
+      const de = t(key);
+      assert.notEqual(de, key, `${key} resolves in German`);
+      assert.ok(de.trim().length > 0, `${key} is non-empty in German`);
+    }
+  });
+});
+
+test('C1-2: the German E2EE state strings are translated, not copied from English', async () => {
+  const english = Object.fromEntries(E2EE_STATE_KEYS.map((k) => [k, t(k)]));
+  await inGerman(async () => {
+    for (const key of E2EE_STATE_KEYS) {
+      assert.notEqual(t(key), english[key], `${key} differs between EN and DE`);
+    }
+    assert.match(t('chat.decrypting'), /Entschlüsseln/);
+    assert.match(t('chat.e2eePreparing'), /vorbereitet/);
+    assert.match(t('chat.e2eeRetry'), /Erneut versuchen/);
+    assert.match(t('chat.e2eeUnavailableState'), /Sichere Nachrichten/);
+  });
+});
+
+test('C1-3: the pending and failed states are worded differently', async () => {
+  // "Still working on it" and "this failed" must not be the same sentence, or
+  // the user cannot tell a transient decrypt from a broken engine.
+  assert.notEqual(t('chat.decrypting'), t('chat.undecryptable'));
+  assert.notEqual(t('chat.decrypting'), t('chat.e2eeUnavailableState'));
+  await inGerman(async () => {
+    assert.notEqual(t('chat.decrypting'), t('chat.undecryptable'));
+    assert.notEqual(t('chat.decrypting'), t('chat.e2eeUnavailableState'));
+  });
+});
+
+test('C1-4: the failure text says nothing was sent and offers no crypto internals', async () => {
+  for (const run of [async () => {}, inGerman]) {
+    await run(async () => {
+      const msg = t('chat.e2eeUnavailableState');
+      // Reassures the user that no message silently went out.
+      assert.match(msg, /nothing was sent|nichts gesendet/i);
+      // No implementation detail may reach the UI.
+      for (const leak of ['WASM', 'IndexedDB', 'ratchet', 'prekey', 'CryptoError', 'NOT_AVAILABLE', 'CORRUPT_STATE']) {
+        assert.ok(!msg.includes(leak), `no "${leak}" in the user-facing text`);
+      }
+    });
+  }
+});
+
+test('C1-5: EN and DE dictionaries still expose exactly the same key set', async () => {
+  const { translations } = await import('../translations.ts');
+  const flat = (obj, prefix = '') =>
+    Object.entries(obj).flatMap(([k, v]) =>
+      v && typeof v === 'object' ? flat(v, `${prefix}${k}.`) : [`${prefix}${k}`],
+    );
+  const en = new Set(flat(translations.en));
+  const de = new Set(flat(translations.de));
+  assert.deepEqual([...en].filter((k) => !de.has(k)).sort(), [], 'no EN-only keys');
+  assert.deepEqual([...de].filter((k) => !en.has(k)).sort(), [], 'no DE-only keys');
+  assert.equal(en.size, de.size, 'same key count');
+});

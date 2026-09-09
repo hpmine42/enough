@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -10,6 +11,7 @@ import { useAuth } from './AuthContext';
 import { E2EESessionManager } from '../lib/e2ee/session-manager';
 import { publishDeviceMaterial, fetchPeerBundle } from '../lib/e2ee/prekeys-api';
 import { resetInMemoryCaches } from '../lib/crypto';
+import { isCryptoError } from '../lib/crypto/errors';
 
 /**
  * Per-authenticated-user E2EE session manager.
@@ -22,6 +24,31 @@ import { resetInMemoryCaches } from '../lib/crypto';
  * `manager` is null until `initialize()` (generate/load identity, publish
  * prekeys, hydrate) completes. The UI treats null as fail-closed for peer
  * conversations: it must not send plaintext while encryption is unavailable.
+ *
+ * Initialization state (audit C1 / F-01)
+ *   `initialize()` is asynchronous and CAN fail (IndexedDB unavailable or
+ *   blocked, the WASM engine refused by the environment, a prekey publication
+ *   that cannot reach the backend, corrupted local state). Before this change
+ *   the UI consumed only `manager`, so a failure was indistinguishable from
+ *   "still loading": peer bubbles rendered empty forever and every send failed
+ *   with a generic message.
+ *
+ *   The provider therefore publishes an explicit three-state lifecycle:
+ *
+ *     'initializing' — not settled yet. Encryption is not available YET; the
+ *                      UI shows a pending state and keeps the peer composer
+ *                      disabled. This is transient.
+ *     'ready'        — `manager` is usable.
+ *     'error'        — initialization FAILED and will not settle on its own.
+ *                      The UI must say so and offer `retry()`.
+ *
+ *   `ready` is retained as "initialization has settled" (true for both 'ready'
+ *   and 'error') so existing consumers keep their meaning.
+ *
+ *   `errorCode` carries a NON-SENSITIVE classification only (a `CryptoError`
+ *   code, or `INIT_FAILED`). Never a raw exception message: the UI must not
+ *   surface cryptographic internals, and `CryptoError` already documents that
+ *   only its `code` is meant to travel.
  *
  * Session teardown (audit finding F7):
  *   The manager AND the signed-out user's in-memory crypto state are released
@@ -38,17 +65,36 @@ import { resetInMemoryCaches } from '../lib/crypto';
  *   is exposed to the UI only while that user is still signed in. A render
  *   that happens between logout and the effect teardown can therefore never
  *   hand another (or a signed-out) user's manager to the UI.
+ *
+ * Recovery:
+ *   `retry()` only re-runs THIS provider's initialization. It never creates a
+ *   second session architecture, never touches the ratchet or trust state, and
+ *   never introduces a plaintext or weaker-crypto fallback: if initialization
+ *   fails again the state simply stays 'error'.
  */
+export type E2EEStatus = 'initializing' | 'ready' | 'error';
+
+/** Safe, non-sensitive classification of an initialization failure. */
+export type E2EEErrorCode = string;
+
 interface E2EEContextValue {
   manager: E2EESessionManager | null;
+  /** Explicit lifecycle state — see the provider doc comment. */
+  status: E2EEStatus;
+  /** True once initialization has settled (successfully or with an error). */
   ready: boolean;
-  error: string | null;
+  /** Non-sensitive failure classification; null unless `status === 'error'`. */
+  errorCode: E2EEErrorCode | null;
+  /** Re-run initialization after a failure. Idempotent and fail-closed. */
+  retry: () => void;
 }
 
 const E2EEContext = createContext<E2EEContextValue>({
   manager: null,
+  status: 'initializing',
   ready: false,
-  error: null,
+  errorCode: null,
+  retry: () => {},
 });
 
 /**
@@ -75,8 +121,10 @@ export function E2EEProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const [session, setSession] = useState<E2EESession | null>(null);
-  const [ready, setReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<E2EEStatus>('initializing');
+  const [errorCode, setErrorCode] = useState<E2EEErrorCode | null>(null);
+  // Bumped by retry(): re-runs the initialization effect without remounting.
+  const [attempt, setAttempt] = useState(0);
   const sessionRef = useRef<E2EESession | null>(null);
 
   useEffect(() => {
@@ -89,8 +137,10 @@ export function E2EEProvider({ children }: { children: ReactNode }) {
       sessionRef.current = null;
     }
     setSession(null);
-    setReady(false);
-    setError(null);
+    setErrorCode(null);
+    // A retry restarts the lifecycle visibly; a logout leaves it unsettled
+    // because there is nothing to initialize.
+    setStatus('initializing');
 
     if (!userId) return; // logged out: nothing to build.
     let active = true;
@@ -113,12 +163,23 @@ export function E2EEProvider({ children }: { children: ReactNode }) {
         const s: E2EESession = { userId, manager: m };
         sessionRef.current = s;
         setSession(s);
-        setReady(true);
+        setStatus('ready');
       } catch (e) {
         if (!active) return;
-        setError(e instanceof Error ? e.message : 'E2EE initialization failed.');
-        // ready=true so the UI can surface the failure and fail closed.
-        setReady(true);
+        // Publish a NON-SENSITIVE classification only. The raw message stays
+        // out of React state: the UI renders localized text, never crypto
+        // internals. It is logged for diagnostics — CryptoError documents that
+        // its messages contain no secret material, and for anything else only
+        // the constructor name is recorded.
+        const code = isCryptoError(e) ? e.code : 'INIT_FAILED';
+        console.error('enough. e2ee initialization failed:', {
+          code,
+          name: e instanceof Error ? e.name : typeof e,
+        });
+        setErrorCode(code);
+        // Settled — with a failure. The UI surfaces it and stays fail-closed:
+        // `manager` remains null, so no peer message can be sent as plaintext.
+        setStatus('error');
       }
     })();
 
@@ -133,7 +194,7 @@ export function E2EEProvider({ children }: { children: ReactNode }) {
         sessionRef.current = null;
       }
     };
-  }, [userId]);
+  }, [userId, attempt]);
 
   // Final teardown on unmount.
   useEffect(() => {
@@ -146,13 +207,28 @@ export function E2EEProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Recovery: re-run initialization from scratch. It performs no cryptography
+  // itself and cannot weaken anything — the same code path runs again, and a
+  // repeated failure leaves the state at 'error'.
+  const retry = useCallback(() => {
+    setAttempt((n) => n + 1);
+  }, []);
+
   // Account isolation: expose the manager only while the user who owns it is
   // still the signed-in user. Never hand another user's session to the UI.
   const manager =
     session && session.userId === userId ? session.manager : null;
 
   return (
-    <E2EEContext.Provider value={{ manager, ready, error }}>
+    <E2EEContext.Provider
+      value={{
+        manager,
+        status,
+        ready: status !== 'initializing',
+        errorCode,
+        retry,
+      }}
+    >
       {children}
     </E2EEContext.Provider>
   );
