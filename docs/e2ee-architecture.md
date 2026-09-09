@@ -767,3 +767,51 @@ npm run test:crypto   -> 87 tests (46 existing + 41 new), 0 failures
 npm run build         -> tsc --noEmit + vite build: PASS
 npm run smoke         -> PASS
 ```
+
+## 21. Identity reset / recovery (C2)
+
+Explicit, user-confirmed recovery for the two wedge classes the Signal engine
+cannot heal on its own. There is intentionally no silent rotation and no
+automatic re-TOFU: every reset below runs only from a confirmation dialog.
+
+### 21.1 Peer reset — changed contact identity
+
+A send that fails with `USER_MISMATCH` keeps the old pinned key, marks the
+trust record `identity_changed`, and still throws (no plaintext fallback).
+The Chat screen then reads a FRESH block state plus the persisted trust mark
+and decides via the pure `classifyUserMismatch` helper: block → block UI
+(never a reset); no block + mark → recovery notice with a Review action that
+opens the confirmation dialog. A manual menu entry ("Reset secure
+conversation…") covers silent receive-side wedges.
+
+`resetPeerSecurityState(peerId, connectionIds)` runs under lock + mutex,
+deletes exactly the listed ratchet sessions (record + watermark, one
+transaction) and the peer trust record, re-hydrates the engine, and returns.
+Re-establishment is the normal PQXDH flow on the next send — the reset
+itself never sends, and the draft is kept.
+
+### 21.2 Device reset — broken local state
+
+Initialization failures with a local state/identity code additionally offer
+the device reset next to the retry (`e2eeRecoveryOffersReset`; transient
+failures offer retry only). `resetDeviceIdentity()` frees the in-memory
+device, wipes only the own `signal:*` records and own ratchet sessions,
+clears the in-memory caches, and re-runs initialization, which mints a fresh
+identity and publishes only its public keys. Sealing key, message cache and
+decrypted snapshots, offline queue, server ciphertexts, legacy cache and all
+foreign scopes are preserved.
+
+### 21.3 Guarantees
+
+Old unreadable stays unreadable (no cross-state decrypt, no private-key
+upload); no network event can trigger a reset; resets are idempotent and
+concurrency-safe (lock/CAS/commit-before-send).
+
+### 21.4 Validation
+
+```
+npm run test:crypto:engine  -> 65 tests (incl. 16 identity-recovery), 0 failures
+npm run test:e2eestate      -> 14 tests (incl. IR13/IR11b/IR9b), 0 failures
+npm run test:i18n           -> 36 tests (incl. IR10), 0 failures
+npm run build / npm run smoke -> PASS
+```

@@ -101,3 +101,55 @@ export function canSendEncrypted(opts: {
   if (opts.isSelf) return true;
   return opts.e2eeStatus === 'ready';
 }
+
+/**
+ * Whether a failed E2EE initialization additionally offers the explicit,
+ * user-confirmed device reset (audit C2), or only a retry.
+ *
+ * Only LOCAL state/identity failures qualify: re-running initialization
+ * (`retry()`) would drive the same broken state again, so wiping it first is
+ * the only way forward. Transient failures (unavailable platform APIs,
+ * unreachable backend during publication, unknown classifications) offer a
+ * retry ONLY — offering a destructive reset for a failure that a retry can
+ * fix would destroy a healthy identity for no reason.
+ *
+ * Fail-closed default: `null` and every unlisted code yield `false`.
+ */
+export function e2eeRecoveryOffersReset(errorCode: string | null): boolean {
+  switch (errorCode) {
+    case 'USER_MISMATCH':
+    case 'CORRUPT_STATE':
+    case 'UNSEAL_FAILED':
+    case 'KEY_MISSING':
+    case 'WEDGED':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * What a `USER_MISMATCH` from a send attempt means (audit C2).
+ *
+ * The manager raises the same code for two different causes: a changed peer
+ * identity key (TOFU) and a block in either direction (bundle claim refused).
+ * The caller passes the FRESHLY re-read block state plus the persisted peer
+ * trust state, and the helper decides which UI path applies:
+ *
+ *   * 'blocked'          — a block exists: show the block UI, never a reset.
+ *                          Checked FIRST so a block is never mistaken for an
+ *                          identity change, even with stale component state.
+ *   * 'identity-changed' — no block, and the trust record is persistently
+ *                          marked `identity_changed`: offer peer recovery.
+ *   * 'generic'          — anything else: no reset is offered. In particular
+ *                          the reset UI requires the mark — a missing or
+ *                          unreadable trust record never leads to a reset.
+ */
+export function classifyUserMismatch(opts: {
+  blockState: string;
+  trustState: string | null;
+}): 'blocked' | 'identity-changed' | 'generic' {
+  if (opts.blockState !== 'none') return 'blocked';
+  if (opts.trustState === 'identity_changed') return 'identity-changed';
+  return 'generic';
+}

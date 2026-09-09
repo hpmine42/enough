@@ -23,6 +23,8 @@
 import { CryptoError } from '../crypto/errors.ts';
 import {
   adoptSessionFromEstablishment,
+  deleteRatchetSession,
+  deleteUserRatchetState,
 } from '../crypto/ratchet-state.ts';
 import {
   encryptCommitSend,
@@ -30,6 +32,7 @@ import {
   inspectSession,
 } from '../crypto/ratchet-session.ts';
 import { bytesToBase64, base64ToBytes } from '../crypto/serialization.ts';
+import { resetInMemoryCaches } from '../crypto/storage.ts';
 import {
   generateIdentity,
   identityPublicKeyFromPair,
@@ -61,8 +64,9 @@ import {
   saveKyberPreKey, listKyberPreKeys, countKyberPreKeys, removeKyberPreKey,
   saveKyberLastResort, loadKyberLastResort,
   saveKyberUsage, loadKyberUsage,
-  savePeerTrust, loadPeerTrust,
+  savePeerTrust, loadPeerTrust, removePeerTrust,
   savePublishedMaterial, loadPublishedMaterial,
+  deleteAllDeviceRecords,
 } from './device-store.ts';
 import type { FetchBundleResult } from './prekeys-api.ts';
 import { SIGNED_PREKEY_ROTATION_MS } from '../crypto/prekeys.ts';
@@ -76,6 +80,7 @@ import {
   type PublicOneTimePreKey,
   type PublicKyberPreKey,
   type PeerPreKeyBundle,
+  type PeerTrustState,
   type SignalMessageType,
 } from './types.ts';
 
@@ -476,6 +481,183 @@ export class E2EESessionManager {
   }
 
   /* ---------------------------------------------------------------- */
+  /* Identity recovery (C2)                                           */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Reset the local security state for ONE peer after the user EXPLICITLY
+   * confirmed that this peer's identity changed (audit C2 recovery).
+   *
+   * This is the only sanctioned way out of a `USER_MISMATCH` raised by
+   * `applyPeerTrust`: there is deliberately no automatic path — a changed
+   * peer identity is never silently trusted (see the security model below).
+   *
+   * What it deletes, in order, under the Web Lock and the per-user mutex:
+   *   1. the ratchet session (record AND watermark) of every listed
+   *      connection — trust alone would leave a stale `VALID` session that
+   *      the next send would keep using, and a session alone would leave the
+   *      stale trust record that the next establishment would reject;
+   *   2. exactly this peer's TOFU record (`peer-trust:<peerUserId>`);
+   *   3. the engine's in-memory peer identities, via a device re-hydration
+   *      (hydrate-then-swap: if hydration fails, the previous device stays
+   *      live). Re-hydration is REQUIRED, not hygiene: the engine's identity
+   *      store has no per-peer eviction API, and without it the fresh
+   *      establishment fails with the engine's own untrusted-identity error
+   *      (IR15 finding 3). Existing sessions of OTHER peers are unaffected:
+   *      they live in the persisted ratchet state, not in the device — the
+   *      same guarantee the F8 rotation relies on (test F8-7).
+   *
+   * What it does NOT do:
+   *   * touch the own identity, signed prekeys, prekey pools, the published-
+   *     material cache, the message cache, offline snapshots, the sealing key,
+   *     legacy E2EE-1 records, or any other peer/user scope;
+   *   * pre-fill the now-empty trust slot: the next real establishment
+   *     records the then-advertised key as fresh TOFU through the unchanged
+   *     `applyPeerTrust` path (same residual risk as first contact);
+   *   * send anything: the caller (UI) keeps the draft and the user re-sends
+   *     explicitly. No automatic send ever follows a trust decision.
+   *
+   * After the reset the next `encryptForPeer` for this peer takes the normal
+   * establishment path (`MISSING` → bundle claim → fresh TOFU → PQXDH/Signal
+   * handshake → adopt). Messages encrypted under the old state that are not
+   * in the local cache stay undecryptable — their keys are gone by protocol
+   * reality, not by choice.
+   *
+   * Idempotent: resetting an already-reset peer (no session, no trust record)
+   * succeeds and changes nothing durable except the harmless device
+   * re-hydration.
+   */
+  async resetPeerSecurityState(peerUserId: string, connectionIds: string[]): Promise<void> {
+    if (!this.device) throw new CryptoError('NOT_INITIALIZED', 'Call initialize() first.');
+    if (!peerUserId) throw new CryptoError('NOT_INITIALIZED', 'peerUserId is required.');
+    const targets = [...new Set(
+      (Array.isArray(connectionIds) ? connectionIds : [])
+        .filter((c): c is string => typeof c === 'string' && c.length > 0),
+    )];
+    return this.acquireLock(this.lockName(), () =>
+      withUserMutex(this.userId, async () => {
+        // Re-check inside the lock: the manager may have been destroyed
+        // (logout) while waiting for it.
+        if (!this.device) throw new CryptoError('NOT_INITIALIZED', 'Call initialize() first.');
+        for (const connectionId of targets) {
+          await deleteRatchetSession(this.userId, connectionId);
+        }
+        await removePeerTrust(this.userId, peerUserId);
+        const fresh = await this.hydrateFromStore();
+        const superseded = this.device;
+        this.device = fresh;
+        superseded?.free();
+      }),
+    );
+  }
+
+  /**
+   * Reset the OWN local device identity after the user EXPLICITLY confirmed
+   * it (audit C2 recovery for a corrupt or incompatible local E2EE state).
+   *
+   * This is the recovery path when `initialize()` itself fails with a state
+   * error (`USER_MISMATCH`, `CORRUPT_STATE`, `UNSEAL_FAILED`, `KEY_MISSING`,
+   * `WEDGED` from the device/session stores): re-running initialization
+   * (`retry()`) would drive the same broken state again, so the broken state
+   * is wiped first and the NORMAL initialization path runs afterwards.
+   *
+   * What it deletes, under the Web Lock and the per-user mutex:
+   *   * the in-memory device (freed first; a missing device is fine — the
+   *     manager may be unusable precisely because local state is corrupt, so
+   *     unlike every other method this one does NOT require an initialized
+   *     device);
+   *   * every `signal:*` device record of this user (own identity,
+   *     registration id, signed prekeys + metadata, one-time and Kyber pools,
+   *     Kyber usage, ALL peer-trust records, published-material cache);
+   *   * every ratchet session + watermark of this user;
+   *   * this user's in-memory crypto caches (same primitive the logout path
+   *     uses).
+   *
+   * What it KEEPS (no unnecessary deletion):
+   *   * the per-user sealing key — it is not identity material, it only
+   *     protects the cache/snapshot envelopes below;
+   *   * the sealed message cache (`msgcache`): already-readable history stays
+   *     readable and is re-warmed on next access;
+   *   * offline snapshots (`offline:*`);
+   *   * server ciphertexts (untouched — but rows encrypted under the old
+   *     identity that are not cached become permanently unreadable);
+   *   * legacy E2EE-1 records;
+   *   * every other user scope.
+   *
+   * Afterwards the normal `initializeLocked()` path runs: a fresh identity,
+   * registration id, signed prekey and prekey pools are generated and ONLY
+   * the public device material is published through the unchanged
+   * `publisher` (no new RPC, no migration, never private key material). This
+   * is a user-confirmed new identity with republication — never a silent
+   * rotation: peers observe it as an identity change and need peer recovery
+   * on their side (single-device model).
+   *
+   * Failure semantics: if the trailing initialization fails (e.g. the backend
+   * is unreachable for publication), this method throws the initialization
+   * error and the device stays `null` — fail-closed, retryable through the
+   * normal `initialize()` path, which continues idempotently.
+   */
+  async resetDeviceIdentity(): Promise<void> {
+    return this.acquireLock(this.lockName(), () =>
+      withUserMutex(this.userId, async () => {
+        const superseded = this.device;
+        this.device = null;
+        try {
+          superseded?.free();
+        } catch {
+          // A broken device must not block the reset.
+        }
+        await deleteAllDeviceRecords(this.userId);
+        await deleteUserRatchetState(this.userId);
+        resetInMemoryCaches(this.userId);
+        await this.initializeLocked();
+      }),
+    );
+  }
+
+  /**
+   * Read the stored TOFU state for a peer (C2 recovery aid).
+   *
+   * Returns the persisted `state` of `peer-trust:<peerUserId>`, or null when
+   * no record exists, the peer id is empty, or the record is unreadable. A
+   * storage read only — it never touches the engine and never throws for bad
+   * input, because it is a UI hint, never a security decision: the
+   * establishment path (`applyPeerTrust`) still fails closed on malformed
+   * records regardless of what this returns.
+   */
+  async peerTrustState(peerUserId: string): Promise<PeerTrustState | null> {
+    if (!peerUserId) return null;
+    return this.acquireLock(this.lockName(), () =>
+      withUserMutex(this.userId, async () => {
+        let stored: Uint8Array | null;
+        try {
+          stored = await loadPeerTrust(this.userId, peerUserId);
+        } catch {
+          return null;
+        }
+        if (!stored) return null;
+        try {
+          const parsed = JSON.parse(TEXT_DECODER.decode(stored)) as {
+            identityKey?: unknown;
+            state?: unknown;
+          };
+          if (typeof parsed.identityKey !== 'string') return null;
+          if (
+            parsed.state === 'verified' ||
+            parsed.state === 'identity_changed' ||
+            parsed.state === 'unverified'
+          ) {
+            return parsed.state;
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+  }
+
+  /* ---------------------------------------------------------------- */
   /* Internals                                                        */
   /* ---------------------------------------------------------------- */
 
@@ -773,6 +955,15 @@ export class E2EESessionManager {
    * Trust-on-first-use: record the peer's identity key on first contact and
    * reject a changed key. The engine's own identity store additionally rejects
    * messages whose embedded identity does not match the session.
+   *
+   * The check stays STRICT: a populated trust slot is never overwritten with
+   * the new key here. On a mismatch the record is only re-marked as
+   * `identity_changed` (keeping the OLD key, invalidating any prior
+   * `verified` state) so the mismatch survives reloads and the recovery UI
+   * can distinguish "identity changed" from "never contacted" — and then the
+   * `USER_MISMATCH` is thrown. Only an explicit, user-confirmed
+   * `resetPeerSecurityState` clears the slot; only a subsequent real
+   * establishment records the new key.
    */
   private async applyPeerTrust(peerUserId: string, identityKeyB64: string): Promise<void> {
     const stored = await loadPeerTrust(this.userId, peerUserId);
@@ -788,6 +979,11 @@ export class E2EESessionManager {
       throw new CryptoError('CORRUPT_STATE', 'Stored peer trust record is malformed.');
     }
     if (parsed.identityKey !== identityKeyB64) {
+      await savePeerTrust(
+        this.userId,
+        peerUserId,
+        TEXT_ENCODER.encode(JSON.stringify({ identityKey: parsed.identityKey, state: 'identity_changed' })),
+      );
       throw new CryptoError('USER_MISMATCH', 'Peer identity key changed; verification required.');
     }
   }
@@ -999,3 +1195,4 @@ function envelopeToWire(env: MessageEnvelope): Uint8Array {
 export function envelopeToJSON(env: MessageEnvelope): string {
   return JSON.stringify(env);
 }
+

@@ -55,7 +55,7 @@ import { BlockState, Connection, Message, Profile } from '../lib/types';
 import { useE2EE } from '../context/E2EEContext';
 import { prepareSend, decryptForDisplay, isEnvelope } from '../lib/e2ee/message-flow';
 import { cachePlaintext, getCachedPlaintext } from '../lib/e2ee/message-cache';
-import { resolveBubbleText, canSendEncrypted } from '../lib/chatDisplay';
+import { resolveBubbleText, canSendEncrypted, e2eeRecoveryOffersReset, classifyUserMismatch } from '../lib/chatDisplay';
 import {
   reportNetworkSuccess,
   shouldSkipNetwork,
@@ -85,7 +85,7 @@ interface SheetTarget {
 
 export default function Chat({ connectionId }: { connectionId: string }) {
   const { user } = useAuth();
-  const { manager, status: e2eeStatus, retry: retryE2EE } = useE2EE();
+  const { manager, status: e2eeStatus, errorCode: e2eeErrorCode, retry: retryE2EE, resetDeviceState: resetDeviceE2EE } = useE2EE();
   useLang(); // re-render relative timestamps on language change
 
   const [conn, setConn] = useState<Connection | null>(null);
@@ -141,6 +141,18 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   >(null);
   const [declineOpen, setDeclineOpen] = useState(false);
   const [blockState, setBlockState] = useState<BlockState>('none');
+
+  // C2 identity recovery: the peer whose identity change was confirmed after
+  // a failed send (drives the recovery box below), the open peer-reset
+  // confirmation dialog (set by the Review button or the chat menu entry),
+  // and the open device-reset dialog for initialization failures. A reset
+  // only ever runs from performPeerReset/performDeviceReset — the Dialog
+  // onConfirm handlers — never from a cancel, a render, or a realtime path.
+  const [identityChangedPeer, setIdentityChangedPeer] = useState<string | null>(null);
+  const [resetDialog, setResetDialog] = useState<{ peerId: string; connectionId: string } | null>(null);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [deviceResetOpen, setDeviceResetOpen] = useState(false);
+  const [deviceResetBusy, setDeviceResetBusy] = useState(false);
 
   // E2EE display state: resolved plaintext per message, and permanently
   // undecryptable messages. Resolved plaintext comes from the local cache, a
@@ -666,6 +678,14 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     setLoadingOlder(false);
     setPlain({});
     setUndecryptable(new Set());
+    // C2 recovery state belongs to the previous conversation: an identity
+    // notice, an open reset dialog, or a stuck busy flag must never leak
+    // into the next chat (in-flight resets guard themselves via the token).
+    setIdentityChangedPeer(null);
+    setResetDialog(null);
+    setResetBusy(false);
+    setDeviceResetOpen(false);
+    setDeviceResetBusy(false);
     initialAnchorPendingRef.current = false;
     tailResolvedAtRef.current = null;
     userScrolledRef.current = false;
@@ -989,6 +1009,36 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     } catch (e) {
       // A send that lost its conversation must not surface an error there.
       if (!lifecycleRef.current.isCurrent(token)) return true;
+      // C2: a USER_MISMATCH is either a changed peer identity (recoverable)
+      // or a block (never a reset). Tell them apart with a FRESH block read
+      // plus the persisted trust mark before offering anything.
+      if (isCryptoError(e) && e.code === 'USER_MISMATCH' && !self) {
+        const freshBlock = await getBlockState(me, peerId);
+        if (!lifecycleRef.current.isCurrent(token)) return true;
+        if (freshBlock !== blockState) setBlockState(freshBlock);
+        let trust: string | null = null;
+        try {
+          trust = manager ? await manager.peerTrustState(peerId) : null;
+        } catch {
+          trust = null;
+        }
+        if (!lifecycleRef.current.isCurrent(token)) return true;
+        const kind = classifyUserMismatch({ blockState: freshBlock, trustState: trust });
+        if (kind === 'blocked') {
+          setIdentityChangedPeer(null);
+          setError(
+            freshBlock === 'blockedByMe' ? t('block.blockedByYouChat') : t('block.blockedByThemChat'),
+          );
+          return false;
+        }
+        if (kind === 'identity-changed') {
+          setError(null);
+          setIdentityChangedPeer(peerId);
+          return false;
+        }
+        setError(t('chat.e2eeFailed'));
+        return false;
+      }
       setError(
         isCryptoError(e) && e.code === 'NOT_AVAILABLE'
           ? t('chat.e2eeUnavailable')
@@ -1010,6 +1060,10 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       // later. Only React state of the CURRENT conversation is guarded.
       await cachePlaintext(me, message.id, text);
       if (!lifecycleRef.current.isCurrent(token)) return true;
+      // A successful send clears a previous identity-change notice: either
+      // the user recovered and re-sent, or the notice belonged to an older
+      // failure of this conversation.
+      setIdentityChangedPeer(null);
       setPlain((prev) => ({ ...prev, [message.id]: text }));
       setMessages((prev) =>
         prev.some((m) => m.id === message.id)
@@ -1175,6 +1229,67 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       return;
     }
     navigate('#/');
+  }
+
+  /**
+   * C2 peer recovery — the SINGLE call site of resetPeerSecurityState (see
+   * the IR12c/IR9b tripwires). Runs only from the confirmation dialog, after
+   * a fresh block read: a reset while blocked is pointless, and a block must
+   * never be mistaken for an identity change. Never sends — the draft stays
+   * and the user re-sends explicitly (P2).
+   */
+  async function performPeerReset() {
+    const target = resetDialog;
+    if (!target || !manager) return;
+    const token = lifecycleRef.current.current();
+    setResetBusy(true);
+    const freshBlock = await getBlockState(me, target.peerId);
+    if (!lifecycleRef.current.isCurrent(token)) return;
+    if (freshBlock !== 'none') {
+      setResetBusy(false);
+      setResetDialog(null);
+      setBlockState(freshBlock);
+      setIdentityChangedPeer(null);
+      setError(
+        freshBlock === 'blockedByMe' ? t('block.blockedByYouChat') : t('block.blockedByThemChat'),
+      );
+      return;
+    }
+    try {
+      await manager.resetPeerSecurityState(target.peerId, [target.connectionId]);
+    } catch {
+      if (!lifecycleRef.current.isCurrent(token)) return;
+      setResetBusy(false);
+      setResetDialog(null);
+      setError(t('chat.e2eeResetFailed'));
+      return;
+    }
+    if (!lifecycleRef.current.isCurrent(token)) return;
+    setResetBusy(false);
+    setResetDialog(null);
+    setIdentityChangedPeer(null);
+    setError(null);
+  }
+
+  /**
+   * C2 device recovery — the SINGLE call site of resetDeviceState (see the
+   * IR9b tripwire). Runs only from the confirmation dialog; afterwards the
+   * provider re-runs initialization on the fresh state and the UI follows the
+   * normal status channel (preparing → ready, or the error banner again).
+   */
+  async function performDeviceReset() {
+    const token = lifecycleRef.current.current();
+    setDeviceResetBusy(true);
+    let ok = false;
+    try {
+      ok = await resetDeviceE2EE();
+    } catch {
+      ok = false;
+    }
+    if (!lifecycleRef.current.isCurrent(token)) return;
+    setDeviceResetBusy(false);
+    setDeviceResetOpen(false);
+    if (!ok) setError(t('chat.e2eeResetFailed'));
   }
 
   /* My Notes trash: clear all notes and disable My Notes in one step.
@@ -1614,12 +1729,38 @@ export default function Chat({ connectionId }: { connectionId: string }) {
 
           {/* E2EE failure: an explicit, localized explanation plus a recovery
               action. Never a silent empty state, and never a cryptographic
-              detail — the classification stays in the console. */}
+              detail — the classification stays in the console. C2: local
+              state/identity failures additionally offer the explicit,
+              user-confirmed device reset; transient failures offer only
+              a retry. */}
           {e2eeFailed && !self && canChat && !blocked && !offline && (
             <div className="composer-disabled blocked e2ee-error" role="alert">
               <span>{t('chat.e2eeUnavailableState')}</span>
               <button type="button" className="btn-small" onClick={retryE2EE}>
                 {t('chat.e2eeRetry')}
+              </button>
+              {e2eeRecoveryOffersReset(e2eeErrorCode) && (
+                <button type="button" className="btn-small" onClick={() => setDeviceResetOpen(true)}>
+                  {t('chat.e2eeDeviceResetButton')}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* C2: a confirmed peer identity change after a failed send — an
+              explanation plus the Review action that opens the recovery
+              dialog. Never shown for My Notes, blocked or offline chats. */}
+          {identityChangedPeer && !self && canChat && !blocked && !offline && (
+            <div className="composer-disabled blocked e2ee-error" role="alert">
+              <span>{t('chat.e2eeIdentityChanged')}</span>
+              <button
+                type="button"
+                className="btn-small"
+                onClick={() => {
+                  if (conn) setResetDialog({ peerId: identityChangedPeer, connectionId: conn.id });
+                }}
+              >
+                {t('chat.e2eeReviewSecurity')}
               </button>
             </div>
           )}
@@ -1717,6 +1858,14 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           onUnblock={() => handleUnblock()}
           onBlock={handleBlockUser}
           onDeleteChat={handleDeleteChat}
+          // C2 manual recovery entry for silent receive-side wedges. Only
+          // for peer chats with a live manager and no block — otherwise the
+          // reset could not be performed or would be pointless.
+          onResetSecurity={
+            conn && manager && !blocked
+              ? () => setResetDialog({ peerId: otherUserId(conn, me), connectionId: conn.id })
+              : undefined
+          }
         />
       )}
 
@@ -1757,6 +1906,36 @@ export default function Chat({ connectionId }: { connectionId: string }) {
             setConfirmAction(null);
             setConfirmTarget(null);
           }}
+        />
+      )}
+
+      {/* C2 peer recovery: explicit confirmation with the full warning. The
+          reset runs only via performPeerReset (onConfirm) — cancel changes
+          nothing (IR9b). */}
+      {resetDialog && (
+        <Dialog
+          title={t('chat.e2eeResetPeerTitle')}
+          text={t('chat.e2eeResetPeerText')}
+          confirmLabel={t('chat.e2eeResetConfirm')}
+          cancelLabel={t('cancel')}
+          danger
+          busy={resetBusy}
+          onConfirm={performPeerReset}
+          onCancel={() => setResetDialog(null)}
+        />
+      )}
+
+      {/* C2 device recovery: explicit confirmation with the full warning. */}
+      {deviceResetOpen && (
+        <Dialog
+          title={t('chat.e2eeDeviceResetTitle')}
+          text={t('chat.e2eeDeviceResetText')}
+          confirmLabel={t('chat.e2eeResetConfirm')}
+          cancelLabel={t('cancel')}
+          danger
+          busy={deviceResetBusy}
+          onConfirm={performDeviceReset}
+          onCancel={() => setDeviceResetOpen(false)}
         />
       )}
 

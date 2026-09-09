@@ -395,6 +395,22 @@ export const translations = {
       e2eeUnavailableState:
         'Secure messaging could not be started, so messages in this chat can neither be sent nor read right now. Nothing was sent in the meantime.',
       e2eeRetry: 'Try again',
+      // C2 — identity reset / recovery. Peer- and device-reset texts always
+      // state that unreadable messages stay unreadable and that the reset
+      // needs an explicit confirmation (the Dialog rendering these strings).
+      e2eeIdentityChanged:
+        'The security identity of this contact changed. Your message was not sent.',
+      e2eeReviewSecurity: 'Review…',
+      e2eeResetPeerTitle: 'Reset secure conversation?',
+      e2eeResetPeerText:
+        'This clears the stored security identity and session for this conversation. You can then continue messaging securely, but messages you could not read with the old state will stay unreadable. Only reset if you expected this change — when in doubt, ask your contact through another channel first.',
+      e2eeResetConfirm: 'Reset security state',
+      e2eeResetMenu: 'Reset secure conversation…',
+      e2eeResetFailed: 'The security state could not be reset. Nothing was changed.',
+      e2eeDeviceResetButton: 'Reset security state…',
+      e2eeDeviceResetTitle: 'Reset security state?',
+      e2eeDeviceResetText:
+        'Secure messaging cannot start because the local security state is damaged. Resetting creates a brand-new local identity and publishes only its public keys. Your readable history is kept, but messages you have not read may stay unreadable, and your contacts will see an identity change.',
       deleteChatForMe: 'Delete chat for me',
       deleteChatConfirmTitle: 'Delete chat?',
       deleteChatConfirmText:
@@ -844,6 +860,20 @@ export const translations = {
       e2eeUnavailableState:
         'Sichere Nachrichten konnten nicht gestartet werden. Nachrichten in diesem Chat können deshalb gerade weder gesendet noch gelesen werden. Es wurde in der Zwischenzeit nichts gesendet.',
       e2eeRetry: 'Erneut versuchen',
+      // C2 — Identitäts-Reset/Wiederherstellung (siehe englische Fassung).
+      e2eeIdentityChanged:
+        'Die Sicherheitsidentität dieses Kontakts hat sich geändert. Deine Nachricht wurde nicht gesendet.',
+      e2eeReviewSecurity: 'Überprüfen…',
+      e2eeResetPeerTitle: 'Sichere Unterhaltung zurücksetzen?',
+      e2eeResetPeerText:
+        'Dadurch werden die gespeicherte Sicherheitsidentität und die Sitzung für diese Unterhaltung gelöscht. Danach kannst du wieder sicher schreiben, aber Nachrichten, die du mit dem alten Stand nicht lesen konntest, bleiben unlesbar. Setze nur zurück, wenn du mit dieser Änderung gerechnet hast — frage deine Kontaktperson im Zweifel vorher über einen anderen Kanal.',
+      e2eeResetConfirm: 'Sicherheitszustand zurücksetzen',
+      e2eeResetMenu: 'Sichere Unterhaltung zurücksetzen…',
+      e2eeResetFailed: 'Der Sicherheitszustand konnte nicht zurückgesetzt werden. Es wurde nichts geändert.',
+      e2eeDeviceResetButton: 'Sicherheitszustand zurücksetzen…',
+      e2eeDeviceResetTitle: 'Sicherheitszustand zurücksetzen?',
+      e2eeDeviceResetText:
+        'Sichere Nachrichten können nicht gestartet werden, weil der lokale Sicherheitszustand beschädigt ist. Beim Zurücksetzen entsteht eine neue lokale Identität, von der nur die öffentlichen Schlüssel veröffentlicht werden. Deine lesbare Historie bleibt erhalten, aber ungelesene Nachrichten können unlesbar bleiben, und deine Kontakte sehen eine geänderte Identität.',
       deleteChatForMe: 'Chat für mich löschen',
       deleteChatConfirmTitle: 'Chat löschen?',
       deleteChatConfirmText:
