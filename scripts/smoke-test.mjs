@@ -191,6 +191,25 @@ securityAssert(
   'security.txt canonical URL points at its deployed location',
 );
 
+// 6. The license text ships with the build (audit C4). The bundled E2EE engine
+//    (@getmaapp/signal-wasm, plus libsignal and spqr compiled into its WASM) is
+//    AGPL-3.0-only, and the built JS/WASM carries no attribution of its own —
+//    so the conveyed app has to serve the license itself: public/LICENSE is
+//    copied to the site root and reachable at /LICENSE on the deployed origin.
+const licenseTxt = readFileSync(`${smokeDist}/LICENSE`, 'utf8');
+securityAssert(
+  licenseTxt.startsWith('GNU AFFERO GENERAL PUBLIC LICENSE'),
+  'LICENSE ships at the site root and begins with the AGPL title',
+);
+securityAssert(
+  licenseTxt.includes('END OF TERMS AND CONDITIONS'),
+  'the shipped LICENSE is the complete text, not a pointer notice',
+);
+securityAssert(
+  licenseTxt === readFileSync(`${root}LICENSE`, 'utf8'),
+  'the shipped LICENSE is identical to the repository LICENSE',
+);
+
 if (securityFailures > 0) {
   console.error(
     `\n${securityFailures} security meta tag assertion(s) FAILED.`,
