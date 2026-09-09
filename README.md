@@ -237,22 +237,23 @@ fallback for auto-confirm setups.
 
 GitHub Actions coverage:
 
+- **`.github/workflows/ci.yml`** — the pull-request gate. Runs on every
+  `pull_request` and on `push` to `main` (plus manual `workflow_dispatch`):
+  signal-wasm verification, build (typecheck + production bundle), **every**
+  `test:*` script discovered from `package.json` at runtime (so a new suite is
+  picked up automatically and the gate cannot drift away from the inventory),
+  and the smoke test. All suites run even if an earlier one fails, so a single
+  log shows the complete picture; the step then fails if any suite failed. It
+  references **no secrets** — every suite runs against stubs or the embedded
+  PostgreSQL started by `scripts/run-*.mjs` — so fork PRs are safe: they run
+  under `pull_request` with a read-only token and no access to repository
+  credentials. Permissions are pinned to the minimum (`contents: read`),
+  actions are pinned to full commit SHAs, dependencies install with
+  `npm ci`, and the Node major matches `deploy.yml`; a newer push to the same
+  branch cancels the superseded run.
 - **`.github/workflows/deploy.yml`** — the release gate. Runs signal-wasm
   verification, build, crypto/engine tests, smoke, and the live prekey tests
   **before** the Pages deploy steps, so a failed gate blocks shipping.
-- **Pull-request gate — PROPOSED, NOT YET ACTIVE.** The complete workflow is
-  ready at [`docs/ci-workflow-proposal.yml`](docs/ci-workflow-proposal.yml) and
-  only needs to be copied to `.github/workflows/ci.yml`. It runs on every
-  `pull_request` and on `push` to `main`: signal-wasm verification, build,
-  **every** `test:*` script discovered from `package.json` at runtime (so a new
-  suite is picked up automatically and the gate cannot drift away from the
-  inventory), and the smoke test. It references **no secrets** — every suite
-  runs against stubs or the embedded PostgreSQL started by
-  `scripts/run-*.mjs` — so fork PRs are safe: they run under `pull_request`
-  with a read-only token and no access to repository credentials.
-
-  Until that file is in place, only the four suites listed in `deploy.yml`
-  run automatically. Run the rest locally before merging.
 
 ## Theme
 
