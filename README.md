@@ -5,7 +5,9 @@ find another `@username`, send a connection request, and chat.
 
 > **Less, but enough.**
 
-Current release: **v0.3.0**.
+Current release: **v0.4.0** — the privacy, reliability, security/recovery and
+release-foundation milestone. Release history lives in
+[`CHANGELOG.md`](CHANGELOG.md).
 
 ## Stack
 
@@ -23,7 +25,43 @@ The `design/` directory contains the original visual mockups
 (`login.html`, `home.html`, `chat.html`). They are permanent references for the
 production UI and should not be modified or turned into the app.
 
-## Features (v0.3.0)
+## Features (v0.4.0)
+
+New in v0.4.0 (v0.3.0 features below remain):
+
+- Visible E2EE state: an initializing / ready / failed lifecycle with a
+  non-sensitive reason, a retry action, and a fail-closed composer — a failed
+  engine is announced instead of silently emptying every peer bubble, and no
+  peer message is ever sent or stored as plaintext while encryption is
+  unavailable
+- Identity reset / recovery: a changed peer identity (TOFU mismatch) offers an
+  explicit, user-confirmed security reset for that one conversation (clears
+  trust + session for that peer only; past unreadable messages stay
+  unreadable), and a damaged local device state offers a confirmed reset that
+  mints and publishes a fresh local identity (public keys only)
+- Offline Read Mode: the cached Home overview and the last 40 messages of an
+  opened chat stay readable while offline (sealed local snapshots, offline
+  banner). No offline send queue — sending stays disabled while offline
+- Realtime for the open 1:1 chat (delivery, tombstones, reconciliation),
+  incremental Home realtime updates, and the F-01…F-07 race-condition fixes
+  (conversation-switch guards, realtime captured during load/pagination,
+  duplicate badge counting, cache persistence failures)
+- Long-press action menu on Home/chat rows: block / unblock (with
+  confirmation) and delete chat for me; blocked users see a locked composer
+- People management in Settings: global search, active connections with
+  actions, blocked-users hierarchy (`#/settings/people/blocked`)
+- Privacy policy (EN/DE) at `#/privacy` / `#/datenschutz`, rewritten against
+  the actual app behavior, linked from every unauthenticated screen (before
+  registration); imprint with two equal-ranking surfaces; contact form
+  delivered through the `send-contact-email` Edge Function with a deploy +
+  end-to-end CI workflow
+- License: AGPL-3.0-only (`LICENSE` + `NOTICE`), the same license document
+  served at `/LICENSE` on every deployment, guarded by `test:license`
+- CI on pull requests: the full gate (signal-wasm verification, build, every
+  `test:*` suite, smoke) runs on every PR with no secrets, so fork PRs are
+  safe
+
+### Features carried over from v0.3.0
 
 - Auth: login, registration (email, `@username`, display name, password × 2),
   email confirmation, forgot/reset password, email change, persistent sessions,
@@ -103,7 +141,12 @@ Documented exceptions and limits:
 - **C-1** (coordinated full-origin storage rollback) remains an open,
   documented limitation
 - There is no safety-number / fingerprint UI yet. Peer identity changes are
-  rejected locally (TOFU), not compared in the product UI
+  rejected locally (TOFU), not compared in the product UI — but they are
+  **recoverable**: the conversation offers an explicit, user-confirmed
+  security reset that clears the stored identity and session for that peer
+  only (messages unreadable under the old state stay unreadable). A damaged
+  local device state offers a confirmed reset that mints and publishes a
+  fresh local identity
 - Browser E2EE residual: XSS, a compromised extension, or device access is a
   full compromise
 
@@ -211,6 +254,10 @@ fallback for auto-confirm setups.
   message is never an empty bubble, a failed engine reports instead of spinning
   forever, plaintext is passed through verbatim, and a peer send requires an
   explicitly ready engine (fail-closed; My Notes stays writable)
+- `npm run test:chatrealtime` — realtime merge, dedupe and reconciliation for
+  the open 1:1 chat (delivery, tombstones, load/pagination races)
+- `npm run test:offline` — Offline Read Mode: sealed snapshot round-trip,
+  offline gating, the 40-messages-per-chat bound
 - `npm run test:i18n` / `npm run test:input` / `npm run test:a11y` /
   `npm run test:api` / `npm run test:errors` / `npm run test:helpers` —
   localization, input hardening, accessibility, API, error mapping, helpers
@@ -221,6 +268,10 @@ fallback for auto-confirm setups.
   dependency fails CI until `NOTICE` records its license id
 - `npm run test:home` / `npm run test:chatblocks` / `npm run test:api-errors` —
   Home realtime updates, chat block-channel behavior, API error surfacing
+- `npm run test:settings` / `npm run test:blocked` — People settings (search,
+  active connections, blocked hierarchy) and the blocked-composer lock
+- `npm run test:privacy` — privacy routing, contact form validation, and
+  Edge-Function runtime guards
 - `npm run test:crypto:prekeys` — **live PostgreSQL** RPC/RLS tests for
   `claim_prekey_bundle` and the `crypto_*` policies. Starts an embedded
   real Postgres, applies `supabase/tests/bootstrap_supabase_auth.sql` +

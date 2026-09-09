@@ -1,4 +1,4 @@
-# Offline Read Mode (v0.3.x)
+# Offline Read Mode (v0.4.0)
 
 **Scope: read what enough. already knows while offline.** Offline message
 sending is explicitly NOT part of this feature. There is no outbox, no queued
