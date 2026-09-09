@@ -967,7 +967,26 @@ if (process.env.SMOKE_RECOVERY) {
 await waitFor(() => text('.auth-screen .brand h1') === 'enough.', 'login screen renders');
 assert(text('.button') === 'Log in', 'English is the default language');
 assert(text('.auth-links')?.includes('Forgot password?'), 'forgot-password link present');
-assert(text('.auth-legal-footer') === 'Imprint', 'public imprint link present');
+/* Both legal surfaces must be reachable BEFORE registration (audit C6 / F-05):
+   the privacy notice cannot hide behind the imprint, because the visitor hands
+   over an e-mail address and a password on this very screen. Asserted on the
+   rendered DOM (hrefs, not just text) so a link cannot silently degrade. */
+{
+  const footer = dom.window.document.querySelector('.auth-legal-footer');
+  const links = footer ? [...footer.querySelectorAll('a.link')] : [];
+  assert(links.length === 2, 'auth footer exposes exactly two legal links');
+  const hrefs = links.map((a) => a.getAttribute('href'));
+  assert(hrefs.includes('#/imprint'), 'auth footer links the imprint (#/imprint)');
+  assert(hrefs.includes('#/privacy'), 'auth footer links the privacy policy (#/privacy)');
+  assert(
+    links.map((a) => a.textContent?.trim()).join('|') === 'Imprint|Privacy Policy',
+    'auth footer names both legal surfaces in English',
+  );
+  assert(
+    dom.window.document.querySelector('.legal-footer-sep')?.getAttribute('aria-hidden') === 'true',
+    'the link separator is hidden from assistive technology',
+  );
+}
 
 /* enough. has no notification feature at all. */
 assert(
@@ -1184,6 +1203,21 @@ await waitFor(() => text('.button') === 'Log in', 'return from imprint to login'
 click('.lang-button');
 await waitFor(() => text('.button') === 'Anmelden', 'language switch → German');
 assert(window.localStorage.getItem('enough-lang') === 'de', 'language persists');
+// The legal footer must follow the language too: the German routes are the ones
+// the German policy/imprint screens actually live on (audit C6).
+{
+  const deHrefs = [
+    ...dom.window.document.querySelectorAll('.auth-legal-footer a.link'),
+  ].map((a) => a.getAttribute('href'));
+  assert(deHrefs.includes('#/impressum'), 'German auth footer links #/impressum');
+  assert(deHrefs.includes('#/datenschutz'), 'German auth footer links #/datenschutz');
+  assert(
+    [...dom.window.document.querySelectorAll('.auth-legal-footer a.link')]
+      .map((a) => a.textContent?.trim())
+      .join('|') === 'Impressum|Datenschutzerklärung',
+    'German auth footer names both legal surfaces in German',
+  );
+}
 click('.lang-button');
 await waitFor(() => text('.button') === 'Log in', 'language switch → English');
 
@@ -3421,6 +3455,176 @@ signOutBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => text('.dialog-title') === 'Sign out?', 'sign out confirmation dialog');
 click('.dialog .btn-primary');
 await waitFor(() => text('.button') === 'Log in', 'sign out returns to login screen');
+
+/* ------------------------------------------------------------------ */
+/* C1 — E2EE lifecycle: a failed engine is visible, safe and recoverable */
+/* ------------------------------------------------------------------ */
+
+// A structurally valid but undecryptable envelope. `parseEnvelope` accepts it,
+// so displaying this row REQUIRES the session manager — with no manager it can
+// never resolve. That is exactly the case which used to render an empty bubble.
+const SYNTHETIC_ENVELOPE = JSON.stringify({
+  v: 1,
+  e: 'sw',
+  t: 3,
+  b: 'ZW5vdWdoLXNtb2tlLWVudmVsb3Bl',
+});
+
+// Make sure the peer profile and an accepted conversation with that row exist.
+if (!db.profiles.some((p) => p.id === 'user-1')) {
+  db.profiles.push({ id: 'user-1', username: 'anna', display_name: 'Anna Müller', created_at: '2026-01-01T10:00:00Z' });
+}
+if (!db.profiles.some((p) => p.id === 'user-2')) {
+  db.profiles.push({ id: 'user-2', username: 'benno', display_name: 'Benno Schmidt', created_at: '2026-01-02T10:00:00Z' });
+}
+db.connections.push({
+  id: 'conn-e2ee-state',
+  user_a: 'user-1',
+  user_b: 'user-2',
+  status: 'accepted',
+  created_at: new Date().toISOString(),
+});
+db.messages.push({
+  id: 'msg-e2ee-state',
+  connection_id: 'conn-e2ee-state',
+  sender_id: 'user-2',
+  ciphertext: SYNTHETIC_ENVELOPE,
+  created_at: new Date(Date.now() - 60000).toISOString(),
+  deleted_at: null,
+  kind: 'text',
+});
+
+// Break engine initialization. E2EEProvider re-reads this factory on every
+// session build, so the next sign-in lands in the 'error' state.
+const workingE2EEFactory = window.__enoughE2EEManagerFactory;
+window.__enoughE2EEManagerFactory = () => {
+  throw new Error('synthetic initialization failure');
+};
+
+setInputValue(dom.window.document.querySelector('.form input[type="email"]'), 'anna@example.com');
+setInputValue(dom.window.document.querySelector('.form input[type="password"]'), 'secret123');
+dom.window.document.querySelector('.form').dispatchEvent(
+  new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+);
+await waitFor(() => dom.window.document.querySelector('.home-screen') !== null, 'sign-in with a failing engine reaches Home');
+
+setHash('#/chat/conn-e2ee-state');
+await waitFor(
+  () => dom.window.document.querySelector('.chat-screen') !== null,
+  'chat opens while E2EE initialization has failed',
+);
+
+// 1) The failure is EXPLAINED — never a silent empty state.
+await waitFor(
+  () => dom.window.document.querySelector('.composer-disabled.e2ee-error') !== null,
+  'a failed engine shows an explicit error state',
+);
+{
+  const banner = dom.window.document.querySelector('.composer-disabled.e2ee-error');
+  assert(banner.getAttribute('role') === 'alert', 'the E2EE error state is announced to AT');
+  assert(
+    banner.textContent.includes('Secure messaging could not be started'),
+    'the E2EE error state explains the problem',
+  );
+  assert(
+    [...banner.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Try again'),
+    'the E2EE error state offers a recovery action',
+  );
+  // No cryptographic implementation detail may reach the UI.
+  for (const leak of ['WASM', 'IndexedDB', 'ratchet', 'prekey', 'CryptoError', 'NOT_AVAILABLE']) {
+    assert(!banner.textContent.includes(leak), `no "${leak}" in the E2EE error state`);
+  }
+}
+
+// 2) An unresolved peer message is NEVER an empty bubble.
+{
+  const bubbles = [...dom.window.document.querySelectorAll('.message')];
+  assert(bubbles.length > 0, 'the conversation renders its message row');
+  for (const bubble of bubbles) {
+    assert(
+      bubble.textContent.trim().length > 0,
+      'a bubble never renders empty while its plaintext is unresolved',
+    );
+  }
+  const envelopeBubble = bubbles[0];
+  assert(
+    envelopeBubble.textContent.includes('Couldn’t decrypt this message.'),
+    'an unresolvable envelope is reported, not left blank',
+  );
+  assert(
+    !envelopeBubble.classList.contains('pending'),
+    'a failed engine does not pretend the message is still being decrypted',
+  );
+  assert(
+    !envelopeBubble.textContent.includes('ZW5vdWdoLXNtb2tlLWVudmVsb3Bl'),
+    'ciphertext is never rendered as a fallback',
+  );
+}
+
+// 3) Nothing can be sent — and above all nothing as plaintext.
+assert(
+  dom.window.document.querySelector('.composer-input')?.disabled === true,
+  'composer is disabled while E2EE is unavailable',
+);
+assert(
+  dom.window.document.querySelector('.send')?.disabled === true,
+  'send button is disabled while E2EE is unavailable',
+);
+{
+  // Defence in depth: even a forced form submit must not reach the transport.
+  const rowsBefore = db.messages.length;
+  const composer = dom.window.document.querySelector('.composer-input');
+  setInputValue(composer, 'must never be stored as plaintext');
+  composer.closest('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+  await sleep(200);
+  assert(db.messages.length === rowsBefore, 'no message row is inserted while E2EE is unavailable');
+  assert(
+    !db.messages.some((m) => m.ciphertext === 'must never be stored as plaintext'),
+    'no plaintext ever reaches messages.ciphertext',
+  );
+  assert(
+    composer.value === 'must never be stored as plaintext',
+    'a rejected send keeps the draft instead of silently discarding it',
+  );
+}
+
+// 4) Recovery: restore the engine and retry — the error state must clear.
+window.__enoughE2EEManagerFactory = workingE2EEFactory;
+{
+  const retryBtn = [...dom.window.document.querySelectorAll('.composer-disabled.e2ee-error button')].find(
+    (b) => b.textContent.trim() === 'Try again',
+  );
+  retryBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+}
+await waitFor(
+  () => dom.window.document.querySelector('.composer-disabled.e2ee-error') === null,
+  'the E2EE error state disappears after a successful retry',
+);
+await waitFor(
+  () => dom.window.document.querySelector('.composer-input')?.disabled === false,
+  'the composer is usable again after recovery',
+);
+assert(
+  typeof window.__enoughE2EEManagerFactory === 'function',
+  'the working engine factory is restored for the remaining scenarios',
+);
+
+// Clean up the scenario's fixtures and restore the precondition the following
+// sections expect: this scenario signed in, the crash test below starts from
+// the login screen.
+db.messages = db.messages.filter((m) => m.id !== 'msg-e2ee-state');
+db.connections = db.connections.filter((c) => c.id !== 'conn-e2ee-state');
+setHash('#/settings/account');
+await waitFor(
+  () => text('.settings-subpanel-title') === 'Account',
+  'account subpage open to sign out after the E2EE state scenario',
+);
+[...dom.window.document.querySelectorAll('.settings-subpanel .settings-row')]
+  .find((r) => r.textContent.includes('Sign out'))
+  .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+await waitFor(() => text('.dialog-title') === 'Sign out?', 'sign out confirmation after the E2EE state scenario');
+click('.dialog .btn-primary');
+await waitFor(() => text('.button') === 'Log in', 'signed out again after the E2EE state scenario');
 
 /* ------------------------------------------------------------------ */
 /* theme: OS preference switching and browser restart                  */

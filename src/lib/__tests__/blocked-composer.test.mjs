@@ -62,15 +62,31 @@ test('composer disable and the client send guard are wired to the two-directiona
   // The `blocked` derivation covers BOTH directions (blockedByMe and
   // blockedByThem), not merely "I blocked them".
   assert.match(chat, /const blocked = !self && blockState !== 'none';/);
-  // The composer is disabled by it (Offline Read Mode adds `|| offline` as a
-  // further disabling term; `blocked` must remain one of them).
-  assert.match(
-    chat,
-    /<MessageComposer\s+onSend=\{handleSend\}\s+disabled=\{!canChat \|\| blocked(?: \|\| offline)?\}\s*\/>/,
-  );
-  // ...and the client-side send guard fails closed on the same state.
+  // The composer is disabled by it. Other features add further disabling
+  // terms (Offline Read Mode adds `offline`, C1 adds the E2EE readiness gate),
+  // so assert each required term individually instead of pinning the whole
+  // expression: `blocked` must remain one of them, and no term may be dropped
+  // by a later change.
+  const composerTag = chat.match(/<MessageComposer[^>]*\/>/s);
+  assert.ok(composerTag, 'the MessageComposer element exists');
+  const disabledExpr = composerTag[0].match(/disabled=\{([^}]*)\}/);
+  assert.ok(disabledExpr, 'the composer has a disabled expression');
+  for (const term of ['!canChat', 'blocked', 'offline', '!e2eeReady']) {
+    assert.ok(
+      disabledExpr[1].split('||').map((t) => t.trim()).includes(term),
+      `the composer stays disabled by \`${term}\``,
+    );
+  }
+  // ...and the client-side send guard fails closed on the same state. It
+  // returns `false` (not `undefined`) so the composer keeps the draft of a
+  // rejected send instead of discarding it.
   const send = fnBody(chat, 'handleSend');
-  assert.match(send, /if \(!conn \|\| blocked \|\| !text\) return;/);
+  assert.match(send, /if \(!conn \|\| blocked \|\| !text\) return false;/);
+  // C1: a peer conversation is additionally refused unless the engine is READY.
+  assert.match(
+    send,
+    /if \(!canSendEncrypted\(\{ e2eeStatus, isSelf: self \}\)\) return false;/,
+  );
   // The composer's own submit path refuses while disabled.
   assert.match(composer, /if \(!value \|\| disabled\) return;/);
 });

@@ -37,6 +37,7 @@ const appSource = read('../../App.tsx');
 const privacySource = read('../../components/Privacy.tsx');
 const imprintSource = read('../../components/Imprint.tsx');
 const settingsSource = read('../../components/Settings.tsx');
+const legalFooterSource = read('../../components/LegalFooter.tsx');
 const contactFormSource = read('../../components/ContactForm.tsx');
 const edgeFunctionSource = read('../../../supabase/functions/send-contact-email/index.ts');
 const stylesheet = read('../../index.css');
@@ -98,6 +99,40 @@ test('Settings footer links to the privacy policy in the language-specific route
     'privacy link must target #/datenschutz in DE and #/privacy in EN',
   );
   assert.ok(settingsSource.includes('settings-legal-link'), 'imprint link must exist in Settings');
+});
+
+test('the unauthenticated legal footer links imprint AND privacy policy (audit C6)', () => {
+  // A visitor hands over an e-mail address and a password on the auth screens,
+  // so the privacy notice must be reachable there directly — not only through
+  // the imprint (GDPR Art. 13 transparency).
+  assert.ok(
+    legalFooterSource.includes("#/datenschutz' : '#/privacy'"),
+    'legal footer must link #/datenschutz (DE) and #/privacy (EN)',
+  );
+  assert.ok(
+    legalFooterSource.includes("#/impressum' : '#/imprint'"),
+    'legal footer must keep the imprint link',
+  );
+  assert.ok(
+    legalFooterSource.includes("t('legal.privacy')"),
+    'legal footer must use the existing legal.privacy key (no hard-coded string)',
+  );
+  assert.ok(
+    legalFooterSource.includes("t('legal.imprint')"),
+    'legal footer must use the existing legal.imprint key (no hard-coded string)',
+  );
+  assert.ok(
+    stylesheet.includes('.legal-footer-sep'),
+    'the separator between the two legal links is styled',
+  );
+  // The footer is the single shared component of every unauthenticated screen.
+  for (const screen of ['Login', 'Register', 'ForgotPassword', 'ResetPassword']) {
+    const src = read(`../../components/${screen}.tsx`);
+    assert.ok(
+      src.includes('LegalFooter'),
+      `${screen} must render the shared LegalFooter`,
+    );
+  }
 });
 
 test('Imprint links to the privacy policy and Privacy links back to the imprint', () => {

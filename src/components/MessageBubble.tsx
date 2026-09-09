@@ -12,8 +12,15 @@ interface MessageBubbleProps {
   group: 'alone' | 'first' | 'middle' | 'last';
   onLongPress: (message: Message) => void;
   focusable: boolean;
-  /** Display plaintext (decrypted / cached / legacy). Empty while unresolved. */
+  /**
+   * Display text to render. Always a non-empty, already-localized string: the
+   * resolved plaintext, or the localized "decrypting…" / "couldn't decrypt"
+   * notice. The parent resolves it through `lib/chatDisplay.ts`, so a bubble
+   * never has to render an empty body while decryption is in flight.
+   */
   text: string;
+  /** True while the plaintext is still being resolved (transient). */
+  pending?: boolean;
 }
 
 /**
@@ -30,6 +37,7 @@ export default function MessageBubble({
   onLongPress,
   focusable,
   text,
+  pending = false,
 }: MessageBubbleProps) {
   const timerRef = useRef<number | null>(null);
 
@@ -94,7 +102,7 @@ export default function MessageBubble({
 
   return (
     <div
-      className={`message ${mine ? 'sent' : 'received'} group-${group}`}
+      className={`message ${mine ? 'sent' : 'received'} group-${group}${pending ? ' pending' : ''}`}
       onPointerDown={startPress}
       onPointerUp={cancelPress}
       onPointerLeave={cancelPress}
@@ -114,8 +122,10 @@ export default function MessageBubble({
         }
       }}
       role={focusable ? 'button' : undefined}
-      // While a message is still being decrypted the text is transiently
-      // empty — never leave the button without an accessible name.
+      // `text` is always non-empty now (plaintext, "decrypting…" or the
+      // undecryptable notice), so the button always has an accessible name.
+      // The `t('loading')` fallback stays as a belt-and-braces guarantee that
+      // no future caller can produce a nameless control.
       aria-label={text || t('loading')}
     >
       <MarkdownText text={text} />

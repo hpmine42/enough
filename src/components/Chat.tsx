@@ -55,6 +55,7 @@ import { BlockState, Connection, Message, Profile } from '../lib/types';
 import { useE2EE } from '../context/E2EEContext';
 import { prepareSend, decryptForDisplay, isEnvelope } from '../lib/e2ee/message-flow';
 import { cachePlaintext, getCachedPlaintext } from '../lib/e2ee/message-cache';
+import { resolveBubbleText, canSendEncrypted } from '../lib/chatDisplay';
 import {
   reportNetworkSuccess,
   shouldSkipNetwork,
@@ -84,7 +85,7 @@ interface SheetTarget {
 
 export default function Chat({ connectionId }: { connectionId: string }) {
   const { user } = useAuth();
-  const { manager } = useE2EE();
+  const { manager, status: e2eeStatus, retry: retryE2EE } = useE2EE();
   useLang(); // re-render relative timestamps on language change
 
   const [conn, setConn] = useState<Connection | null>(null);
@@ -946,12 +947,25 @@ export default function Chat({ connectionId }: { connectionId: string }) {
 
   /* ------------------------------ actions ------------------------------ */
 
-  async function handleSend(text: string) {
-    if (!conn || blocked || !text) return;
+  /**
+   * Send a message. Returns `true` when the composer may clear its draft:
+   * the message was accepted, or the outcome no longer belongs to the
+   * conversation the user is looking at (F-01 switch guard — clearing matches
+   * the previous behavior and avoids resurfacing a stale draft elsewhere).
+   * Returns `false` when the send FAILED in the conversation still on screen,
+   * so the user's text is preserved instead of vanishing behind an error
+   * (audit C1: a failed send must not look like a successful one).
+   */
+  async function handleSend(text: string): Promise<boolean> {
+    if (!conn || blocked || !text) return false;
     // Offline sending is deliberately not implemented in this version and
     // nothing is queued: the composer is disabled, and this is the guard
     // behind it.
-    if (offline) return;
+    if (offline) return false;
+    // Defence in depth behind the disabled composer: a peer conversation is
+    // never written to unless the engine is READY. `prepareSend` below would
+    // throw NOT_AVAILABLE anyway; this refuses earlier and keeps the draft.
+    if (!canSendEncrypted({ e2eeStatus, isSelf: self })) return false;
     // F-01: bind this send to the conversation it started in. The send itself
     // (encrypt + server insert) is for the captured conversation and is not
     // cancelled by a switch — the row belongs there — but its result and any
@@ -974,20 +988,20 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       });
     } catch (e) {
       // A send that lost its conversation must not surface an error there.
-      if (!lifecycleRef.current.isCurrent(token)) return;
+      if (!lifecycleRef.current.isCurrent(token)) return true;
       setError(
         isCryptoError(e) && e.code === 'NOT_AVAILABLE'
           ? t('chat.e2eeUnavailable')
           : t('chat.e2eeFailed'),
       );
-      return; // fail-closed: no insert, no plaintext to Supabase.
+      return false; // fail-closed: no insert, no plaintext to Supabase.
     }
-    if (!lifecycleRef.current.isCurrent(token)) return;
+    if (!lifecycleRef.current.isCurrent(token)) return true;
     const { message, error: err } = await sendMessage(conn.id, me, ciphertext);
-    if (!lifecycleRef.current.isCurrent(token)) return;
+    if (!lifecycleRef.current.isCurrent(token)) return true;
     if (err) {
       setError(err);
-      return;
+      return false;
     }
     if (message) {
       // The plaintext cache is keyed by message id, not by conversation, and
@@ -995,7 +1009,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       // the conversation changed, so the sender can still display it there
       // later. Only React state of the CURRENT conversation is guarded.
       await cachePlaintext(me, message.id, text);
-      if (!lifecycleRef.current.isCurrent(token)) return;
+      if (!lifecycleRef.current.isCurrent(token)) return true;
       setPlain((prev) => ({ ...prev, [message.id]: text }));
       setMessages((prev) =>
         prev.some((m) => m.id === message.id)
@@ -1003,6 +1017,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
           : [...prev, message].sort(compareMessagesAsc),
       );
     }
+    return true;
   }
 
   async function handleAccept() {
@@ -1189,6 +1204,17 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const self = conn ? isSelfConnection(conn) : false;
   const blocked = !self && blockState !== 'none';
   const peerUsername = peer?.username ?? '';
+
+  /* --------------------------- E2EE availability -------------------------- */
+  // A peer conversation can only be written to while the engine is READY.
+  // `initializing` and `error` both refuse (fail-closed) — the composer says
+  // why instead of accepting a message that could only fail. My Notes is the
+  // documented plaintext exception and stays writable throughout.
+  const e2eeReady = canSendEncrypted({ e2eeStatus, isSelf: self });
+  // Only a settled failure gets the explanatory banner with a retry action;
+  // `initializing` is transient and must not alarm the user.
+  const e2eeFailed = e2eeStatus === 'error';
+  const e2eeInitializing = e2eeStatus === 'initializing';
 
   const visibleMessages = useMemo(
     () =>
@@ -1540,35 +1566,70 @@ export default function Chat({ connectionId }: { connectionId: string }) {
             {visibleMessages.length === 0 && (
               <div className="chat-empty">{t('chat.noMessages')}</div>
             )}
-            {grouped.map(({ message, group }) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                mine={message.sender_id === me}
-                peerUsername={peerUsername}
-                group={group}
-                focusable={canChat && !message.deleted_at}
-                text={
-                  plain[message.id] ??
-                  (undecryptable.has(message.id) ? t('chat.undecryptable') : '')
-                }
-                onLongPress={(m) => {
-                  const within24h =
-                    Date.now() - new Date(m.created_at).getTime() < 24 * 60 * 60 * 1000;
-                  setSheetTarget({
-                    message: m,
-                    mine: m.sender_id === me,
-                    within24h,
-                  });
-                }}
-              />
-            ))}
+            {grouped.map(({ message, group }) => {
+              // Never an empty bubble: an unresolved row is either visibly
+              // pending or visibly undecryptable (audit C1 / F-01). The engine
+              // is irrelevant for My Notes, so a failed initialization must
+              // not mark a self-chat row undecryptable.
+              const bubble = resolveBubbleText({
+                plaintext: plain[message.id],
+                undecryptable: undecryptable.has(message.id),
+                e2eeFailed: e2eeFailed && !self,
+              });
+              const bubbleText =
+                bubble.kind === 'plaintext'
+                  ? bubble.text
+                  : bubble.kind === 'pending'
+                    ? t('chat.decrypting')
+                    : t('chat.undecryptable');
+              return (
+                <MessageBubble
+                  key={message.id}
+                  message={message}
+                  mine={message.sender_id === me}
+                  peerUsername={peerUsername}
+                  group={group}
+                  focusable={canChat && !message.deleted_at}
+                  text={bubbleText}
+                  pending={bubble.kind === 'pending'}
+                  onLongPress={(m) => {
+                    const within24h =
+                      Date.now() - new Date(m.created_at).getTime() < 24 * 60 * 60 * 1000;
+                    setSheetTarget({
+                      message: m,
+                      mine: m.sender_id === me,
+                      within24h,
+                    });
+                  }}
+                />
+              );
+            })}
           </section>
 
           {error && (
             <p className="error chat-error" role="alert">
               {error}
             </p>
+          )}
+
+          {/* E2EE failure: an explicit, localized explanation plus a recovery
+              action. Never a silent empty state, and never a cryptographic
+              detail — the classification stays in the console. */}
+          {e2eeFailed && !self && canChat && !blocked && !offline && (
+            <div className="composer-disabled blocked e2ee-error" role="alert">
+              <span>{t('chat.e2eeUnavailableState')}</span>
+              <button type="button" className="btn-small" onClick={retryE2EE}>
+                {t('chat.e2eeRetry')}
+              </button>
+            </div>
+          )}
+
+          {/* Transient: the engine is still being prepared. Explains why the
+              composer is briefly unavailable instead of failing silently. */}
+          {e2eeInitializing && !self && canChat && !blocked && !offline && (
+            <div className="composer-disabled" role="status">
+              {t('chat.e2eePreparing')}
+            </div>
           )}
 
           {offline ? (
@@ -1611,7 +1672,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
 
           <MessageComposer
             onSend={handleSend}
-            disabled={!canChat || blocked || offline}
+            disabled={!canChat || blocked || offline || !e2eeReady}
           />
         </>
       )}

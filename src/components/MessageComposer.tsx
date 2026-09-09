@@ -5,7 +5,13 @@ import { t } from '../i18n';
 import { SendIcon } from './icons';
 
 interface MessageComposerProps {
-  onSend: (text: string) => void;
+  /**
+   * Called with the already-sanitized plaintext. May return (or resolve to)
+   * `false` to signal that the send FAILED: the draft is then preserved so a
+   * rejected message never looks like a delivered one (audit C1). Any other
+   * result — including `void` — clears the draft as before.
+   */
+  onSend: (text: string) => boolean | void | Promise<boolean | void>;
   disabled: boolean;
 }
 
@@ -30,7 +36,7 @@ export default function MessageComposer({ onSend, disabled }: MessageComposerPro
     el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
   }
 
-  function submit() {
+  async function submit() {
     const el = textRef.current;
     if (!el) return;
     // Single outgoing-plaintext hardening boundary: sanitize the raw textarea
@@ -39,8 +45,15 @@ export default function MessageComposer({ onSend, disabled }: MessageComposerPro
     // ciphertext.
     const value = sanitizeMessagePlaintext(el.value).trim();
     if (!value || disabled) return;
-    onSend(value);
-    el.value = '';
+    const result = await onSend(value);
+    // A rejected send keeps the draft: text must not disappear behind an
+    // error, and a message that was never stored must not look delivered
+    // (audit C1). The textarea is re-read after the await because the
+    // component may have been unmounted or replaced in the meantime.
+    if (result === false) return;
+    const current = textRef.current;
+    if (!current) return;
+    current.value = '';
     resize();
   }
 
