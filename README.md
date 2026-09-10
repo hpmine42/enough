@@ -323,7 +323,8 @@ fallback for auto-confirm setups.
   info toggle, the unread-badge role and message-bubble names. Since v0.5.0
   it also walks the bottom navigation: the three destinations, the active
   state on both overviews, and "New chat" opening the people search with the
-  field focused
+  field focused. It asserts the peer chat carries a labelled E2EE marker
+  while My Notes carries none
 - `npm run verify:signal-wasm` — byte-exact SHA-256 check of the installed
   `@getmaapp/signal-wasm@0.6.6` artifacts against the audited manifest
 - `supabase/rls-tests.sql` — authorization checks against the real database

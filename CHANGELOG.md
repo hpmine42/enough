@@ -47,7 +47,8 @@ authorization or cryptographic behavior changed.
 - **Chat overview**: hairline-separated rows instead of card-like blocks,
   inset dividers, subtler unread state (small tinted count, slightly stronger
   name), and an empty state that offers the real "Search people" action. The
-  overview scrolls in an inner container so the bar never covers a row.
+  overview scrolls with the page and the bar sits in flow at the bottom
+  (`position: sticky`), so it never covers a row.
 - **Chat**: refined bubbles, grouping and composer; a quiet end-to-end
   encryption marker in the header for peer conversations (`role="img"` +
   `chat.e2eeLabel`, EN/DE). It disappears when the engine failed, so the
@@ -66,7 +67,12 @@ authorization or cryptographic behavior changed.
 - The smoke test gained redesign coverage: the three navigation destinations
   and their order, the active state on both overviews, "New chat" opening the
   Settings overlay and focusing the people search, the Settings page heading
-  and its four group headings, and the new pre-paint status-bar colour.
+  and its four group headings, and the new pre-paint status-bar colour. It
+  also asserts the labelled E2EE marker in a peer chat header and its absence
+  in My Notes.
+- `test:a11y` gained a `BottomNav` contract: each destination carries a visible
+  label, the active one is announced with `aria-current="page"`, and a covered
+  bar leaves both the accessibility tree and the tab order.
 - Unchanged by design: E2EE (Signal Protocol, PQXDH, Double Ratchet,
   Kyber-1024, pinned WASM), RLS and migrations, Realtime behavior, Offline
   Read Mode, local crypto-state protection, and every existing i18n string.

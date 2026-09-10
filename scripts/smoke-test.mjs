@@ -1959,6 +1959,13 @@ assert(
   dom.window.document.querySelector('.composer-input')?.disabled === false,
   'composer active after accept',
 );
+/* The peer header carries the quiet E2EE marker; My Notes never does. */
+const e2eeMarker = dom.window.document.querySelector('.chat-header .chat-e2ee');
+assert(
+  e2eeMarker?.getAttribute('role') === 'img' &&
+    (e2eeMarker?.getAttribute('aria-label') ?? '').length > 0,
+  'peer chat shows a labelled E2EE marker',
+);
 /* D1: the bubble is the keyboard long-press target — it must expose its
    button role and a non-empty accessible name. */
 const a11yBubble = [...dom.window.document.querySelectorAll('.message')].find(
@@ -3390,6 +3397,10 @@ assert(
 const notesRow = [...dom.window.document.querySelectorAll('.chat-row .chat')].find((r) => r.textContent.includes('My Notes'));
 notesRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => text('.chat-peer-name') === 'My Notes', 'My Notes chat opens');
+assert(
+  dom.window.document.querySelector('.chat-header .chat-e2ee') === null,
+  'My Notes shows no E2EE marker (plaintext by design)',
+);
 const notesComposer = dom.window.document.querySelector('.composer-input');
 setInputValue(notesComposer, 'Buy milk');
 notesComposer.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
