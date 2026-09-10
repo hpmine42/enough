@@ -303,12 +303,22 @@ test('bottom navigation: layout-stable on interaction (no movement or scale)', (
     'the item transition only animates layout-stable properties (color/background)',
   );
 
-  // 4) The sticky in-flow placement is what pins the bar to the same line on
-  //    every destination — it must not be replaced by a fixed/absolute box.
+  // 4) The bar is anchored to the VIEWPORT: `position: fixed` in its own
+  //    stacking context, never in flow inside a screen that animates. It
+  //    used to be `position: sticky` inside `.home-screen`, which carries
+  //    the `screen-in` translateY animation — that moved the bar on every
+  //    screen change. (Full architecture guard: `npm run test:nav`.)
+  const bar = css.match(/\.bottom-nav \{([^}]*)\}/);
+  assert.ok(bar, 'index.css declares the bar rule');
   assert.ok(
-    /\.bottom-nav \{[^}]*position: sticky;/.test(css),
-    'the bar keeps its position: sticky in-flow placement',
+    /position: fixed;/.test(bar[1]),
+    'the bar is pinned to the viewport (position: fixed)',
   );
+  assert.ok(
+    !/position:\s*(sticky|absolute|relative)/.test(bar[1]),
+    'the bar is not in flow, so no screen can push it around',
+  );
+  assert.ok(/z-index:/.test(bar[1]), 'the bar declares its stacking order');
 });
 
 test('request info toggle is a real button with label + expansion state', () => {

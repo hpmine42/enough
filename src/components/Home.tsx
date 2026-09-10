@@ -62,7 +62,11 @@ import { isEnvelope } from '../lib/e2ee/message-flow';
 import Avatar from './Avatar';
 import OfflineBanner from './OfflineBanner';
 import ThemeButton from './ThemeButton';
-import BottomNav, { openNewChat } from './BottomNav';
+// The bottom navigation itself is NOT rendered here: as a child of this
+// screen it would inherit the `screen-in` slide animation. It is a fixed
+// top-level layer in App.tsx, and this screen only reserves its space
+// (`--nav-clearance`) so the bar never covers a row.
+import { openNewChat } from './BottomNav';
 import { NoteIcon } from './icons';
 import ChatActionMenu from './ChatActionMenu';
 import Dialog from './Dialog';
@@ -1071,8 +1075,8 @@ export default function Home() {
         </div>
       )}
 
-      {/* Sticky, in-flow: it never covers a row and needs no scroll wrapper. */}
-      <BottomNav active="chats" />
+      {/* The primary navigation is a fixed top-level layer (App.tsx), not a
+          child of this screen, so it cannot inherit the `screen-in` slide. */}
 
       {declineTarget && (
         <Dialog

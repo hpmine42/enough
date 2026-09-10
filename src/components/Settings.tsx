@@ -36,7 +36,6 @@ import {
 } from '../lib/theme';
 import { Connection, Profile } from '../lib/types';
 import BottomSheet from './BottomSheet';
-import BottomNav from './BottomNav';
 import Dialog from './Dialog';
 import ThemeButton from './ThemeButton';
 import {
@@ -76,6 +75,27 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
   'chat',
   'account',
 ];
+
+/**
+ * The category subpage a route points at, or `null` for the Settings
+ * overview, the dedicated people-search screen and every other route.
+ *
+ * Exported because the bottom navigation is a persistent top-level layer
+ * OUTSIDE this overlay (`App.tsx`): it must know whether a subpage currently
+ * covers it without becoming a child of the overlay — a child would inherit
+ * the overlay's slide-in transform and move with it.
+ */
+export function settingsCategoryFromRoute(route: string): SettingsCategory | null {
+  const parts = route.split('/');
+  if (parts[0] !== '#' || parts[1] !== 'settings') return null;
+  const firstSegment = parts[2];
+  const secondSegment = parts[3];
+  const categorySegment =
+    firstSegment === 'people' && secondSegment === 'blocked' ? 'blocked' : firstSegment;
+  return (SETTINGS_CATEGORIES as string[]).includes(categorySegment)
+    ? (categorySegment as SettingsCategory)
+    : null;
+}
 
 /**
  * Visual groupings of the six top-level categories on the overview (v0.5.0
@@ -166,11 +186,7 @@ export default function Settings() {
   const secondSegment = isSettingsRoute ? parts[3] : null;
   const blockedFromPeople =
     firstSegment === 'people' && secondSegment === 'blocked';
-  const categorySegment = blockedFromPeople ? 'blocked' : firstSegment;
-  const category =
-    categorySegment !== null && (SETTINGS_CATEGORIES as string[]).includes(categorySegment)
-      ? (categorySegment as SettingsCategory)
-      : null;
+  const category = settingsCategoryFromRoute(route);
   const subpageOpen = open && category !== null;
   const blockedSubpageOpen =
     subpageOpen && category === 'blocked' && blockedFromPeople;
@@ -860,13 +876,9 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Primary navigation. It stays in the layout while a subpanel slides
-          over it (stable overview geometry) but is hidden from assistive
-          technology and the tab order, because it is then not visible. */}
-      <BottomNav
-        active={isNewChatRoute ? 'new-chat' : 'settings'}
-        covered={subpageOpen}
-      />
+      {/* The primary navigation is NOT rendered here: as a child of this
+          overlay it would inherit the slide-in transform. It is a fixed
+          top-level layer in App.tsx and marks this destination as active. */}
 
       {/* CATEGORY SUBPAGE — slides in like the settings overlay */}
       <div

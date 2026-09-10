@@ -36,14 +36,26 @@ authorization or cryptographic behavior changed.
 - **Bottom navigation** (`src/components/BottomNav.tsx`): Chats | New chat |
   Settings, shown on the chat overview, the dedicated people-search screen and
   the Settings overview and driven by the existing hash routes.
-  Active/inactive is a quiet accent tint that never moves the bar: tapping a
-  destination changes colour only (no font-weight reflow of the labels, no
-  transform/scale, opacity-only dimming of the stage behind the overlays), so
-  the sticky bar stays on the same pixel line across all destinations.
+- **Persistent top-level layer.** The bar is a fixed sibling of `.app-stage`
+  and the Settings overlay, rendered once in `src/App.tsx`, and no longer a
+  child of either. It used to live inside `Home` (which carries the
+  `screen-in` slide) and inside the Settings overlay (which slides in with a
+  transform), so it visibly moved with every screen change and every overlay
+  open. Screens and overlays now animate underneath a bar that stays anchored
+  to the viewport: `position: fixed` in its own stacking context, `z-index`
+  above the overlay and below the dialog/sheet backdrops. Every screen it
+  floats over reserves its height (`--nav-clearance`), so it covers no
+  content, and `env(safe-area-inset-bottom)` is respected.
+- **Floating navigation surface.** A calm raised card instead of a full-bleed
+  bar: warm surface, hairline border, one soft shadow, moderate radius, three
+  equally sized destinations. The active destination is a quiet accent tint
+  (icon + label + accent-soft surface) that never moves the bar: no
+  font-weight reflow of the labels, no transform/scale, colour-only
+  transitions, and opacity-only dimming of the stage behind the overlays.
   "New chat" opens the dedicated people-search screen (route `#/new-chat`)
   and focuses its field — the existing real search, not a parallel flow.
-  While a Settings subpanel covers the bar, the bar keeps its box but leaves
-  the accessibility tree and the tab order.
+  While a Settings subpanel covers the bar, the bar leaves the accessibility
+  tree and the tab order.
 - Settings is no longer a Home header icon (the bar replaces that entry); the
   Home header keeps the logo and the theme toggle.
 
@@ -95,7 +107,17 @@ authorization or cryptographic behavior changed.
   leaves both the accessibility tree and the tab order, and the bar is
   layout-stable on interaction (no transform on the items or the dimmed stage,
   no font-weight change on the active label, colour-only transitions,
-  `position: sticky` preserved).
+  `position: fixed` preserved).
+- `test:nav` (new, CI-discovered) guards the layering invariant itself: the bar
+  is rendered as a sibling of the app stage and after the Settings overlay —
+  never inside `Home` or `Settings` — no CSS rule targets it as a descendant
+  of an animated layer, it is `position: fixed` with a `z-index` above the
+  overlay and below dialogs/sheets, no `.bottom-nav*` rule animates geometry
+  (no transform, no font-weight change, colour/background-only transitions),
+  and the screens it floats over reserve `--nav-clearance`. The smoke test
+  asserts the same invariants against the rendered DOM (same element across
+  destinations, sibling of `.app-stage`, covered state on a Settings
+  subpage).
 - `test:settings` gained source-level guards for the dedicated people-search
   screen: the single `PeopleSearch` render is gated to `#/new-chat`, the
   overview carries no search input or search-specific layout machinery, and
