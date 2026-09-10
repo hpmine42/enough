@@ -105,13 +105,7 @@ const CATEGORY_TITLE_KEYS: Record<SettingsCategory, TranslationKey> = {
   account: 'settingsScreen.account',
 };
 
-/**
- * Duration of the Settings subpanel slide, in milliseconds. It mirrors the
- * `transform`/`opacity` transition declared for `.settings-subpanel` in
- * index.css and is the window during which the overview must keep its
- * geometry: see `searchCollapse` below.
- */
-const SUBPANEL_TRANSITION_MS = 300;
+
 
 /* ------------------------------------------------------------------ */
 /* overview row                                                        */
@@ -154,7 +148,13 @@ function CategoryRow({
 
 export default function Settings() {
   const route = useHashRoute();
-  const open = route.startsWith('#/settings');
+  // The overlay hosts two top-level destinations: the Settings overview
+  // (with its category subpages) and the dedicated people-search screen
+  // ("New chat"). Both are one navigation level above a chat; the search
+  // screen is NOT a Settings subpage — it has its own route, header title
+  // and content, and the Settings overview no longer contains the search.
+  const isNewChatRoute = route.startsWith('#/new-chat');
+  const open = route.startsWith('#/settings') || isNewChatRoute;
   // The category is the first segment after "#/settings/". A deeper path is
   // preserved so "#/settings/people/blocked" is the nested Blocked Users
   // subpage while the legacy "#/settings/blocked" still opens the same screen
@@ -177,14 +177,6 @@ export default function Settings() {
   const subpanelBackTarget = blockedFromPeople
     ? '#/settings/people'
     : '#/settings';
-
-  // People Search belongs to the Settings overview only. When any category
-  // subpage (including People → Blocked Users) is open, the search bar is
-  // hidden so the subpage shows only its own content. The removal itself is
-  // deferred until the subpanel transition has finished (see
-  // `searchCollapse`), otherwise the overview loses the search bar's height
-  // in the very frame the submenu starts sliding in.
-  const onOverview = open && category === null;
 
   const {
     user,
@@ -291,18 +283,6 @@ export default function Settings() {
   // Form collapse animation state (smooth open + close).
   const emailCollapse = useCollapse(emailEditing);
   const pwCollapse = useCollapse(pwEditing);
-
-  // The People Search belongs to the overview only, but it must not leave the
-  // layout in the same frame a subpage starts sliding in. Unmounting it
-  // immediately would remove its height at once, so the remaining overview
-  // content jumped upward before the subpanel was visibly moving. Keeping it
-  // mounted for exactly the subpanel transition keeps the overview geometry
-  // stable: the submenu then slides over an unchanged overview and the search
-  // bar is removed only once the submenu covers it completely.
-  // `render` is only used to defer that unmount — mounting is still driven by
-  // `onOverview` itself, so returning to the overview shows the search bar in
-  // the very same frame.
-  const searchCollapse = useCollapse(onOverview, SUBPANEL_TRANSITION_MS);
 
   function openEmailChange() {
     if (emailEditing) {
@@ -793,21 +773,27 @@ export default function Settings() {
         >
           <BackIcon size={22} />
         </button>
-        {/* Same centered title as the subpages: the overview reads as the top
-            level of one navigation stack, and the back button is the single
-            way back to the chats. */}
-        <div className="settings-page-title">{t('settingsScreen.title')}</div>
+        {/* Same centered title as the subpages: each top-level destination
+            (the Settings overview, the dedicated people-search screen) reads
+            as the top of one navigation stack, and the back button is the
+            single way back to the chats. */}
+        <div className="settings-page-title">
+          {isNewChatRoute ? t('nav.newChat') : t('settingsScreen.title')}
+        </div>
         <ThemeButton />
       </header>
 
-      {/* People search is available from the Settings overview only. The
-          wrapper stays mounted for the duration of the subpanel slide
-          (`searchCollapse`) so the overview keeps its geometry while the
-          submenu transitions on top of it. `onOverview ||` keeps the mount
-          itself synchronous: the search bar must appear in the same frame the
-          overview does, never one frame later. */}
-      {(onOverview || searchCollapse.render) && (
-        <div className="settings-search-wrap">
+      {isNewChatRoute ? (
+        /* DEDICATED PEOPLE-SEARCH SCREEN ("New chat", route #/new-chat).
+            This is the only place the search is mounted: a first-class
+            destination of the bottom navigation, not a Settings subpanel.
+            The category overview below is not rendered on this route. All
+            search state (query, results, connections, block relations)
+            lives in this component, so the real existing search behavior —
+            debounced server lookup, connection-request handling,
+            block-aware result rows — is reused without any parallel
+            implementation. */
+        <div className="settings-scroll newchat-screen">
           <PeopleSearch
             query={query}
             onSearchChange={handleSearchChange}
@@ -825,58 +811,62 @@ export default function Settings() {
             me={me}
           />
         </div>
-      )}
+      ) : (
+        /* CATEGORY OVERVIEW — no people search here anymore; the dedicated
+            New chat screen is the single search entry point. */
+        <div className="settings-scroll settings-overview">
+          {OVERVIEW_GROUPS.map((group) => (
+            <Section key={group.title} title={t(group.title)}>
+              {group.categories.map((cat) => (
+                <CategoryRow
+                  key={cat}
+                  category={cat}
+                  label={t(CATEGORY_TITLE_KEYS[cat])}
+                  badge={cat === 'people' ? blockedIds.size : undefined}
+                />
+              ))}
+            </Section>
+          ))}
 
-      {/* CATEGORY OVERVIEW */}
-      <div className="settings-scroll settings-overview">
-        {OVERVIEW_GROUPS.map((group) => (
-          <Section key={group.title} title={t(group.title)}>
-            {group.categories.map((cat) => (
-              <CategoryRow
-                key={cat}
-                category={cat}
-                label={t(CATEGORY_TITLE_KEYS[cat])}
-                badge={cat === 'people' ? blockedIds.size : undefined}
-              />
-            ))}
+          {/* FOOTER — the About group: version, legal surfaces, source. */}
+          <Section title={t('settingsScreen.groupAbout')}>
+            <footer className="settings-footer">
+              <span className="settings-footer-version">
+                {t('settingsScreen.footer')} {__APP_VERSION__}
+              </span>
+              <a
+                className="link settings-legal-link"
+                href={lang === 'de' ? '#/impressum' : '#/imprint'}
+              >
+                {t('legal.imprint')}
+              </a>
+              <a
+                className="link settings-privacy-link"
+                href={lang === 'de' ? '#/datenschutz' : '#/privacy'}
+              >
+                {t('legal.privacy')}
+              </a>
+              <a
+                className="link settings-github"
+                href={GITHUB_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <GithubIcon size={15} />
+                {t('settingsScreen.github')}
+              </a>
+            </footer>
           </Section>
-        ))}
-
-        {/* FOOTER — the About group: version, legal surfaces, source. */}
-        <Section title={t('settingsScreen.groupAbout')}>
-          <footer className="settings-footer">
-            <span className="settings-footer-version">
-              {t('settingsScreen.footer')} {__APP_VERSION__}
-            </span>
-            <a
-              className="link settings-legal-link"
-              href={lang === 'de' ? '#/impressum' : '#/imprint'}
-            >
-              {t('legal.imprint')}
-            </a>
-            <a
-              className="link settings-privacy-link"
-              href={lang === 'de' ? '#/datenschutz' : '#/privacy'}
-            >
-              {t('legal.privacy')}
-            </a>
-            <a
-              className="link settings-github"
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <GithubIcon size={15} />
-              {t('settingsScreen.github')}
-            </a>
-          </footer>
-        </Section>
-      </div>
+        </div>
+      )}
 
       {/* Primary navigation. It stays in the layout while a subpanel slides
           over it (stable overview geometry) but is hidden from assistive
           technology and the tab order, because it is then not visible. */}
-      <BottomNav active="settings" covered={subpageOpen} />
+      <BottomNav
+        active={isNewChatRoute ? 'new-chat' : 'settings'}
+        covered={subpageOpen}
+      />
 
       {/* CATEGORY SUBPAGE — slides in like the settings overlay */}
       <div

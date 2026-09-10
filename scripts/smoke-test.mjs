@@ -841,13 +841,15 @@ function setHash(hash) {
   dom.window.dispatchEvent(new dom.window.HashChangeEvent('hashchange'));
 }
 
-// The People Search section rendered on the Settings overview. It is the only
-// place PeopleSearch is mounted: subpages must not render the search bar.
+// The People Search section. It is mounted on exactly one screen: the
+// dedicated people-search destination (route #/new-chat, "New chat" in the
+// bottom navigation). The Settings overview and its subpages must not
+// render it.
 function peopleSearchSection() {
-  const wrap = dom.window.document.querySelector('.settings-overlay .settings-search-wrap');
-  if (!wrap) return null;
+  const screen = dom.window.document.querySelector('.settings-overlay .newchat-screen');
+  if (!screen) return null;
   return (
-    [...wrap.querySelectorAll('.settings-section')].find(
+    [...screen.querySelectorAll('.settings-section')].find(
       (section) =>
         section.querySelector('.settings-section-title')?.textContent ===
         'Search people',
@@ -1372,16 +1374,42 @@ assert(
   'the chat overview marks Chats as the active destination',
 );
 
-/* "New chat" is not a parallel flow: it routes into the existing people
-   search on the Settings overview and focuses the field. */
+/* "New chat" opens the dedicated people-search screen (route #/new-chat) —
+   the one real search implementation, now with its own destination — and
+   focuses the field. */
 click('.home-screen [data-nav="new-chat"]');
 await waitFor(
   () =>
+    dom.window.document.location.hash === '#/new-chat' &&
     dom.window.document.querySelector('.settings-overlay')?.classList.contains('open') ===
       true &&
     dom.window.document.activeElement ===
-      dom.window.document.querySelector('.settings-overlay .settings-search-wrap input'),
-  'new chat opens the people search and focuses the field',
+      dom.window.document.querySelector('.settings-overlay .newchat-screen input'),
+  'new chat opens the dedicated people-search screen and focuses the field',
+);
+assert(
+  text('.settings-overlay .settings-page-title') === 'New chat',
+  'the dedicated screen has its own New chat heading',
+);
+assert(
+  dom.window.document
+    .querySelector('.settings-overlay [data-nav="new-chat"]')
+    ?.classList.contains('active') === true,
+  'the dedicated screen marks New chat as the active destination',
+);
+assert(
+  dom.window.document
+    .querySelector('.settings-overlay [data-nav="new-chat"]')
+    ?.getAttribute('aria-current') === 'page',
+  'the active New chat destination is announced with aria-current',
+);
+assert(
+  peopleSearchSection() !== null,
+  'the dedicated screen hosts the real people-search section',
+);
+assert(
+  !dom.window.document.querySelector('.settings-category-row'),
+  'no Settings category overview is rendered on the dedicated screen',
 );
 setHash('#/');
 await waitFor(
@@ -1420,8 +1448,8 @@ assert(
   'settings overview groups the categories (Account / Preferences / Security / About)',
 );
 assert(
-  dom.window.document.querySelector('.settings-overlay .settings-search-wrap input') !== null,
-  'people search is available from the Settings overview',
+  peopleSearchSection() === null,
+  'the Settings overview no longer contains the people search',
 );
 // R4: the overview renders one selectable row per category (blocked is a
 // third-level subpage, so the overview shows the six top-level categories).
@@ -1458,16 +1486,17 @@ assert(
 
 /* R4: opening a category opens its subpage; back returns to the overview */
 click('.settings-category-row[data-category="profile"]');
-// Layout-stability regression: the search bar must still occupy its box in
-// the very frame the subpage starts sliding in. Removing it in that frame
-// used to shrink the overview immediately, so the content jumped upward
-// before the submenu was visibly moving. Both conditions are asserted in one
-// poll so a same-frame removal cannot slip through.
+// Layout-stability regression: the overview must keep its content (title,
+// rows, footer) in the very frame the subpage starts sliding in — nothing
+// on the overview may leave the layout and shift the remaining content
+// upward before the submenu is visibly moving. Both conditions are asserted
+// in one poll so a same-frame removal cannot slip through.
 await waitFor(
   () =>
     dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open') === true &&
-    dom.window.document.querySelector('.settings-overlay .settings-search-wrap') !== null,
-  'search bar keeps the overview geometry while the profile subpage slides in',
+    text('.settings-overlay .settings-page-title') === 'Settings' &&
+    categoryRows().length === 6,
+  'overview content stays in place while the profile subpage slides in',
 );
 await waitFor(
   () => dom.window.document.querySelector('.settings-subpanel')?.classList.contains('open'),
@@ -1490,11 +1519,11 @@ assert(
   ),
   'profile subpage keeps its section heading',
 );
-// Once the slide has finished the submenu covers the overview, so the search
-// bar is gone from the DOM — the subpage still shows only its own content.
-await waitFor(
-  () => dom.window.document.querySelector('.settings-search-wrap') === null,
-  'search bar is removed after the profile subpage transition settled',
+// The subpage shows only its own content — there is no people search
+// anywhere in the overlay on any Settings route.
+assert(
+  peopleSearchSection() === null,
+  'no people search is rendered while a subpage is open',
 );
 // Back to the overview.
 click('.settings-subpanel .icon-button');
@@ -1532,12 +1561,9 @@ for (const { category, selector, name } of categoryExpectations) {
     () => dom.window.document.querySelector(selector) !== null,
     `${category} subpage keeps its ${name}`,
   );
-  // The search bar is removed only after the subpanel slide, so this is the
-  // settled state rather than an immediate one (see the layout-stability
-  // check above).
-  await waitFor(
-    () => dom.window.document.querySelector('.settings-search-wrap') === null,
-    `${category} subpage does not render the people search bar`,
+  assert(
+    peopleSearchSection() === null,
+    `${category} subpage does not render the people search screen`,
   );
   click('.settings-subpanel .icon-button');
   await waitFor(
@@ -1545,8 +1571,8 @@ for (const { category, selector, name } of categoryExpectations) {
     `back to overview after ${category}`,
   );
   assert(
-    dom.window.document.querySelector('.settings-overlay .settings-search-wrap input') !== null,
-    `people search is visible again on the overview after ${category}`,
+    categoryRows().length === 6 && peopleSearchSection() === null,
+    `the overview (without people search) is restored after ${category}`,
   );
 }
 
@@ -1563,9 +1589,9 @@ await waitFor(
     dom.window.document.querySelector('.settings-subpanel .settings-blocked-empty') !== null,
   'blocked list opens from the People subpage and renders its empty state',
 );
-await waitFor(
-  () => dom.window.document.querySelector('.settings-search-wrap') === null,
-  'blocked users subpage does not render the people search bar',
+assert(
+  peopleSearchSection() === null,
+  'blocked users subpage does not render the people search screen',
 );
 click('.settings-subpanel-nested .icon-button');
 await waitFor(
@@ -1825,14 +1851,20 @@ await waitFor(
   'header icon follows the Settings radio selection',
 );
 
-/* person search on the Settings overview */
-setHash('#/settings');
+/* person search on the dedicated New chat screen */
+setHash('#/new-chat');
 await waitFor(
-  () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
-  'settings overview opens for person search',
+  () =>
+    dom.window.document.location.hash === '#/new-chat' &&
+    dom.window.document.querySelector('.settings-overlay')?.classList.contains('open') &&
+    text('.settings-overlay .settings-page-title') === 'New chat',
+  'dedicated people-search screen opens for person search',
 );
 const searchSection = peopleSearchSection();
-assert(searchSection !== null, 'people search section is rendered on the overview');
+assert(
+  searchSection !== null,
+  'people search section is rendered on the dedicated screen',
+);
 const searchInput = searchSection.querySelector('input');
 setInputValue(searchInput, 'benno');
 await waitFor(
@@ -1959,12 +1991,19 @@ assert(
   dom.window.document.querySelector('.composer-input')?.disabled === false,
   'composer active after accept',
 );
-/* The peer header carries the quiet E2EE marker; My Notes never does. */
+/* The peer header carries the quiet, icon-only E2EE marker; My Notes never
+   does. The accessible name stays on the marker — the header no longer
+   renders the verbose label beside the contact name. */
 const e2eeMarker = dom.window.document.querySelector('.chat-header .chat-e2ee');
 assert(
   e2eeMarker?.getAttribute('role') === 'img' &&
     (e2eeMarker?.getAttribute('aria-label') ?? '').length > 0,
   'peer chat shows a labelled E2EE marker',
+);
+assert(
+  e2eeMarker?.querySelector('.chat-e2ee-label') === null &&
+    (e2eeMarker?.textContent ?? '').trim() === '',
+  'the E2EE marker is icon-only (no verbose text beside the contact name)',
 );
 /* D1: the bubble is the keyboard long-press target — it must expose its
    button role and a non-empty accessible name. */
@@ -2316,10 +2355,10 @@ assert(
   db.messages.some((message) => message.ciphertext === 'Hey Benno!' || message.ciphertext === ''),
   'chat delete does not remove messages globally',
 );
-setHash('#/settings');
+setHash('#/new-chat');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
-  'settings opens to reopen deleted chat',
+  'people-search screen opens to reopen deleted chat',
 );
 const restoreSearchSection = peopleSearchSection();
 setInputValue(restoreSearchSection.querySelector('input'), 'benno');
@@ -2640,10 +2679,10 @@ assert(
 );
 
 /* scenario C: blocked user is visible in search (by-you direction) */
-setHash('#/settings');
+setHash('#/new-chat');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
-  'settings open for block checks',
+  'people-search screen open for block checks',
 );
 const blockSearchSection = peopleSearchSection();
 setInputValue(blockSearchSection.querySelector('input'), 'benno');
@@ -2788,10 +2827,10 @@ await waitFor(
 );
 
 /* scenario E (continued): after unblocking, requests work again */
-setHash('#/settings');
+setHash('#/new-chat');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
-  'settings overview opens after unblock',
+  'people-search screen opens after unblock',
 );
 const afterUnblockSection = peopleSearchSection();
 setInputValue(afterUnblockSection.querySelector('input'), 'benno');
@@ -2841,10 +2880,10 @@ db.user_blocks.push({
 });
 setHash('#/');
 await waitFor(() => dom.window.document.querySelector('.home-screen') !== null, 'leave settings');
-setHash('#/settings');
+setHash('#/new-chat');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
-  'settings reopen for blocked-by-them check',
+  'people-search screen reopens for blocked-by-them check',
 );
 const byThemSection = peopleSearchSection();
 setInputValue(byThemSection.querySelector('input'), 'benno');

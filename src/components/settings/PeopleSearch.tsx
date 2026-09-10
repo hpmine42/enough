@@ -22,11 +22,13 @@ interface PeopleSearchProps {
 }
 
 /**
- * Settings-wide people search.
+ * People search — the single search implementation of the app.
  *
- * This is the single search implementation used by the Settings overview.
- * It is only rendered on the overview, so no search state or logic needs to
- * be duplicated while the user navigates through Settings subpages.
+ * It is rendered on exactly one screen: the dedicated people-search
+ * destination ("New chat", route `#/new-chat`) reached from the bottom
+ * navigation. The search state (query, results, connection handling) lives
+ * in the host component, so nothing is duplicated; the input autofocuses
+ * when the screen mounts so the field is ready for typing.
  */
 export default function PeopleSearch({
   query,
@@ -60,6 +62,9 @@ export default function PeopleSearch({
           spellCheck={false}
           autoCapitalize="none"
           autoComplete="off"
+          // Dedicated screen: the field is the whole point, so it is focused
+          // on mount (bottom-navigation taps additionally re-focus it).
+          autoFocus
         />
         {searchActive && !searching && (
           <SearchIcon className="at-status" size={18} />

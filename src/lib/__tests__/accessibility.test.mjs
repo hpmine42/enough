@@ -225,6 +225,10 @@ test('bottom navigation: named items, and a covered bar leaves the a11y tree', (
     'the active chats destination exposes aria-current',
   );
   assert.ok(
+    src.includes("aria-current={active === 'new-chat' ? 'page' : undefined}"),
+    'the active new chat destination exposes aria-current',
+  );
+  assert.ok(
     src.includes("aria-current={active === 'settings' ? 'page' : undefined}"),
     'the active settings destination exposes aria-current',
   );
@@ -249,6 +253,62 @@ test('bottom navigation: named items, and a covered bar leaves the a11y tree', (
   );
   // Localized labels: the bar re-renders on a language change.
   assert.ok(src.includes('useLang()'), 'nav labels follow the language switch');
+});
+
+test('bottom navigation: layout-stable on interaction (no movement or scale)', () => {
+  // Regression guard for the visible "jump" of the bar on tap. The bar must
+  // stay on exactly the same pixel line: the active state is a colour tint
+  // only, and the stage behind the Settings / new-chat overlays dims with
+  // opacity only.
+  const css = readRel('src/index.css');
+
+  // 1) The dimmed stage must never move or scale — a transform there would
+  //    shift the nav bar that lives inside it (old: translateX + scale).
+  const shifted = css.match(/\.app-stage\.shifted \{([^}]*)\}/);
+  assert.ok(shifted, 'index.css declares the shifted app-stage state');
+  assert.ok(
+    !/transform/.test(shifted[1]),
+    'the shifted stage applies no transform (no movement, no scale)',
+  );
+  assert.ok(
+    /opacity/.test(shifted[1]),
+    'the shifted stage keeps its opacity-only dim',
+  );
+
+  // 2) The active state must not reflow the centered label: a font-weight
+  //    change would visibly nudge the item (old: weight 500 -> 600).
+  assert.ok(
+    !/\.bottom-nav-item\.active[^{]*\{[^}]*font-weight/.test(css),
+    'the active item keeps the inactive font weight (no label reflow)',
+  );
+
+  // 3) Neither the bar nor its items use transform/scale, and the item
+  //    transition only animates layout-stable properties.
+  assert.ok(
+    !/\.bottom-nav \{[^}]*transform/.test(css),
+    'the bar itself uses no transform',
+  );
+  assert.ok(
+    !/\.bottom-nav-item[^{]*\{[^}]*transform/.test(css),
+    'nav items use no transform (no translate/scale on tap or active state)',
+  );
+  const item = css.match(/\.bottom-nav-item \{([^}]*)\}/);
+  assert.ok(item, 'index.css declares the nav item rule');
+  const transition = item[1].match(/transition:([^;]*);/);
+  assert.ok(transition, 'the nav item declares its transition properties');
+  assert.ok(
+    !/(transform|width|height|font|margin|padding|top|left|right|bottom)/.test(
+      transition[1],
+    ),
+    'the item transition only animates layout-stable properties (color/background)',
+  );
+
+  // 4) The sticky in-flow placement is what pins the bar to the same line on
+  //    every destination — it must not be replaced by a fixed/absolute box.
+  assert.ok(
+    /\.bottom-nav \{[^}]*position: sticky;/.test(css),
+    'the bar keeps its position: sticky in-flow placement',
+  );
 });
 
 test('request info toggle is a real button with label + expansion state', () => {

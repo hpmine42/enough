@@ -34,11 +34,16 @@ authorization or cryptographic behavior changed.
 ### Navigation
 
 - **Bottom navigation** (`src/components/BottomNav.tsx`): Chats | New chat |
-  Settings, shown on the chat overview and on the Settings overview and driven
-  by the existing hash routes. Active/inactive is a quiet accent tint.
-  "New chat" is not a parallel flow: it opens the existing people search and
-  focuses the field. While a Settings subpanel covers the bar, the bar keeps
-  its box but leaves the accessibility tree and the tab order.
+  Settings, shown on the chat overview, the dedicated people-search screen and
+  the Settings overview and driven by the existing hash routes.
+  Active/inactive is a quiet accent tint that never moves the bar: tapping a
+  destination changes colour only (no font-weight reflow of the labels, no
+  transform/scale, opacity-only dimming of the stage behind the overlays), so
+  the sticky bar stays on the same pixel line across all destinations.
+  "New chat" opens the dedicated people-search screen (route `#/new-chat`)
+  and focuses its field — the existing real search, not a parallel flow.
+  While a Settings subpanel covers the bar, the bar keeps its box but leaves
+  the accessibility tree and the tab order.
 - Settings is no longer a Home header icon (the bar replaces that entry); the
   Home header keeps the logo and the theme toggle.
 
@@ -49,13 +54,25 @@ authorization or cryptographic behavior changed.
   name), and an empty state that offers the real "Search people" action. The
   overview scrolls with the page and the bar sits in flow at the bottom
   (`position: sticky`), so it never covers a row.
-- **Chat**: refined bubbles, grouping and composer; a quiet end-to-end
-  encryption marker in the header for peer conversations (`role="img"` +
-  `chat.e2eeLabel`, EN/DE). It disappears when the engine failed, so the
-  explicit recovery notice — not a reassuring icon — carries that state.
+- **Chat**: refined bubbles, grouping and composer; a quiet, icon-only
+  end-to-end encryption marker in the header for peer conversations (a small
+  lock with `role="img"` + `chat.e2eeLabel` as accessible name, EN/DE) that
+  never competes with the contact name for horizontal space. It disappears
+  when the engine failed, so the explicit recovery notice — not a reassuring
+  icon — carries that state.
+- **People search**: moved out of the Settings overview to the dedicated
+  people-search screen behind the bottom navigation's "New chat" (route
+  `#/new-chat`, its own header title, `BottomNav` active state, focused input
+  — including via deep link through `autoFocus`). It reuses the single
+  existing `PeopleSearch` implementation and all of its state (debounced
+  lookup, connection-request handling, block-aware rows); no parallel search
+  was introduced.
 - **Settings**: the overview groups the six existing categories into
   Account / Preferences / Security / About and shows a centered title matching
-  the subpages. Categories, order, subpages, routes and actions are unchanged.
+  the subpages. Categories, order, subpages, routes and actions are unchanged
+  except that the user-search field no longer lives on the overview (and with
+  it the deferred-unmount logic that once kept the overview geometry stable
+  while the bar coexisted with a sliding subpage).
 - **Authentication**: brand tagline, larger input surfaces, accent focus rings,
   tinted error surfaces. Validation, username availability checks, email
   confirmation, recovery and routing are unchanged.
@@ -65,14 +82,24 @@ authorization or cryptographic behavior changed.
 - `npm run build`, every `test:*` suite (including the embedded-PostgreSQL
   `test:crypto:prekeys` and `test:rls`) and `npm run smoke` pass.
 - The smoke test gained redesign coverage: the three navigation destinations
-  and their order, the active state on both overviews, "New chat" opening the
-  Settings overlay and focusing the people search, the Settings page heading
-  and its four group headings, and the new pre-paint status-bar colour. It
-  also asserts the labelled E2EE marker in a peer chat header and its absence
-  in My Notes.
+  and their order, the active state on the chat overview, the dedicated
+  people-search screen and the Settings overview, "New chat" opening that
+  dedicated screen (`#/new-chat`, own heading, `aria-current="page"`) and
+  focusing the people search, the Settings page heading and its four group
+  headings, and the new pre-paint status-bar colour. It also asserts the
+  labelled, icon-only E2EE marker in a peer chat header (no verbose text
+  beside the contact name) and its absence in My Notes, and that the Settings
+  overview no longer contains the people search.
 - `test:a11y` gained a `BottomNav` contract: each destination carries a visible
-  label, the active one is announced with `aria-current="page"`, and a covered
-  bar leaves both the accessibility tree and the tab order.
+  label, the active one is announced with `aria-current="page"`, a covered bar
+  leaves both the accessibility tree and the tab order, and the bar is
+  layout-stable on interaction (no transform on the items or the dimmed stage,
+  no font-weight change on the active label, colour-only transitions,
+  `position: sticky` preserved).
+- `test:settings` gained source-level guards for the dedicated people-search
+  screen: the single `PeopleSearch` render is gated to `#/new-chat`, the
+  overview carries no search input or search-specific layout machinery, and
+  "New chat" is the only entry point (bottom navigation + Home empty state).
 - Unchanged by design: E2EE (Signal Protocol, PQXDH, Double Ratchet,
   Kyber-1024, pinned WASM), RLS and migrations, Realtime behavior, Offline
   Read Mode, local crypto-state protection, and every existing i18n string.

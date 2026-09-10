@@ -1514,10 +1514,13 @@ export default function Chat({ connectionId }: { connectionId: string }) {
             <div className="chat-peer-username">
               {ended ? '' : `@${peerUsername || '…'}`}
             </div>
-            {/* Understated E2EE marker for peer conversations. It disappears
-                when the engine failed — the explicit recovery notice below
-                then carries the state instead of a reassuring icon. My Notes
-                stays plaintext by design, so it never shows the marker. */}
+            {/* Understated, icon-only E2EE marker for peer conversations: a
+                small lock that never competes with the contact name for
+                horizontal space (the accessible name stays on the icon).
+                It disappears when the engine failed — the explicit recovery
+                notice below then carries the state instead of a reassuring
+                icon. My Notes stays plaintext by design, so it never shows
+                the marker. */}
             {!self && !ended && !e2eeFailed && (
               <span
                 className="chat-e2ee"
@@ -1525,9 +1528,6 @@ export default function Chat({ connectionId }: { connectionId: string }) {
                 aria-label={t('chat.e2eeLabel')}
               >
                 <LockIcon size={11} />
-                <span className="chat-e2ee-label" aria-hidden="true">
-                  {t('chat.e2eeLabel')}
-                </span>
               </span>
             )}
           </div>
