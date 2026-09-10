@@ -55,11 +55,17 @@ export function openNewChat(): void {
  * full-screen conversation (back button in its header), and Settings
  * subpages keep their own back button.
  *
+ * LAYERING: this component is rendered once by `App.tsx` as a SIBLING of the
+ * app stage and the Settings overlay — never as a child of either. Those
+ * layers animate (screens slide in, the overlay slides in with a transform,
+ * the stage dims) and the bar must not inherit any of that motion, so it is a
+ * fixed top-level layer anchored to the viewport (see `.bottom-nav`).
+ *
  * Stability contract: tapping an item must never move the bar. The active
- * state is a colour tint only (no font-weight change, no transform/scale),
- * and the dimmed app stage behind the Settings overlay changes opacity only.
- * The `position: sticky` in-flow placement is what keeps the bar on exactly
- * the same pixel line across all three destinations.
+ * state is a colour/background tint only (no font-weight change, no
+ * transform/scale), and the dimmed app stage behind the Settings overlay
+ * changes opacity only. The fixed placement keeps the bar on exactly the same
+ * pixels across all three destinations and every screen transition.
  */
 export default function BottomNav({ active, covered = false }: BottomNavProps) {
   useLang(); // re-render the labels on language change

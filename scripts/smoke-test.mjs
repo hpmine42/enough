@@ -1360,24 +1360,51 @@ assert(
   'no language switch on home',
 );
 
-/* v0.5.0: primary navigation — Chats | New chat | Settings */
+/* v0.5.0: primary navigation — Chats | New chat | Settings.
+   Architectural invariant: the bar is a persistent top-level layer — a FIXED
+   SIBLING of the app stage and the Settings overlay, never a descendant of
+   either. Those layers animate (screen-in slide, overlay slide, stage dim)
+   and the bar must not inherit any of it. */
+const navBar = () => dom.window.document.querySelector('.bottom-nav');
+assert(navBar() !== null, 'bottom navigation renders');
 assert(
-  [...dom.window.document.querySelectorAll('.home-screen .bottom-nav-item')]
+  [...dom.window.document.querySelectorAll('.bottom-nav .bottom-nav-item')]
     .map((el) => el.getAttribute('data-nav'))
     .join(',') === 'chats,new-chat,settings',
   'bottom navigation renders Chats / New chat / Settings',
 );
 assert(
   dom.window.document
-    .querySelector('.home-screen [data-nav="chats"]')
+    .querySelector('.bottom-nav [data-nav="chats"]')
     ?.classList.contains('active') === true,
   'the chat overview marks Chats as the active destination',
 );
+// Layering — siblings, not descendants.
+assert(
+  navBar().closest('.app-stage') === null,
+  'the bar is NOT inside the app stage (which dims behind overlays)',
+);
+assert(
+  navBar().closest('.home-screen') === null,
+  'the bar is NOT inside the chat overview (which slides in)',
+);
+assert(
+  navBar().closest('.settings-overlay') === null,
+  'the bar is NOT inside the Settings overlay (which slides in)',
+);
+assert(
+  navBar().parentElement ===
+    dom.window.document.querySelector('.app-stage').parentElement,
+  'the bar and the app stage are siblings in the same top-level layer',
+);
+// Captured here: the assertions below verify this is the SAME element on
+// every destination — one persistent layer, not a per-screen copy.
+const navLayer = navBar();
 
 /* "New chat" opens the dedicated people-search screen (route #/new-chat) —
    the one real search implementation, now with its own destination — and
    focuses the field. */
-click('.home-screen [data-nav="new-chat"]');
+click('.bottom-nav [data-nav="new-chat"]');
 await waitFor(
   () =>
     dom.window.document.location.hash === '#/new-chat' &&
@@ -1393,13 +1420,13 @@ assert(
 );
 assert(
   dom.window.document
-    .querySelector('.settings-overlay [data-nav="new-chat"]')
+    .querySelector('.bottom-nav [data-nav="new-chat"]')
     ?.classList.contains('active') === true,
   'the dedicated screen marks New chat as the active destination',
 );
 assert(
   dom.window.document
-    .querySelector('.settings-overlay [data-nav="new-chat"]')
+    .querySelector('.bottom-nav [data-nav="new-chat"]')
     ?.getAttribute('aria-current') === 'page',
   'the active New chat destination is announced with aria-current',
 );
@@ -1411,6 +1438,16 @@ assert(
   !dom.window.document.querySelector('.settings-category-row'),
   'no Settings category overview is rendered on the dedicated screen',
 );
+// Same DOM node: the destination change did not unmount and re-create the
+// bar — it is one persistent layer above the animated screens.
+assert(
+  dom.window.document.querySelector('.bottom-nav') === navLayer,
+  'the bar stays the same element across destinations (persistent layer)',
+);
+assert(
+  navLayer.classList.contains('covered') === false,
+  'the bar is not covered on a top-level destination',
+);
 setHash('#/');
 await waitFor(
   () =>
@@ -1420,7 +1457,7 @@ await waitFor(
 );
 
 /* settings opens as overlay with a category overview (R4) */
-click('.home-screen [data-nav="settings"]');
+click('.bottom-nav [data-nav="settings"]');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
   'settings overlay opens',
@@ -1431,7 +1468,7 @@ assert(
 );
 assert(
   dom.window.document
-    .querySelector('.settings-overlay [data-nav="settings"]')
+    .querySelector('.bottom-nav [data-nav="settings"]')
     ?.classList.contains('active') === true,
   'the settings overview marks Settings as the active destination',
 );
@@ -1480,6 +1517,11 @@ assert(
   'imprint link stays reachable from the overview',
 );
 assert(
+  dom.window.document.querySelector('.bottom-nav') === navLayer &&
+    navLayer.classList.contains('covered') === false,
+  'the bar stays the same uncovered element on the Settings destination',
+);
+assert(
   dom.window.document.querySelector('.settings-privacy-link') !== null,
   'privacy link stays reachable from the overview',
 );
@@ -1505,6 +1547,27 @@ await waitFor(
 await waitFor(
   () => text('.settings-subpanel-title') === 'Profile',
   'profile subpage has its own title',
+);
+// A Settings subpage is one level below the bar's destinations: the bar is
+// covered, so it leaves the accessibility tree and the tab order — from the
+// same fixed position, without being unmounted.
+assert(
+  navLayer.classList.contains('covered') === true,
+  'a Settings subpage covers the bar',
+);
+assert(
+  navLayer.getAttribute('aria-hidden') === 'true',
+  'the covered bar leaves the accessibility tree',
+);
+assert(
+  [...navLayer.querySelectorAll('.bottom-nav-item')].every(
+    (el) => el.getAttribute('tabindex') === '-1',
+  ),
+  'every item of the covered bar leaves the tab order',
+);
+assert(
+  dom.window.document.querySelector('.bottom-nav') === navLayer,
+  'the covered bar is still the same layer element (not remounted elsewhere)',
 );
 await waitFor(() => text('.settings-static-value') === '@anna', 'profile username shown');
 {
@@ -1538,6 +1601,14 @@ assert(
 assert(
   dom.window.document.querySelector('.settings-footer') !== null,
   'overview footer remains after returning',
+);
+assert(
+  navLayer.classList.contains('covered') === false &&
+    navLayer.getAttribute('aria-hidden') === null &&
+    [...navLayer.querySelectorAll('.bottom-nav-item')].every(
+      (el) => el.getAttribute('tabindex') === null,
+    ),
+  'leaving the subpage uncovers the bar and restores the tab order',
 );
 
 /* R4: each category still exposes every existing option on its subpage */

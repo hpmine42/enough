@@ -46,9 +46,13 @@ existing flow are unchanged.
   using the existing hash routing. "New chat" opens the dedicated people-search
   screen (route `#/new-chat`, the same real search/connection-request flow as
   before, just its own first-class destination) and focuses the field.
-  Active/inactive states are a quiet accent tint that never moves the bar —
-  tapping a destination changes colour only, the bar stays on the same pixel
-  line
+  It is a **persistent top-level layer**: a fixed sibling of the app content
+  and the Settings overlay, never a child of either, so screens and overlays
+  animate underneath a bar that stays anchored to the viewport. A calm floating
+  surface (warm card, hairline border, one soft shadow) with a quiet accent
+  tint for the active destination — tapping changes colour only, never
+  geometry: no font-weight reflow, no transform, the bar stays on the same
+  pixel line
 - **Chat overview**: a calm hairline-separated list instead of card-like rows,
   subtler unread state (tinted count, slightly stronger name), and an empty
   state that offers the real "Search people" action
@@ -319,6 +323,10 @@ fallback for auto-confirm setups.
   people-search screen (its `#/new-chat` entry point, focus, absence from
   Settings) and People settings (active connections, blocked hierarchy), plus
   the blocked-composer lock
+- `npm run test:nav` — bottom-navigation layering: the bar is a fixed sibling
+  of the app stage (never a child of `Home` or the Settings overlay), stacked
+  above the overlay and below dialogs, and it animates no geometry (no
+  transform, no font-weight reflow, colour-only transitions)
 - `npm run test:privacy` — privacy routing, contact form validation, and
   Edge-Function runtime guards
 - `npm run test:crypto:prekeys` — **live PostgreSQL** RPC/RLS tests for
@@ -337,8 +345,10 @@ fallback for auto-confirm setups.
   it also walks the bottom navigation: the three destinations, the active
   state on the chat overview, the dedicated people-search screen and the
   Settings overview, and "New chat" opening that dedicated screen (`#/new-chat`)
-  with the field focused. It asserts the peer chat carries a labelled,
-  icon-only E2EE marker while My Notes carries none
+  with the field focused — plus the bar's layering (one persistent element
+  that is a sibling of the app stage, never a descendant of an animated layer)
+  and its covered state on a Settings subpage. It asserts the peer chat
+  carries a labelled, icon-only E2EE marker while My Notes carries none
 - `npm run verify:signal-wasm` — byte-exact SHA-256 check of the installed
   `@getmaapp/signal-wasm@0.6.6` artifacts against the audited manifest
 - `supabase/rls-tests.sql` — authorization checks against the real database

@@ -53,6 +53,15 @@
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     monospace;
   --nav-height: 60px;
+  --nav-inset: 10px;
+  /* Vertical space the fixed bar occupies (bar + bottom inset + breathing
+     room). Every screen the bar floats over reserves it as bottom padding,
+     so the bar can never cover content. */
+  --nav-clearance: calc(
+    var(--nav-height) + env(safe-area-inset-bottom) + var(--nav-inset) * 2
+  );
+  --nav-shadow: 0 1px 2px rgba(35, 34, 30, 0.05),
+    0 6px 18px rgba(35, 34, 30, 0.07);
   --column: 430px;
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
   --md-inline-code-bg: rgba(0, 0, 0, 0.08);
@@ -94,6 +103,7 @@
   --overlay: rgba(0, 0, 0, 0.55);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-2: 0 6px 24px rgba(0, 0, 0, 0.45);
+  --nav-shadow: 0 1px 2px rgba(0, 0, 0, 0.32), 0 6px 18px rgba(0, 0, 0, 0.36);
 }
 
 /* ---------- base ---------- */
@@ -207,9 +217,10 @@ button,
 /* ---------- app stage (home/chat behind the Settings / new-chat overlays)
    ---------- */
 /* The stage only DIMS while an overlay is open. It must never move or
-   scale: the bottom navigation inside it has to stay on exactly the same
-   pixel line while a destination changes, so the transition is
-   opacity-only (a layout-stable visual cue). */
+   scale, so the transition is opacity-only (a layout-stable visual cue).
+   The bottom navigation is deliberately NOT a child of this element (it is
+   a fixed sibling layer, see `.bottom-nav`), so no stage transition can
+   ever move, scale or fade it. */
 .app-stage {
   transition: opacity 0.3s ease;
 }
@@ -696,7 +707,9 @@ button,
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  padding: calc(env(safe-area-inset-top) + 20px) 22px 0;
+  /* The bottom navigation is a fixed top-level layer now, so the screens it
+     floats over reserve its space instead of hosting it in flow. */
+  padding: calc(env(safe-area-inset-top) + 20px) 22px var(--nav-clearance);
   animation: screen-in 0.2s ease-out;
 }
 
@@ -995,12 +1008,16 @@ button,
   max-width: 480px;
   margin: 0 auto;
   overscroll-behavior: contain;
+  /* The fixed bottom navigation floats above this overlay, so the last row
+     of a destination stays clear of it. Settings subpages cover the bar
+     instead and reset this padding (`.settings-subpanel .settings-scroll`). */
+  padding-bottom: var(--nav-clearance);
 }
 
 /* Dedicated people-search screen ("New chat", #/new-chat): the shared
    PeopleSearch section scrolls in the same way as the Settings overview. */
 .newchat-screen {
-  padding-bottom: 24px;
+  padding-bottom: var(--nav-clearance);
 }
 
 /* Centered header title, shared by the overview and its subpages. */
@@ -1436,33 +1453,61 @@ button,
 }
 
 /* ---------- primary navigation ----------
-   Chats | New chat | Settings. Understated: the active destination is only
-   tinted with the accent colour, no filled pills or oversized buttons.
+   Chats | New chat | Settings.
+
+   LAYERING — the architectural invariant: the bar is a fixed top-level layer
+   rendered as a SIBLING of `.app-stage` and `.settings-overlay` (see
+   `App.tsx`), never as a child of either. Those layers animate — the screens
+   slide in with `screen-in`, the overlay slides in with a transform, the
+   stage dims — and the bar must not inherit any of that motion. It therefore
+   has its own stacking context above them (its `z-index` sits between the
+   overlay and the dialog/sheet backdrops) and is pinned to the viewport.
+
+   DESIGN — a calm floating surface: warm card, hairline border, one soft
+   shadow, moderate radius, three equally sized destinations.
+
    Stability contract: tapping a destination must never move this bar or its
-   items — no transform/scale, no font-weight change (the active state is a
-   colour transition only), and the `position: sticky` in-flow placement
-   keeps the bar on the same pixel line across all destinations. */
+   items. No transform, no scale, no animation, no font-weight change — the
+   active state is a colour/background tint only, and the bar stays on the
+   same pixels across every destination and every screen transition. */
 
 .bottom-nav {
-  /* Sticky and in-flow: it stays at the bottom of the viewport without ever
-     covering the last row, and it needs no extra scroll container. */
-  position: sticky;
-  bottom: 0;
-  margin-top: auto;
-  flex-shrink: 0;
+  position: fixed;
+  z-index: 50;
+  bottom: calc(var(--nav-inset) + env(safe-area-inset-bottom));
+  /* Centered with `left`/`right` + auto margins, so it needs no centering
+     trick that would give it a movement property of its own. */
+  left: var(--nav-inset);
+  right: var(--nav-inset);
+  margin: 0 auto;
+  max-width: calc(var(--column) - var(--nav-inset) * 2);
   display: flex;
   align-items: stretch;
-  height: calc(var(--nav-height) + env(safe-area-inset-bottom));
-  padding: 0 6px env(safe-area-inset-bottom);
-  border-top: 1px solid var(--border);
-  background: var(--bg);
-  transition: opacity 0.2s ease;
+  gap: 2px;
+  height: var(--nav-height);
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--nav-shadow);
+  transition:
+    opacity 0.2s ease,
+    visibility 0s,
+    background 0.25s ease,
+    border-color 0.25s ease;
 }
 
-/* A Settings subpanel covers the bar: it keeps its box (stable geometry
-   during the slide) but disappears from view. */
+/* A Settings subpage is one navigation level below the bar's destinations.
+   While it slides over the screen the bar is not a reachable destination, so
+   it leaves the accessibility tree and the tab order (BottomNav.tsx) and
+   fades out of view — from the same fixed position, without moving. */
 .bottom-nav.covered {
   opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.2s ease,
+    visibility 0s linear 0.2s;
 }
 
 .bottom-nav-item {
@@ -1474,7 +1519,7 @@ button,
   justify-content: center;
   gap: 3px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -1486,33 +1531,35 @@ button,
 
 .bottom-nav-item:hover {
   color: var(--text-soft);
-}
-
-.bottom-nav-item:active {
   background: var(--surface-2);
 }
 
-.bottom-nav-item.active {
-  color: var(--accent-text);
+.bottom-nav-item:active {
+  background: var(--accent-soft);
 }
 
-/* Single font weight for every item: the active state is a colour tint
-   only. Changing font-weight would reflow the centered label and visibly
-   nudge the item — the bar must stay layout-stable on interaction. */
+/* Active destination: icon and label tinted with the accent plus a quiet
+   accent-soft surface. No font-weight change (it would reflow the centered
+   label), no size change, no movement — layout stays identical. */
+.bottom-nav-item.active {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+/* Single font weight for every item: the active state is a tint only.
+   Changing font-weight would reflow the centered label and visibly nudge
+   the item — the bar must stay layout-stable on interaction. A long
+   localized label (German "Einstellungen") is clipped instead of wrapped,
+   so it can never grow the bar on a narrow screen. */
 .bottom-nav-label {
+  max-width: 100%;
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.005em;
   line-height: 1.2;
-}
-
-/* Inside the padded overview the bar bleeds to the column edges, so rows
-   scrolling behind it are covered across the full width. */
-.home-screen > .bottom-nav {
-  margin-left: -22px;
-  margin-right: -22px;
-  padding-left: 28px;
-  padding-right: 28px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---------- dialogs & bottom sheets ---------- */
@@ -2614,13 +2661,6 @@ button,
     padding-right: 16px;
   }
 
-  .home-screen > .bottom-nav {
-    margin-left: -16px;
-    margin-right: -16px;
-    padding-left: 22px;
-    padding-right: 22px;
-  }
-
   .settings-section {
     padding-left: 16px;
     padding-right: 16px;
@@ -2666,11 +2706,6 @@ button,
     border-radius: var(--radius-lg);
     border-bottom: 1px solid var(--border);
     margin-bottom: 24px;
-  }
-
-  /* Follow the frame's rounded bottom corners. */
-  .home-screen > .bottom-nav {
-    border-radius: 0 0 calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px);
   }
 }
 
