@@ -327,6 +327,12 @@ fallback for auto-confirm setups.
   of the app stage (never a child of `Home` or the Settings overlay), stacked
   above the overlay and below dialogs, and it animates no geometry (no
   transform, no font-weight reflow, colour-only transitions)
+- `npm run test:transition` — the bidirectional screen transition between
+  `#/` (chats) and `#/new-chat`: entrance and exit declare the same transition
+  properties, duration and easing and the mirrored distance, the dedicated
+  screen adds no motion of its own, the overlay renders its destination in the
+  same commit as its `.open` class, and the bottom bar is excluded from the
+  transition. The runtime counterpart lives in `npm run smoke`
 - `npm run test:privacy` — privacy routing, contact form validation, and
   Edge-Function runtime guards
 - `npm run test:crypto:prekeys` — **live PostgreSQL** RPC/RLS tests for

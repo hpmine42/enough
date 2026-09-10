@@ -866,6 +866,29 @@ async function waitFor(fn, name, timeout = 3000) {
   assert(false, `${name} (timeout)`);
 }
 
+/**
+ * Records what the Settings overlay shows after every DOM mutation `run()`
+ * causes. A destination change and the `.open` class are rendered in the
+ * SAME React commit, so no frame of an entrance or exit animation may ever
+ * show the other destination — that is what makes the Chats ↔ New chat
+ * transition one animation played in both directions. Call `stop()` once the
+ * transition is over.
+ */
+function recordOverlayFrames(run) {
+  const overlay = dom.window.document.querySelector('.settings-overlay');
+  const snapshot = () => ({
+    open: overlay.classList.contains('open'),
+    title: text('.settings-overlay .settings-page-title'),
+    search: peopleSearchSection() !== null,
+    overview: overlay.querySelector('.settings-category-row') !== null,
+  });
+  const frames = [snapshot()];
+  const observer = new dom.window.MutationObserver(() => frames.push(snapshot()));
+  observer.observe(overlay, { attributes: true, childList: true, subtree: true });
+  run();
+  return { frames, stop: () => observer.disconnect() };
+}
+
 /* ------------------------------------------------------------------ */
 /* 4. Tests                                                            */
 /* ------------------------------------------------------------------ */
@@ -1448,19 +1471,50 @@ assert(
   navLayer.classList.contains('covered') === false,
   'the bar is not covered on a top-level destination',
 );
-setHash('#/');
+/* REVERSE TRANSITION (New chat → Chats): the overlay slides back out with
+   the very screen it slid in with. The route has already changed when the
+   exit starts, so the rendered destination must not switch before the
+   animation is over — otherwise the departing surface would be the Settings
+   overview and the return would not be the entrance played backwards. Every
+   frame of the transition is compared, not just the end state. */
+const closing = recordOverlayFrames(() => setHash('#/'));
 await waitFor(
   () =>
     dom.window.document.querySelector('.settings-overlay')?.classList.contains('open') ===
     false,
   'back to the chat overview',
 );
+closing.stop();
+assert(
+  closing.frames.every(
+    (f) => f.search === true && f.overview === false && f.title === 'New chat',
+  ),
+  'the closing overlay keeps the New chat screen it is sliding back out',
+);
+assert(
+  dom.window.document.querySelector('.bottom-nav') === navLayer &&
+    dom.window.document
+      .querySelector('.bottom-nav [data-nav="chats"]')
+      ?.classList.contains('active') === true &&
+    dom.window.document
+      .querySelector('.bottom-nav [data-nav="new-chat"]')
+      ?.classList.contains('active') === false,
+  'the reverse transition leaves the persistent bar untouched',
+);
 
 /* settings opens as overlay with a category overview (R4) */
-click('.bottom-nav [data-nav="settings"]');
+const opening = recordOverlayFrames(() => click('.bottom-nav [data-nav="settings"]'));
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
   'settings overlay opens',
+);
+opening.stop();
+assert(
+  opening.frames.filter((f) => f.open).length > 0 &&
+    opening.frames
+      .filter((f) => f.open)
+      .every((f) => f.overview === true && f.search === false && f.title === 'Settings'),
+  'the opening overlay already renders the destination it opens (entrance, no stale screen)',
 );
 assert(
   text('.settings-overlay .settings-page-title') === 'Settings',

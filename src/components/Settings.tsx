@@ -173,8 +173,22 @@ export default function Settings() {
   // ("New chat"). Both are one navigation level above a chat; the search
   // screen is NOT a Settings subpage — it has its own route, header title
   // and content, and the Settings overview no longer contains the search.
-  const isNewChatRoute = route.startsWith('#/new-chat');
-  const open = route.startsWith('#/settings') || isNewChatRoute;
+  const open = route.startsWith('#/settings') || route.startsWith('#/new-chat');
+  // The overlay is a navigation stack: while it slides back out it keeps the
+  // destination it was showing, so the exit is exactly the entrance played
+  // backwards — the "New chat" screen slides away, not the destination the
+  // bar is heading to. The rendered destination changes in the same React
+  // commit as the `.open` class, which is what makes this an exact mirror:
+  // when the overlay closes, the departing screen is still the current one
+  // (its slide-out and fade-out are the entrance in reverse), and when it
+  // opens again the next destination is already rendered in the commit that
+  // adds `.open` (so the entrance never starts on a stale screen). While the
+  // overlay is closed the frozen destination stays mounted but is
+  // `visibility: hidden`, `aria-hidden` and not reachable by pointer or
+  // keyboard, so nothing about the closed state is visible or interactive.
+  const [renderedRoute, setRenderedRoute] = useState(route);
+  if (open && renderedRoute !== route) setRenderedRoute(route);
+  const isNewChatRoute = renderedRoute.startsWith('#/new-chat');
   // The category is the first segment after "#/settings/". A deeper path is
   // preserved so "#/settings/people/blocked" is the nested Blocked Users
   // subpage while the legacy "#/settings/blocked" still opens the same screen
