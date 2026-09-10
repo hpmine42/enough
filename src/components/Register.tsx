@@ -147,6 +147,7 @@ export default function Register() {
       <AuthChrome />
       <section className="brand">
         <h1>enough.</h1>
+        <p className="brand-tagline">{t('tagline')}</p>
       </section>
 
       <form className="form" onSubmit={onSubmit} noValidate>
@@ -281,6 +282,7 @@ function ConfirmEmail({ email }: { email: string }) {
       <AuthChrome />
       <section className="brand">
         <h1>enough.</h1>
+        <p className="brand-tagline">{t('tagline')}</p>
       </section>
       <section className="notice-card">
         <h2>{t('auth.confirmTitle')}</h2>

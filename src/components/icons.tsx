@@ -163,3 +163,34 @@ export function DotsIcon(props: IconProps) {
     </svg>
   );
 }
+
+/* ---------- v0.5.0 navigation & status icons ---------- */
+
+/** Chat overview: a single outlined speech bubble. */
+export function ChatsIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M20 12.2c0 3.9-3.6 7-8 7-1 0-2-.2-2.9-.5L4.5 20l1.2-3.2A6.6 6.6 0 0 1 4 12.2c0-3.9 3.6-7 8-7s8 3.1 8 7Z" />
+    </svg>
+  );
+}
+
+/** New chat: a square with a plus — start a conversation with a new person. */
+export function ComposeIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="3.8" y="3.8" width="16.4" height="16.4" rx="4.2" />
+      <path d="M12 8.6v6.8M8.6 12h6.8" />
+    </svg>
+  );
+}
+
+/** Quiet end-to-end-encryption indicator. */
+export function LockIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="5" y="10.5" width="14" height="9.5" rx="2.6" />
+      <path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5" />
+    </svg>
+  );
+}

@@ -62,7 +62,8 @@ import { isEnvelope } from '../lib/e2ee/message-flow';
 import Avatar from './Avatar';
 import OfflineBanner from './OfflineBanner';
 import ThemeButton from './ThemeButton';
-import { GearIcon, NoteIcon } from './icons';
+import BottomNav, { openNewChat } from './BottomNav';
+import { NoteIcon } from './icons';
 import ChatActionMenu from './ChatActionMenu';
 import Dialog from './Dialog';
 
@@ -878,15 +879,6 @@ export default function Home() {
         </button>
         <div className="home-header-actions">
           <ThemeButton />
-          <button
-            type="button"
-            className="icon-button"
-            onClick={() => navigate('#/settings')}
-            aria-label={t('home.settingsLabel')}
-            title={t('home.settingsLabel')}
-          >
-            <GearIcon size={21} />
-          </button>
         </div>
       </header>
 
@@ -918,6 +910,13 @@ export default function Home() {
         <section className="empty">
           <div className="empty-title">{t('home.nothingHere')}</div>
           <div className="empty-text">{t('home.startChat')}</div>
+          <button
+            type="button"
+            className="btn-primary empty-action"
+            onClick={openNewChat}
+          >
+            {t('settingsScreen.searchPeople')}
+          </button>
         </section>
       ) : (
         <div
@@ -1071,6 +1070,9 @@ export default function Home() {
           })}
         </div>
       )}
+
+      {/* Sticky, in-flow: it never covers a row and needs no scroll wrapper. */}
+      <BottomNav active="chats" />
 
       {declineTarget && (
         <Dialog

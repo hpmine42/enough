@@ -26,6 +26,7 @@ export default function Login() {
       <AuthChrome />
       <section className="brand">
         <h1>enough.</h1>
+        <p className="brand-tagline">{t('tagline')}</p>
       </section>
 
       <form className="form" onSubmit={onSubmit}>

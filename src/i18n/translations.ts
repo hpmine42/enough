@@ -21,6 +21,7 @@ export const translations = {
   en: {
     // brand / common
     brand: 'enough.',
+    tagline: 'Less, but enough.',
     loading: '…',
     cancel: 'Cancel',
     confirm: 'Confirm',
@@ -77,9 +78,17 @@ export const translations = {
     // home
     home: {
       nothingHere: 'Nothing here yet.',
-      startChat: 'Start a chat by searching for people in the settings.',
+      startChat: 'Find a person by @username to start a conversation.',
       settingsLabel: 'Settings',
       themeLabel: 'Toggle theme',
+    },
+
+    // bottom navigation (v0.5.0 redesign)
+    nav: {
+      label: 'Main navigation',
+      chats: 'Chats',
+      newChat: 'New chat',
+      settings: 'Settings',
     },
 
     // legal notice / imprint
@@ -258,6 +267,12 @@ export const translations = {
     // settings
     settingsScreen: {
       title: 'Settings',
+      // Visual groupings of the existing categories on the overview. They are
+      // headings only — every category below keeps its own subpage.
+      groupAccount: 'Account',
+      groupPreferences: 'Preferences',
+      groupSecurity: 'Security',
+      groupAbout: 'About',
       profile: 'Profile',
       displayName: 'Display name',
       username: 'Username',
@@ -384,6 +399,7 @@ export const translations = {
       loadingOlder: 'Loading…',
       you: 'You',
       encryptedPreview: 'Encrypted message',
+      e2eeLabel: 'End-to-end encrypted',
       undecryptable: 'Couldn’t decrypt this message.',
       e2eeUnavailable:
         'Secure messaging is unavailable in this browser. Update or reopen the app to send messages.',
@@ -490,6 +506,7 @@ export const translations = {
 
   de: {
     brand: 'enough.',
+    tagline: 'Weniger, aber genug.',
     loading: '…',
     cancel: 'Abbrechen',
     confirm: 'Bestätigen',
@@ -544,9 +561,17 @@ export const translations = {
     home: {
       nothingHere: 'Noch nichts hier.',
       startChat:
-        'Starte einen Chat, indem du in den Einstellungen nach Personen suchst.',
+        'Finde eine Person per @Benutzername und starte ein Gespräch.',
       settingsLabel: 'Einstellungen',
       themeLabel: 'Darstellung wechseln',
+    },
+
+    // bottom navigation (v0.5.0 redesign)
+    nav: {
+      label: 'Hauptnavigation',
+      chats: 'Chats',
+      newChat: 'Neuer Chat',
+      settings: 'Einstellungen',
     },
 
     legal: {
@@ -723,6 +748,12 @@ export const translations = {
 
     settingsScreen: {
       title: 'Einstellungen',
+      // Visual groupings of the existing categories on the overview. They are
+      // headings only — every category below keeps its own subpage.
+      groupAccount: 'Konto',
+      groupPreferences: 'Präferenzen',
+      groupSecurity: 'Sicherheit',
+      groupAbout: 'Über enough.',
       profile: 'Profil',
       displayName: 'Anzeigename',
       username: 'Benutzername',
@@ -849,6 +880,7 @@ export const translations = {
       loadingOlder: 'Laden…',
       you: 'Du',
       encryptedPreview: 'Verschlüsselte Nachricht',
+      e2eeLabel: 'Ende-zu-Ende-verschlüsselt',
       undecryptable: 'Diese Nachricht konnte nicht entschlüsselt werden.',
       e2eeUnavailable:
         'Sichere Nachrichten sind in diesem Browser nicht verfügbar. Aktualisiere oder öffne die App erneut, um Nachrichten zu senden.',

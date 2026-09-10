@@ -71,7 +71,7 @@ import BottomSheet from './BottomSheet';
 import ChatActionMenu from './ChatActionMenu';
 import Dialog from './Dialog';
 import ThemeButton from './ThemeButton';
-import { BackIcon, TrashIcon, DownIcon, InfoIcon } from './icons';
+import { BackIcon, TrashIcon, DownIcon, InfoIcon, LockIcon } from './icons';
 
 const PAGE_SIZE = 40;
 const LONG_PRESS_MS = 550;
@@ -1510,8 +1510,26 @@ export default function Chat({ connectionId }: { connectionId: string }) {
                 ? t('chat.deletedAccount')
                 : displayName(peer)}
           </div>
-          <div className="chat-peer-username">
-            {ended ? '' : `@${peerUsername || '…'}`}
+          <div className="chat-peer-meta">
+            <div className="chat-peer-username">
+              {ended ? '' : `@${peerUsername || '…'}`}
+            </div>
+            {/* Understated E2EE marker for peer conversations. It disappears
+                when the engine failed — the explicit recovery notice below
+                then carries the state instead of a reassuring icon. My Notes
+                stays plaintext by design, so it never shows the marker. */}
+            {!self && !ended && !e2eeFailed && (
+              <span
+                className="chat-e2ee"
+                role="img"
+                aria-label={t('chat.e2eeLabel')}
+              >
+                <LockIcon size={11} />
+                <span className="chat-e2ee-label" aria-hidden="true">
+                  {t('chat.e2eeLabel')}
+                </span>
+              </span>
+            )}
           </div>
         </div>
         <ThemeButton />

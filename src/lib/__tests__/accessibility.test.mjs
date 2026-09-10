@@ -211,6 +211,46 @@ test('settings overview rows are real buttons with names and the subpage back bu
   );
 });
 
+test('bottom navigation: named items, and a covered bar leaves the a11y tree', () => {
+  const src = componentSource['BottomNav.tsx'];
+  // Three real buttons, each with a visible text label (never icon-only), so
+  // every destination has an accessible name without an extra aria-label.
+  assert.equal(
+    src.split('bottom-nav-label').length - 1,
+    3,
+    'each of the three destinations renders a visible text label',
+  );
+  assert.ok(
+    src.includes("aria-current={active === 'chats' ? 'page' : undefined}"),
+    'the active chats destination exposes aria-current',
+  );
+  assert.ok(
+    src.includes("aria-current={active === 'settings' ? 'page' : undefined}"),
+    'the active settings destination exposes aria-current',
+  );
+  // While a Settings subpanel covers the bar it must not stay reachable: a
+  // focusable element inside aria-hidden content is an a11y violation.
+  assert.ok(
+    src.includes('aria-hidden={covered || undefined}'),
+    'a covered bar is hidden from assistive technology',
+  );
+  assert.ok(
+    src.includes('const tabIndex = covered ? -1 : undefined;'),
+    'a covered bar leaves the tab order',
+  );
+  assert.ok(
+    src.includes('tabIndex={tabIndex}'),
+    'every nav item applies that tab index',
+  );
+  assert.equal(
+    src.split('tabIndex={tabIndex}').length - 1,
+    3,
+    'all three nav items apply it',
+  );
+  // Localized labels: the bar re-renders on a language change.
+  assert.ok(src.includes('useLang()'), 'nav labels follow the language switch');
+});
+
 test('request info toggle is a real button with label + expansion state', () => {
   const src = componentSource['Chat.tsx'];
   const at = src.indexOf('className="request-info-button"');

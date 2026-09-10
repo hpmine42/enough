@@ -36,7 +36,7 @@ function render(theme: Theme): void {
   document.documentElement.classList.toggle('dark', theme === 'dark');
   // Keep every theme-color meta in sync (light + dark media variants and the
   // installed-PWA status bar all read these tags).
-  const color = theme === 'dark' ? '#191917' : '#F2F1EC';
+  const color = theme === 'dark' ? '#171614' : '#F7F5F0';
   document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
     meta.setAttribute('content', color);
   });
