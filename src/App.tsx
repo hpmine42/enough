@@ -70,12 +70,14 @@ export default function App() {
     return <Login />;
   }
 
-  const settingsMatch = route.startsWith('#/settings');
+  // Both overlay destinations (Settings and the dedicated people-search
+  // screen) dim the stage behind them.
+  const overlayOpen = route.startsWith('#/settings') || route.startsWith('#/new-chat');
   const chatMatch = route.match(/^#\/chat\/(.+)$/);
 
   return (
     <>
-      <div className={`app-stage${settingsMatch ? ' shifted' : ''}`}>
+      <div className={`app-stage${overlayOpen ? ' shifted' : ''}`}>
         {chatMatch ? (
           <Chat connectionId={decodeURIComponent(chatMatch[1])} />
         ) : (

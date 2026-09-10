@@ -42,19 +42,29 @@ existing flow are unchanged.
   anthracite text), soft warm dark mode (`#171614`), one restrained muted-green
   accent, subtle hairline borders and almost no shadows
 - **Primary bottom navigation** — Chats | New chat | Settings — shown on the
-  chat overview and the Settings overview, using the existing hash routing.
-  "New chat" is not a new flow: it opens the existing people search and focuses
-  the field. Active/inactive states are a quiet accent tint, not filled pills
+  chat overview, the dedicated people-search screen and the Settings overview,
+  using the existing hash routing. "New chat" opens the dedicated people-search
+  screen (route `#/new-chat`, the same real search/connection-request flow as
+  before, just its own first-class destination) and focuses the field.
+  Active/inactive states are a quiet accent tint that never moves the bar —
+  tapping a destination changes colour only, the bar stays on the same pixel
+  line
 - **Chat overview**: a calm hairline-separated list instead of card-like rows,
   subtler unread state (tinted count, slightly stronger name), and an empty
   state that offers the real "Search people" action
-- **Chat**: refined bubbles and composer, a quiet end-to-end-encryption marker
-  in the header for peer conversations that disappears when the engine fails
-  (the explicit recovery notice then carries the state), and unchanged
-  long-press, deletion, recovery and offline behaviour
+- **Chat**: refined bubbles and composer, a quiet, icon-only end-to-end
+  encryption marker in the header for peer conversations (a small labelled
+  lock that never competes with the contact name for space) that disappears
+  when the engine fails (the explicit recovery notice then carries the
+  state), and unchanged long-press, deletion, recovery and offline behaviour
+- **People search**: moved out of Settings to its own dedicated screen
+  ("New chat" in the bottom navigation, route `#/new-chat`) — the same real
+  search, connection-request and block-aware behaviour, now a first-class
+  destination with the input focused on arrival
 - **Settings**: the overview is grouped into Account / Preferences / Security /
   About with a centered header title matching its subpages. All categories,
-  subpages, routes and actions are unchanged
+  subpages, routes and actions are unchanged except that the user-search field
+  no longer lives here
 - **Authentication screens**: clearer hierarchy with the brand tagline, larger
   input surfaces, accent focus rings and tinted error surfaces. Validation,
   email confirmation, recovery and routing are unchanged
@@ -82,8 +92,9 @@ New in v0.4.0 (v0.3.0 features below remain):
   duplicate badge counting, cache persistence failures)
 - Long-press action menu on Home/chat rows: block / unblock (with
   confirmation) and delete chat for me; blocked users see a locked composer
-- People management in Settings: global search, active connections with
-  actions, blocked-users hierarchy (`#/settings/people/blocked`)
+- People management in Settings: active connections with actions,
+  blocked-users hierarchy (`#/settings/people/blocked`) — the search that
+  shipped here in v0.4.0 moved to the dedicated "New chat" screen in v0.5.0
 - Privacy policy (EN/DE) at `#/privacy` / `#/datenschutz`, rewritten against
   the actual app behavior, linked from every unauthenticated screen (before
   registration); imprint with two equal-ranking surfaces; contact form
@@ -110,8 +121,8 @@ New in v0.4.0 (v0.3.0 features below remain):
   reached from the bottom navigation since v0.5.0 (it was a header icon)
 - Settings as a full-screen slide-in with a grouped category overview
   (Account / Preferences / Security / About) and subpages:
-  Profile, People (search + blocked-users count, with `#/settings/blocked` as
-  a third-level page), Language, Appearance, Chat preferences (Enter to send,
+  Profile, People (blocked-users count, with `#/settings/blocked` as a
+  third-level page), Language, Appearance, Chat preferences (Enter to send,
   My Notes), Account (email/password change, sign out, delete account), plus a
   version / imprint / GitHub footer
 - Connections: live search, requests with accept / decline (custom dialog) /
@@ -304,8 +315,10 @@ fallback for auto-confirm setups.
   dependency fails CI until `NOTICE` records its license id
 - `npm run test:home` / `npm run test:chatblocks` / `npm run test:api-errors` —
   Home realtime updates, chat block-channel behavior, API error surfacing
-- `npm run test:settings` / `npm run test:blocked` — People settings (search,
-  active connections, blocked hierarchy) and the blocked-composer lock
+- `npm run test:settings` / `npm run test:blocked` — the dedicated
+  people-search screen (its `#/new-chat` entry point, focus, absence from
+  Settings) and People settings (active connections, blocked hierarchy), plus
+  the blocked-composer lock
 - `npm run test:privacy` — privacy routing, contact form validation, and
   Edge-Function runtime guards
 - `npm run test:crypto:prekeys` — **live PostgreSQL** RPC/RLS tests for
@@ -322,9 +335,10 @@ fallback for auto-confirm setups.
   sheet accessible names, the focus trap, the keyboard-reachable request
   info toggle, the unread-badge role and message-bubble names. Since v0.5.0
   it also walks the bottom navigation: the three destinations, the active
-  state on both overviews, and "New chat" opening the people search with the
-  field focused. It asserts the peer chat carries a labelled E2EE marker
-  while My Notes carries none
+  state on the chat overview, the dedicated people-search screen and the
+  Settings overview, and "New chat" opening that dedicated screen (`#/new-chat`)
+  with the field focused. It asserts the peer chat carries a labelled,
+  icon-only E2EE marker while My Notes carries none
 - `npm run verify:signal-wasm` — byte-exact SHA-256 check of the installed
   `@getmaapp/signal-wasm@0.6.6` artifacts against the audited manifest
 - `supabase/rls-tests.sql` — authorization checks against the real database

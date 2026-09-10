@@ -1,4 +1,4 @@
-// enough. — Settings People & text-selection regression tests
+// enough. — People search & Settings People regression tests
 //
 // Run with:
 //   npm run test:settings
@@ -7,9 +7,10 @@
 // (active connections, long-press block, Blocked Users hierarchy, back
 // navigation). This file adds focused source-level guards so the most
 // important invariants fail fast and deterministically:
-//   * Settings search renders only on the overview, never on a subpage;
-//   * the search bar leaves the layout only after the subpage slide, so
-//     opening a submenu cannot shift the overview content upward first;
+//   * the people search is a dedicated screen (route #/new-chat) reached
+//     from the bottom navigation, not a search inside the Settings overview;
+//   * the Settings overview carries no search input and no search-specific
+//     layout machinery;
 //   * PeopleSettings renders active-connection rows with long-press support;
 //   * the Settings → People → Blocked Users hierarchy is route-driven;
 //   * UI chrome is non-selectable while editable fields stay selectable;
@@ -44,20 +45,34 @@ const peopleSettings = read('src/components/settings/PeopleSettings.tsx');
 const peopleSearch = read('src/components/settings/PeopleSearch.tsx');
 const css = read('src/index.css');
 
-test('People search is rendered only on the Settings overview and not by PeopleSettings', () => {
+test('People search lives on its dedicated screen, not in the Settings overview', () => {
+  // The Settings component still hosts the single shared search component…
   assert.ok(
     settings.includes('<PeopleSearch'),
-    'Settings renders the shared people-search component',
+    'the app keeps the single shared people-search component',
   );
   assert.equal(
     settings.split('<PeopleSearch').length - 1,
     1,
-    'Settings renders exactly one PeopleSearch (the overview; subpages do not duplicate it)',
+    'exactly one PeopleSearch render (no duplicate search implementation)',
+  );
+  // …mounted only on the dedicated #/new-chat route, never on the Settings
+  // overview or any subpage.
+  assert.ok(
+    settings.includes("const isNewChatRoute = route.startsWith('#/new-chat')"),
+    'the dedicated people-search route is detected from the hash',
   );
   assert.ok(
-    settings.includes('settings-search-wrap') &&
-      !settings.includes('settings-subpanel-search'),
-    'the search wrapper exists only for the overview (subpanel search removed)',
+    settings.includes('{isNewChatRoute ? ('),
+    'the search screen renders only for the #/new-chat route',
+  );
+  assert.ok(
+    settings.includes('newchat-screen'),
+    'the dedicated screen has its own scroll container',
+  );
+  assert.ok(
+    !settings.includes('settings-search-wrap'),
+    'the old Settings-overview search wrapper is gone',
   );
   assert.ok(
     !peopleSettings.includes('SearchIcon'),
@@ -73,60 +88,48 @@ test('People search is rendered only on the Settings overview and not by PeopleS
   );
 });
 
-test('People search is gated to the Settings overview route', () => {
+test('New chat is the only entry point to the people search', () => {
+  const bottomNav = read('src/components/BottomNav.tsx');
+  const home = read('src/components/Home.tsx');
   assert.ok(
-    settings.includes('const onOverview = open && category === null'),
-    'overview detection compares the open route against the selected category',
+    bottomNav.includes("navigate('#/new-chat')"),
+    'the bottom navigation routes New chat to the dedicated #/new-chat screen',
   );
   assert.ok(
-    settings.includes('useCollapse(onOverview, SUBPANEL_TRANSITION_MS)'),
-    'the overview search is mounted from the overview route only',
+    bottomNav.includes('input.focus()'),
+    'tapping New chat focuses the search input once the screen has rendered',
   );
   assert.ok(
-    settings.includes('{(onOverview || searchCollapse.render) && ('),
-    'the search wrapper mounts on the overview route and only unmounts after the subpage slide',
+    home.includes('openNewChat'),
+    'the Home empty state reuses the same entry point (no parallel flow)',
   );
-  // A subpage deep link must never flash the search bar: the collapse helper
-  // only keeps an element mounted while it is closing, never mounts it for a
-  // route that is not the overview.
+  // Deep links land on the ready field as well.
   assert.ok(
-    !settings.includes('{onOverview && ('),
-    'the search wrapper is not unmounted in the same render that opens a subpage',
+    peopleSearch.includes('autoFocus'),
+    'the dedicated screen focuses the input on mount (deep links)',
   );
 });
 
-test('opening a Settings subpage does not remove the search bar before the transition', () => {
-  // Regression guard for the layout jump: the search wrapper used to unmount
-  // in the very render that added the `open` class to the subpanel, so its
-  // height vanished immediately and the remaining overview content jumped
-  // upward before the submenu was visibly moving. The wrapper must instead
-  // stay in the layout for the whole subpanel slide and be removed only
-  // afterwards, when the submenu already covers the overview.
-  const jsDelay = settings.match(
-    /const SUBPANEL_TRANSITION_MS = (\d+);/,
-  );
-  assert.ok(jsDelay, 'Settings declares the subpanel transition duration');
-  const cssSlide = css.match(
-    /\.settings-subpanel \{[\s\S]*?transition:[\s\S]*?transform ([\d.]+)s/,
-  );
-  assert.ok(cssSlide, 'index.css declares the subpanel slide transition');
-  assert.equal(
-    Number(jsDelay[1]),
-    Math.round(Number(cssSlide[1]) * 1000),
-    'the search bar stays mounted for exactly the subpanel slide duration',
+test('the Settings overview carries no people-search state or layout machinery', () => {
+  // The deferred-unmount helper that once kept the overview search bar
+  // mounted during the subpanel slide is obsolete: nothing on the overview
+  // can leave the layout mid-slide because the search bar is gone.
+  assert.ok(
+    !settings.includes('searchCollapse'),
+    'no deferred search unmount remains in Settings',
   );
   assert.ok(
-    settings.includes('const searchCollapse = useCollapse(onOverview, SUBPANEL_TRANSITION_MS);'),
-    'the search bar keeps the overview geometry for the whole subpanel slide',
+    !settings.includes('SUBPANEL_TRANSITION_MS'),
+    'no search-specific transition constant remains in Settings',
+  );
+  // The overview itself is unchanged: grouped categories, footer, subpages.
+  assert.ok(
+    settings.includes('OVERVIEW_GROUPS'),
+    'the grouped category overview remains',
   );
   assert.ok(
-    settings.includes('{(onOverview || searchCollapse.render) && ('),
-    'the search wrapper renders from the deferred-unmount state, not straight from the route',
-  );
-  assert.ok(
-    css.includes('.settings-search-wrap') &&
-      /\.settings-search-wrap \{[\s\S]*?flex-shrink: 0;/.test(css),
-    'the search wrapper keeps a fixed height, so its box preserves the overview geometry',
+    settings.includes('settings-subpanel-nested'),
+    'the nested blocked-users subpage remains',
   );
 });
 

@@ -4,7 +4,7 @@ import { ChatsIcon, ComposeIcon, GearIcon } from './icons';
 
 interface BottomNavProps {
   /** Destination that is currently shown (drives the subtle active state). */
-  active: 'chats' | 'settings';
+  active: 'chats' | 'new-chat' | 'settings';
   /**
    * True while a Settings subpanel slides over the bar. The bar keeps its box
    * (so the overview geometry stays stable during the slide) but is removed
@@ -13,22 +13,24 @@ interface BottomNavProps {
   covered?: boolean;
 }
 
-/** The people search is the only existing way to start a new conversation. */
-const SEARCH_INPUT = '.settings-search-wrap input';
-/** Upper bound for waiting until the Settings overlay has rendered. */
+/** The search input of the dedicated people-search screen (`#/new-chat`). */
+const SEARCH_INPUT = '.newchat-screen input';
+/** Upper bound for waiting until the people-search screen has rendered. */
 const FOCUS_WAIT_MS = 1000;
 const FOCUS_RETRY_MS = 40;
 
 /**
- * "New chat" opens the existing people search on the Settings overview and
- * focuses it: search by `@username` → connection request → conversation. No
- * parallel flow is introduced, the bar only routes into it.
+ * "New chat" opens the dedicated people-search screen (route `#/new-chat`)
+ * and focuses its input: search by `@username` → connection request →
+ * conversation. The screen hosts the one existing search implementation
+ * (`PeopleSearch`) — no parallel flow is introduced, the bar only routes
+ * into it.
  */
 export function openNewChat(): void {
-  if (!window.location.hash.startsWith('#/settings')) {
-    navigate('#/settings');
+  if (!window.location.hash.startsWith('#/new-chat')) {
+    navigate('#/new-chat');
   }
-  // The overlay is rendered on the hashchange tick that follows, so poll
+  // The screen is rendered on the hashchange tick that follows, so poll
   // briefly instead of assuming a fixed delay.
   const startedAt = Date.now();
   const focusSearch = (): void => {
@@ -47,10 +49,17 @@ export function openNewChat(): void {
 /**
  * Primary navigation: Chats | New chat | Settings.
  *
- * The bar sits at the bottom of the chat overview and of the Settings
- * overview and only uses the existing hash routing (`#/`, `#/settings`).
- * A chat stays a focused full-screen conversation (back button in its
- * header), and Settings subpages keep their own back button.
+ * The bar sits at the bottom of the chat overview, the dedicated
+ * people-search screen and the Settings overview and only uses the existing
+ * hash routing (`#/`, `#/new-chat`, `#/settings`). A chat stays a focused
+ * full-screen conversation (back button in its header), and Settings
+ * subpages keep their own back button.
+ *
+ * Stability contract: tapping an item must never move the bar. The active
+ * state is a colour tint only (no font-weight change, no transform/scale),
+ * and the dimmed app stage behind the Settings overlay changes opacity only.
+ * The `position: sticky` in-flow placement is what keeps the bar on exactly
+ * the same pixel line across all three destinations.
  */
 export default function BottomNav({ active, covered = false }: BottomNavProps) {
   useLang(); // re-render the labels on language change
@@ -78,7 +87,8 @@ export default function BottomNav({ active, covered = false }: BottomNavProps) {
       <button
         type="button"
         data-nav="new-chat"
-        className="bottom-nav-item"
+        className={`bottom-nav-item${active === 'new-chat' ? ' active' : ''}`}
+        aria-current={active === 'new-chat' ? 'page' : undefined}
         onClick={openNewChat}
         tabIndex={tabIndex}
       >

@@ -204,16 +204,17 @@ button,
   outline-offset: 2px;
 }
 
-/* ---------- app stage (home/chat behind settings) ---------- */
-
+/* ---------- app stage (home/chat behind the Settings / new-chat overlays)
+   ---------- */
+/* The stage only DIMS while an overlay is open. It must never move or
+   scale: the bottom navigation inside it has to stay on exactly the same
+   pixel line while a destination changes, so the transition is
+   opacity-only (a layout-stable visual cue). */
 .app-stage {
-  transition:
-    transform 0.3s var(--ease),
-    opacity 0.3s ease;
+  transition: opacity 0.3s ease;
 }
 
 .app-stage.shifted {
-  transform: translateX(-28px) scale(0.99);
   opacity: 0.45;
 }
 
@@ -996,15 +997,10 @@ button,
   overscroll-behavior: contain;
 }
 
-.settings-search-wrap {
-  width: 100%;
-  max-width: 480px;
-  margin: 0 auto;
-  flex-shrink: 0;
-}
-
-.settings-subpanel-search {
-  flex-shrink: 0;
+/* Dedicated people-search screen ("New chat", #/new-chat): the shared
+   PeopleSearch section scrolls in the same way as the Settings overview. */
+.newchat-screen {
+  padding-bottom: 24px;
 }
 
 /* Centered header title, shared by the overview and its subpages. */
@@ -1441,7 +1437,11 @@ button,
 
 /* ---------- primary navigation ----------
    Chats | New chat | Settings. Understated: the active destination is only
-   tinted with the accent colour, no filled pills or oversized buttons. */
+   tinted with the accent colour, no filled pills or oversized buttons.
+   Stability contract: tapping a destination must never move this bar or its
+   items — no transform/scale, no font-weight change (the active state is a
+   colour transition only), and the `position: sticky` in-flow placement
+   keeps the bar on the same pixel line across all destinations. */
 
 .bottom-nav {
   /* Sticky and in-flow: it stays at the bottom of the viewport without ever
@@ -1496,15 +1496,14 @@ button,
   color: var(--accent-text);
 }
 
+/* Single font weight for every item: the active state is a colour tint
+   only. Changing font-weight would reflow the centered label and visibly
+   nudge the item — the bar must stay layout-stable on interaction. */
 .bottom-nav-label {
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.005em;
   line-height: 1.2;
-}
-
-.bottom-nav-item.active .bottom-nav-label {
-  font-weight: 600;
 }
 
 /* Inside the padded overview the bar bleeds to the column edges, so rows
@@ -1760,25 +1759,14 @@ button,
   min-width: 0;
 }
 
-/* Quiet end-to-end-encryption marker. It is decorative for layout purposes
-   (role="img" + aria-label carry the meaning) and stays out of the way. */
+/* Quiet, icon-only end-to-end-encryption marker: a tiny lock that carries
+   its meaning through role="img" + aria-label and never competes with the
+   contact name for horizontal space. */
 .chat-e2ee {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  flex-shrink: 1;
-  min-width: 0;
-  padding-left: 7px;
-  border-left: 1px solid var(--border-strong);
+  flex-shrink: 0;
   color: var(--accent-text);
-  font-size: 11.5px;
-  line-height: 1.2;
-}
-
-.chat-e2ee-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .messages {
@@ -2619,12 +2607,8 @@ button,
 
 /* ---------- responsive ---------- */
 
-/* Narrow phones: keep the E2EE marker from pushing the username away. */
+/* Narrow phones. */
 @media (max-width: 359px) {
-  .chat-e2ee-label {
-    display: none;
-  }
-
   .home-screen {
     padding-left: 16px;
     padding-right: 16px;
@@ -2670,8 +2654,7 @@ button,
   }
 
   .settings-header,
-  .settings-scroll,
-  .settings-search-wrap {
+  .settings-scroll {
     max-width: 480px;
   }
 
