@@ -1358,17 +1358,66 @@ assert(
   'no language switch on home',
 );
 
+/* v0.5.0: primary navigation — Chats | New chat | Settings */
+assert(
+  [...dom.window.document.querySelectorAll('.home-screen .bottom-nav-item')]
+    .map((el) => el.getAttribute('data-nav'))
+    .join(',') === 'chats,new-chat,settings',
+  'bottom navigation renders Chats / New chat / Settings',
+);
+assert(
+  dom.window.document
+    .querySelector('.home-screen [data-nav="chats"]')
+    ?.classList.contains('active') === true,
+  'the chat overview marks Chats as the active destination',
+);
+
+/* "New chat" is not a parallel flow: it routes into the existing people
+   search on the Settings overview and focuses the field. */
+click('.home-screen [data-nav="new-chat"]');
+await waitFor(
+  () =>
+    dom.window.document.querySelector('.settings-overlay')?.classList.contains('open') ===
+      true &&
+    dom.window.document.activeElement ===
+      dom.window.document.querySelector('.settings-overlay .settings-search-wrap input'),
+  'new chat opens the people search and focuses the field',
+);
+setHash('#/');
+await waitFor(
+  () =>
+    dom.window.document.querySelector('.settings-overlay')?.classList.contains('open') ===
+    false,
+  'back to the chat overview',
+);
+
 /* settings opens as overlay with a category overview (R4) */
-click('[aria-label="Settings"]');
+click('.home-screen [data-nav="settings"]');
 await waitFor(
   () => dom.window.document.querySelector('.settings-overlay')?.classList.contains('open'),
   'settings overlay opens',
 );
 assert(
-  [...dom.window.document.querySelectorAll('.settings-overlay .settings-section-title')].some(
-    (el) => el.textContent?.trim() === 'Settings',
-  ),
-  'settings overview shows the Settings category heading',
+  text('.settings-overlay .settings-page-title') === 'Settings',
+  'settings overview shows the Settings page heading',
+);
+assert(
+  dom.window.document
+    .querySelector('.settings-overlay [data-nav="settings"]')
+    ?.classList.contains('active') === true,
+  'the settings overview marks Settings as the active destination',
+);
+// v0.5.0: the six categories are grouped visually (Account / Preferences /
+// Security / About). The grouping is presentational — the rows, their order
+// and their subpages are asserted below and stay unchanged.
+assert(
+  [...dom.window.document.querySelectorAll('.settings-overlay .settings-section-title')]
+    .map((el) => el.textContent?.trim())
+    .filter((label) =>
+      ['Account', 'Preferences', 'Security', 'About'].includes(label),
+    )
+    .join(',') === 'Account,Preferences,Security,About',
+  'settings overview groups the categories (Account / Preferences / Security / About)',
 );
 assert(
   dom.window.document.querySelector('.settings-overlay .settings-search-wrap input') !== null,
@@ -1909,6 +1958,13 @@ await waitFor(
 assert(
   dom.window.document.querySelector('.composer-input')?.disabled === false,
   'composer active after accept',
+);
+/* The peer header carries the quiet E2EE marker; My Notes never does. */
+const e2eeMarker = dom.window.document.querySelector('.chat-header .chat-e2ee');
+assert(
+  e2eeMarker?.getAttribute('role') === 'img' &&
+    (e2eeMarker?.getAttribute('aria-label') ?? '').length > 0,
+  'peer chat shows a labelled E2EE marker',
 );
 /* D1: the bubble is the keyboard long-press target — it must expose its
    button role and a non-empty accessible name. */
@@ -3341,6 +3397,10 @@ assert(
 const notesRow = [...dom.window.document.querySelectorAll('.chat-row .chat')].find((r) => r.textContent.includes('My Notes'));
 notesRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
 await waitFor(() => text('.chat-peer-name') === 'My Notes', 'My Notes chat opens');
+assert(
+  dom.window.document.querySelector('.chat-header .chat-e2ee') === null,
+  'My Notes shows no E2EE marker (plaintext by design)',
+);
 const notesComposer = dom.window.document.querySelector('.composer-input');
 setInputValue(notesComposer, 'Buy milk');
 notesComposer.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
@@ -3739,7 +3799,7 @@ function bootWithTheme(storedMode, osDark) {
   assert(
     booted.window.document
       .querySelector('meta[name="theme-color"]')
-      ?.getAttribute('content') === '#191917',
+      ?.getAttribute('content') === '#171614',
     'restart: status-bar color follows the pre-paint theme',
   );
   booted.window.close();

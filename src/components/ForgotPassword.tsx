@@ -27,6 +27,7 @@ export default function ForgotPassword() {
       <AuthChrome />
       <section className="brand">
         <h1>enough.</h1>
+        <p className="brand-tagline">{t('tagline')}</p>
       </section>
 
       {sent ? (

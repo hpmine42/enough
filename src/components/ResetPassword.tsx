@@ -42,6 +42,7 @@ export default function ResetPassword() {
         <AuthChrome />
         <section className="brand">
           <h1>enough.</h1>
+          <p className="brand-tagline">{t('tagline')}</p>
         </section>
         <section className="notice-card">
           <h2>{t('auth.resetTitle')}</h2>
@@ -63,6 +64,7 @@ export default function ResetPassword() {
       <AuthChrome />
       <section className="brand">
         <h1>enough.</h1>
+        <p className="brand-tagline">{t('tagline')}</p>
       </section>
 
       <form className="form" onSubmit={onSubmit}>

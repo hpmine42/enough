@@ -36,6 +36,7 @@ import {
 } from '../lib/theme';
 import { Connection, Profile } from '../lib/types';
 import BottomSheet from './BottomSheet';
+import BottomNav from './BottomNav';
 import Dialog from './Dialog';
 import ThemeButton from './ThemeButton';
 import {
@@ -76,15 +77,22 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
   'account',
 ];
 
-/** The six top-level categories shown on the overview (blocked lives inside People). */
-const OVERVIEW_CATEGORIES: SettingsCategory[] = [
-  'profile',
-  'people',
-  'language',
-  'appearance',
-  'chat',
-  'account',
-];
+/**
+ * Visual groupings of the six top-level categories on the overview (v0.5.0
+ * redesign; `blocked` lives inside People). The grouping is presentational
+ * only: every category keeps its own subpage, title and content. The rendered
+ * row order is the flattened order of the groups below:
+ * profile, people, language, appearance, chat, account.
+ */
+const OVERVIEW_GROUPS: { title: TranslationKey; categories: SettingsCategory[] }[] =
+  [
+    { title: 'settingsScreen.groupAccount', categories: ['profile', 'people'] },
+    {
+      title: 'settingsScreen.groupPreferences',
+      categories: ['language', 'appearance', 'chat'],
+    },
+    { title: 'settingsScreen.groupSecurity', categories: ['account'] },
+  ];
 
 /** Category subpage title key (blocked is its own third-level subpage). */
 const CATEGORY_TITLE_KEYS: Record<SettingsCategory, TranslationKey> = {
@@ -785,9 +793,10 @@ export default function Settings() {
         >
           <BackIcon size={22} />
         </button>
-        <button type="button" className="logo settings-logo" onClick={() => navigate('#/')}>
-          enough.
-        </button>
+        {/* Same centered title as the subpages: the overview reads as the top
+            level of one navigation stack, and the back button is the single
+            way back to the chats. */}
+        <div className="settings-page-title">{t('settingsScreen.title')}</div>
         <ThemeButton />
       </header>
 
@@ -820,45 +829,54 @@ export default function Settings() {
 
       {/* CATEGORY OVERVIEW */}
       <div className="settings-scroll settings-overview">
-        <Section title={t('settingsScreen.title')}>
-          {OVERVIEW_CATEGORIES.map((cat) => (
-            <CategoryRow
-              key={cat}
-              category={cat}
-              label={t(CATEGORY_TITLE_KEYS[cat])}
-              badge={cat === 'people' ? blockedIds.size : undefined}
-            />
-          ))}
-        </Section>
+        {OVERVIEW_GROUPS.map((group) => (
+          <Section key={group.title} title={t(group.title)}>
+            {group.categories.map((cat) => (
+              <CategoryRow
+                key={cat}
+                category={cat}
+                label={t(CATEGORY_TITLE_KEYS[cat])}
+                badge={cat === 'people' ? blockedIds.size : undefined}
+              />
+            ))}
+          </Section>
+        ))}
 
-        {/* FOOTER */}
-        <footer className="settings-footer">
-          <span>
-            {t('settingsScreen.footer')} {__APP_VERSION__}
-          </span>
-          <a
-            className="link settings-legal-link"
-            href={lang === 'de' ? '#/impressum' : '#/imprint'}
-          >
-            {t('legal.imprint')}
-          </a>
-          <a
-            className="link settings-privacy-link"
-            href={lang === 'de' ? '#/datenschutz' : '#/privacy'}
-          >
-            {t('legal.privacy')}
-          </a>
-          <a
-            className="link settings-github"
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <GithubIcon size={15} />
-            {t('settingsScreen.github')}
-          </a>
-        </footer>
+        {/* FOOTER — the About group: version, legal surfaces, source. */}
+        <Section title={t('settingsScreen.groupAbout')}>
+          <footer className="settings-footer">
+            <span className="settings-footer-version">
+              {t('settingsScreen.footer')} {__APP_VERSION__}
+            </span>
+            <a
+              className="link settings-legal-link"
+              href={lang === 'de' ? '#/impressum' : '#/imprint'}
+            >
+              {t('legal.imprint')}
+            </a>
+            <a
+              className="link settings-privacy-link"
+              href={lang === 'de' ? '#/datenschutz' : '#/privacy'}
+            >
+              {t('legal.privacy')}
+            </a>
+            <a
+              className="link settings-github"
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <GithubIcon size={15} />
+              {t('settingsScreen.github')}
+            </a>
+          </footer>
+        </Section>
       </div>
+
+      {/* Primary navigation. It stays in the layout while a subpanel slides
+          over it (stable overview geometry) but is hidden from assistive
+          technology and the tab order, because it is then not visible. */}
+      <BottomNav active="settings" covered={subpageOpen} />
 
       {/* CATEGORY SUBPAGE — slides in like the settings overlay */}
       <div

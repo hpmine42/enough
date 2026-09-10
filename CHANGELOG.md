@@ -9,6 +9,83 @@ verified, and what remains open.
 
 ---
 
+## 0.5.0
+
+The UX/UI redesign milestone — **"Quiet Modern"**: warm, minimal, calm,
+mobile-first. This is a presentation-layer release — no schema, protocol,
+authorization or cryptographic behavior changed.
+
+### Design system
+
+- **Token-driven stylesheet.** `src/index.css` is now a design system: one set
+  of colour, typography, spacing, radius, border, elevation and motion tokens
+  that every component consumes, instead of per-screen values. Light/dark/
+  system, focus states and the responsive rules all derive from it.
+- **Warm light / soft warm dark.** Light: `#F7F5F0` canvas, `#FCFBF8` surfaces,
+  `#EFEEE8` secondary surfaces, `#232320` text, `#607A63` muted-green accent
+  (used restrained: active navigation, focus rings, toggles, unread counts).
+  Dark: `#171614` canvas with warm surfaces and `#ECE9E1` text. `--button` and
+  `--sent` still collapse onto one anthracite in light mode, so the R6
+  scroll-down knockout ring and its guard (`test:contrast`) apply unchanged.
+- The palette moved with it: `#F7F5F0` / `#171614` are now the `theme-color`
+  meta values, the manifest colours and the installed-app status bar colour
+  (`index.html`, `src/lib/theme.ts`, `public/manifest.webmanifest`).
+
+### Navigation
+
+- **Bottom navigation** (`src/components/BottomNav.tsx`): Chats | New chat |
+  Settings, shown on the chat overview and on the Settings overview and driven
+  by the existing hash routes. Active/inactive is a quiet accent tint.
+  "New chat" is not a parallel flow: it opens the existing people search and
+  focuses the field. While a Settings subpanel covers the bar, the bar keeps
+  its box but leaves the accessibility tree and the tab order.
+- Settings is no longer a Home header icon (the bar replaces that entry); the
+  Home header keeps the logo and the theme toggle.
+
+### Screens
+
+- **Chat overview**: hairline-separated rows instead of card-like blocks,
+  inset dividers, subtler unread state (small tinted count, slightly stronger
+  name), and an empty state that offers the real "Search people" action. The
+  overview scrolls with the page and the bar sits in flow at the bottom
+  (`position: sticky`), so it never covers a row.
+- **Chat**: refined bubbles, grouping and composer; a quiet end-to-end
+  encryption marker in the header for peer conversations (`role="img"` +
+  `chat.e2eeLabel`, EN/DE). It disappears when the engine failed, so the
+  explicit recovery notice — not a reassuring icon — carries that state.
+- **Settings**: the overview groups the six existing categories into
+  Account / Preferences / Security / About and shows a centered title matching
+  the subpages. Categories, order, subpages, routes and actions are unchanged.
+- **Authentication**: brand tagline, larger input surfaces, accent focus rings,
+  tinted error surfaces. Validation, username availability checks, email
+  confirmation, recovery and routing are unchanged.
+
+### Verification
+
+- `npm run build`, every `test:*` suite (including the embedded-PostgreSQL
+  `test:crypto:prekeys` and `test:rls`) and `npm run smoke` pass.
+- The smoke test gained redesign coverage: the three navigation destinations
+  and their order, the active state on both overviews, "New chat" opening the
+  Settings overlay and focusing the people search, the Settings page heading
+  and its four group headings, and the new pre-paint status-bar colour. It
+  also asserts the labelled E2EE marker in a peer chat header and its absence
+  in My Notes.
+- `test:a11y` gained a `BottomNav` contract: each destination carries a visible
+  label, the active one is announced with `aria-current="page"`, and a covered
+  bar leaves both the accessibility tree and the tab order.
+- Unchanged by design: E2EE (Signal Protocol, PQXDH, Double Ratchet,
+  Kyber-1024, pinned WASM), RLS and migrations, Realtime behavior, Offline
+  Read Mode, local crypto-state protection, and every existing i18n string.
+
+### Open / notes
+
+- No safety-number / fingerprint UI yet (unchanged); **C-1** (coordinated
+  full-origin storage rollback) remains an open documented limitation.
+- The `design/` mockups still show the pre-v0.5.0 appearance and are kept as a
+  historical reference; the app icons were not regenerated.
+
+---
+
 ## 0.4.0
 
 The privacy, reliability, security/recovery and release-foundation milestone.

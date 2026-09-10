@@ -5,9 +5,10 @@ find another `@username`, send a connection request, and chat.
 
 > **Less, but enough.**
 
-Current release: **v0.4.0** — the privacy, reliability, security/recovery and
-release-foundation milestone. Release history lives in
-[`CHANGELOG.md`](CHANGELOG.md).
+Current release: **v0.5.0** — the UX/UI redesign milestone ("Quiet Modern").
+Every v0.4.0 feature remains functional; the release before it was the
+privacy, reliability, security/recovery and release-foundation milestone.
+Release history lives in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Stack
 
@@ -22,8 +23,41 @@ release-foundation milestone. Release history lives in
 ## Design references
 
 The `design/` directory contains the original visual mockups
-(`login.html`, `home.html`, `chat.html`). They are permanent references for the
-production UI and should not be modified or turned into the app.
+(`login.html`, `home.html`, `chat.html`). They document the pre-v0.5.0
+appearance and are kept as a historical reference — the production UI is the
+redesigned one, defined by the design tokens and components in
+[`src/index.css`](src/index.css). The mockups should not be modified or turned
+into the app.
+
+## Features (v0.5.0)
+
+New in v0.5.0 — a full UX/UI redesign. It is a presentation-layer change:
+authentication, Supabase/RLS, Realtime, E2EE, Offline Read Mode and every
+existing flow are unchanged.
+
+- **"Quiet Modern" design system** in `src/index.css`: one token set
+  (colour, type, spacing, radii, borders, elevation) consumed by every
+  component, so light/dark/system, focus states and the responsive rules stay
+  consistent. Warm cream light mode (`#F7F5F0` canvas, `#FCFBF8` surfaces,
+  anthracite text), soft warm dark mode (`#171614`), one restrained muted-green
+  accent, subtle hairline borders and almost no shadows
+- **Primary bottom navigation** — Chats | New chat | Settings — shown on the
+  chat overview and the Settings overview, using the existing hash routing.
+  "New chat" is not a new flow: it opens the existing people search and focuses
+  the field. Active/inactive states are a quiet accent tint, not filled pills
+- **Chat overview**: a calm hairline-separated list instead of card-like rows,
+  subtler unread state (tinted count, slightly stronger name), and an empty
+  state that offers the real "Search people" action
+- **Chat**: refined bubbles and composer, a quiet end-to-end-encryption marker
+  in the header for peer conversations that disappears when the engine fails
+  (the explicit recovery notice then carries the state), and unchanged
+  long-press, deletion, recovery and offline behaviour
+- **Settings**: the overview is grouped into Account / Preferences / Security /
+  About with a centered header title matching its subpages. All categories,
+  subpages, routes and actions are unchanged
+- **Authentication screens**: clearer hierarchy with the brand tagline, larger
+  input surfaces, accent focus rings and tinted error surfaces. Validation,
+  email confirmation, recovery and routing are unchanged
 
 ## Features (v0.4.0)
 
@@ -70,10 +104,12 @@ New in v0.4.0 (v0.3.0 features below remain):
 - Localization: English (default) and German; auth screens have an EN/DE switch,
   Settings has the full language control; no page reload on switch
 - Theme: Light / Dark / System (default), persisted, no flash of the wrong theme
-- Minimal Home: logo, theme toggle, settings, two-line chat rows (display name
+- Minimal Home: logo, theme toggle, two-line chat rows (display name
   with inline `@username` or My Notes tag, preview + unread badge), relative
-  timestamps, 44 px avatars with a clear gap from the text
-- Settings as a full-screen slide-in with a category overview and subpages:
+  timestamps, 44 px avatars with a clear gap from the text. Settings is
+  reached from the bottom navigation since v0.5.0 (it was a header icon)
+- Settings as a full-screen slide-in with a grouped category overview
+  (Account / Preferences / Security / About) and subpages:
   Profile, People (search + blocked-users count, with `#/settings/blocked` as
   a third-level page), Language, Appearance, Chat preferences (Enter to send,
   My Notes), Account (email/password change, sign out, delete account), plus a
@@ -284,7 +320,11 @@ fallback for auto-confirm setups.
   chat, deletion, My Notes, sign out). It is not a substitute for live-backend
   testing. It also asserts the rendered accessibility contract: dialog and
   sheet accessible names, the focus trap, the keyboard-reachable request
-  info toggle, the unread-badge role and message-bubble names
+  info toggle, the unread-badge role and message-bubble names. Since v0.5.0
+  it also walks the bottom navigation: the three destinations, the active
+  state on both overviews, and "New chat" opening the people search with the
+  field focused. It asserts the peer chat carries a labelled E2EE marker
+  while My Notes carries none
 - `npm run verify:signal-wasm` — byte-exact SHA-256 check of the installed
   `@getmaapp/signal-wasm@0.6.6` artifacts against the audited manifest
 - `supabase/rls-tests.sql` — authorization checks against the real database
@@ -319,6 +359,10 @@ and is applied before first paint to avoid a flash. The theme module
 modes (light → dark → system → light) without a dialog, and Settings offers
 the same three-way choice. `system` follows the operating-system preference
 while the app is running; light and dark are independent of the OS.
+
+Both palettes are warm: light uses a `#F7F5F0` canvas, dark a `#171614` one.
+Those same two values are used for the `theme-color` meta tags, the manifest
+colours and the installed-app status bar.
 
 ## Imprint
 

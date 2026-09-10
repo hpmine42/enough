@@ -1,40 +1,102 @@
 /* ==================================================================
-   enough. — global stylesheet
-   Warm beige light mode, warm dark-gray dark mode. Low contrast,
-   calm, mostly straight shapes with moderate rounding.
+   enough. — design system + global stylesheet
+
+   v0.5.0 "Quiet Modern": warm minimalism, generous whitespace, one
+   type scale, one spacing scale, restrained colour. Every component
+   below consumes the tokens defined here, so light/dark/system themes
+   and the responsive rules stay consistent across the whole app.
    ================================================================== */
+
+/* ---------- tokens: warm light ---------- */
 
 :root {
   color-scheme: light;
-  --bg: #f2f1ec;
-  --text: #252522;
-  --muted: #77766f;
-  --border: #d6d4cc;
-  --button: #292925;
-  --button-text: #f2f1ec;
-  --received: #e3e1d9;
-  --sent: #292925;
-  --sent-text: #f2f1ec;
-  --danger: #b3543a;
-  --ok: #5d7d4e;
-  --overlay: rgba(37, 37, 34, 0.35);
+  --bg: #f7f5f0;
+  --surface: #fcfbf8;
+  --surface-2: #efeee8;
+  --text: #232320;
+  --text-soft: #4a4941;
+  --muted: #6c6a61;
+  --border: #e3e0d7;
+  --border-strong: #d3cfc3;
+  --accent: #607a63;
+  --accent-text: #4c6350;
+  --accent-strong: #4c6350;
+  --accent-soft: rgba(96, 122, 99, 0.12);
+  --button: #2a2a24;
+  --button-text: #f7f5f0;
+  --button-press: #1f1f1a;
+  --received: #efeee8;
+  --sent: #2a2a24;
+  --sent-text: #f7f5f0;
+  --danger: #a44a35;
+  --danger-soft: rgba(164, 74, 53, 0.1);
+  --ok: #4f6b52;
+  --badge-bg: #4c6350;
+  --badge-text: #f7f5f0;
+  --overlay: rgba(35, 34, 30, 0.4);
+  --shadow-1: 0 1px 2px rgba(35, 34, 30, 0.06);
+  --shadow-2: 0 6px 24px rgba(35, 34, 30, 0.12);
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    monospace;
+  --nav-height: 60px;
+  --column: 430px;
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --md-inline-code-bg: rgba(0, 0, 0, 0.08);
+  --md-inline-code-border: rgba(0, 0, 0, 0.06);
+  --md-code-bg: rgba(0, 0, 0, 0.07);
+  --md-code-border: rgba(0, 0, 0, 0.08);
+  --md-quote-border: var(--border-strong);
+  --md-quote-text: var(--muted);
+  --md-link-underline: var(--muted);
 }
+
+/* ---------- tokens: soft warm dark ---------- */
 
 :root.dark {
   color-scheme: dark;
-  --bg: #191917;
-  --text: #e7e6df;
-  --muted: #929189;
-  --border: #33332f;
-  --button: #e4e3dc;
-  --button-text: #191917;
-  --received: #2a2a26;
-  --sent: #e4e3dc;
-  --sent-text: #191917;
-  --danger: #d08b7a;
+  --bg: #171614;
+  --surface: #1e1d1a;
+  --surface-2: #262420;
+  --text: #ece9e1;
+  --text-soft: #d2cec4;
+  --muted: #9b978d;
+  --border: #2d2b26;
+  --border-strong: #3d3a33;
+  --accent: #8bab8e;
+  --accent-text: #a2c0a5;
+  --accent-strong: #79997c;
+  --accent-soft: rgba(139, 171, 142, 0.14);
+  --button: #e5e2d8;
+  --button-text: #171614;
+  --button-press: #f2efe6;
+  --received: #262420;
+  --sent: #e5e2d8;
+  --sent-text: #171614;
+  --danger: #d9907e;
+  --danger-soft: rgba(217, 144, 126, 0.14);
   --ok: #a3bd8d;
+  --badge-bg: rgba(157, 187, 159, 0.18);
+  --badge-text: #a9c6ab;
   --overlay: rgba(0, 0, 0, 0.55);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 6px 24px rgba(0, 0, 0, 0.45);
 }
+
+/* ---------- base ---------- */
 
 * {
   box-sizing: border-box;
@@ -56,13 +118,12 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   transition:
     background 0.25s ease,
     color 0.25s ease;
@@ -75,12 +136,19 @@ a {
 
 button {
   font-family: inherit;
+  font-size: inherit;
   touch-action: manipulation;
 }
 
 input,
 textarea {
   font-family: inherit;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.015em;
 }
 
 /*
@@ -100,6 +168,8 @@ button,
 .option,
 .tab,
 .nav-label,
+.bottom-nav,
+.settings-page-title,
 .settings-section-title,
 .settings-row,
 .settings-row-label,
@@ -138,23 +208,23 @@ button,
 
 .app-stage {
   transition:
-    transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    transform 0.3s var(--ease),
     opacity 0.3s ease;
 }
 
 .app-stage.shifted {
-  transform: translateX(-56px);
-  opacity: 0.5;
+  transform: translateX(-28px) scale(0.99);
+  opacity: 0.45;
 }
 
 /* ---------- shared controls ---------- */
 
 .icon-button {
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
-  border: 1px solid var(--border);
-  border-radius: 50%;
+  border: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -163,13 +233,26 @@ button,
   justify-content: center;
   padding: 0;
   transition:
-    background 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease;
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.icon-button:hover {
+  background: var(--surface-2);
+  color: var(--text-soft);
 }
 
 .icon-button:active {
-  transform: scale(0.94);
+  transform: scale(0.95);
+}
+
+.icon-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.icon-button:disabled:hover {
+  background: transparent;
 }
 
 .floating {
@@ -179,61 +262,80 @@ button,
 }
 
 .btn-small {
-  height: 40px;
-  padding: 0 16px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   background: var(--button);
   color: var(--button-text);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13.5px;
+  font-weight: 550;
   cursor: pointer;
   flex-shrink: 0;
   transition:
-    background 0.2s ease,
-    color 0.2s ease,
-    border-color 0.2s ease,
-    opacity 0.2s ease,
+    background 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    opacity 0.18s ease,
     transform 0.15s ease;
 }
 
 .btn-small:active:not(:disabled) {
-  transform: scale(0.96);
+  transform: scale(0.97);
+  background: var(--button-press);
 }
 
 .btn-small.ghost {
   background: transparent;
-  color: var(--muted);
-  border-color: var(--border);
+  color: var(--text-soft);
+  border-color: var(--border-strong);
+}
+
+.btn-small.ghost:active:not(:disabled) {
+  background: var(--surface-2);
 }
 
 .btn-small:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: default;
 }
 
 .btn-plain {
   height: 42px;
-  padding: 0 16px;
+  padding: 0 14px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
   font-size: 15px;
   font-weight: 500;
   cursor: pointer;
+  transition: color 0.18s ease;
+}
+
+.btn-plain:hover {
+  color: var(--text);
 }
 
 .btn-primary {
-  height: 42px;
+  height: 44px;
   padding: 0 18px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--button);
   color: var(--button-text);
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 550;
   cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.15s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--button-press);
 }
 
 .btn-primary.danger {
@@ -242,7 +344,7 @@ button,
 }
 
 .btn-primary:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: default;
 }
 
@@ -254,7 +356,13 @@ button,
   border: 0;
   padding: 0;
   font-size: inherit;
-  transition: opacity 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    color 0.2s ease;
+}
+
+.link:hover {
+  color: var(--accent-text);
 }
 
 .link:active {
@@ -271,7 +379,7 @@ button,
 .auth-screen {
   position: relative;
   width: 100%;
-  max-width: 430px;
+  max-width: var(--column);
   min-height: 100dvh;
   margin: 0 auto;
   padding:
@@ -287,49 +395,60 @@ button,
   top: calc(env(safe-area-inset-top) + 14px);
   right: 20px;
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   z-index: 5;
 }
 
 .lang-button {
-  width: 42px;
-  height: 42px;
-  border: 1px solid var(--border);
-  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   cursor: pointer;
   transition:
-    background 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease;
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.lang-button:hover {
+  background: var(--surface-2);
+  color: var(--text-soft);
 }
 
 .lang-button:active {
-  transform: scale(0.94);
+  transform: scale(0.95);
 }
 
 .brand {
-  margin-top: 16vh;
-  margin-bottom: 40px;
+  margin-top: 15vh;
+  margin-bottom: 36px;
 }
 
 .brand h1 {
   margin: 0;
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   -webkit-user-select: none;
   user-select: none;
+}
+
+.brand-tagline {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+  letter-spacing: 0;
 }
 
 .form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .form-hint {
@@ -341,63 +460,74 @@ button,
 
 .input {
   width: 100%;
-  height: 54px;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
+  height: 52px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
   color: var(--text);
   padding: 0 16px;
   font-size: 16px;
   outline: none;
   transition:
-    border-color 0.25s ease,
-    color 0.25s ease;
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .input::placeholder {
   color: var(--muted);
+  opacity: 0.85;
+}
+
+.input:hover {
+  border-color: var(--muted);
 }
 
 .input:focus {
-  border-color: var(--muted);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .button {
   width: 100%;
-  height: 54px;
-  margin-top: 4px;
+  height: 52px;
+  margin-top: 6px;
   border: 0;
-  border-radius: 13px;
+  border-radius: var(--radius-md);
   background: var(--button);
   color: var(--button-text);
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 550;
   cursor: pointer;
   transition:
-    background 0.25s ease,
-    color 0.25s ease,
-    opacity 0.25s ease,
+    background 0.2s ease,
+    color 0.2s ease,
+    opacity 0.2s ease,
     transform 0.15s ease;
 }
 
+.button:hover:not(:disabled) {
+  background: var(--button-press);
+}
+
 .button:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(0.99);
 }
 
 .button:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: default;
 }
 
 .register {
-  margin-top: 18px;
+  margin-top: 22px;
   text-align: center;
   font-size: 14px;
   color: var(--muted);
 }
 
 .auth-links {
-  margin-top: 14px;
+  margin-top: 16px;
   text-align: center;
   font-size: 14px;
   animation: fade-in 0.3s ease-out;
@@ -406,11 +536,17 @@ button,
 .auth-links .link {
   color: var(--muted);
   text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.auth-links .link:hover {
+  color: var(--accent-text);
 }
 
 .notice-card {
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
   padding: 20px;
   animation: fade-in 0.25s ease-out;
   transition:
@@ -446,6 +582,12 @@ button,
   font-weight: 500;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+.legal-footer .link:hover,
+.settings-legal-link:hover,
+.settings-privacy-link:hover {
+  color: var(--accent-text);
 }
 
 /* Separator between the two legal links (imprint · privacy policy). Decorative
@@ -517,6 +659,10 @@ button,
   border-color: var(--danger);
 }
 
+.at-field.invalid .at-input:focus {
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
 .at-field.valid .at-input {
   border-color: var(--ok);
 }
@@ -539,17 +685,17 @@ button,
   color: var(--muted);
 }
 
-/* ---------- home ---------- */
+/* ---------- home / chat overview ---------- */
 
 .home-screen {
+  position: relative;
   width: 100%;
-  max-width: 430px;
+  max-width: var(--column);
   min-height: 100dvh;
   margin: 0 auto;
-  padding:
-    calc(env(safe-area-inset-top) + 28px)
-    22px
-    calc(env(safe-area-inset-bottom) + 24px);
+  display: flex;
+  flex-direction: column;
+  padding: calc(env(safe-area-inset-top) + 20px) 22px 0;
   animation: screen-in 0.2s ease-out;
 }
 
@@ -564,13 +710,13 @@ button,
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 26px;
+  margin-bottom: var(--space-5);
 }
 
 .logo {
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 
 .logo-button {
@@ -578,7 +724,7 @@ button,
   background: transparent;
   color: var(--text);
   cursor: pointer;
-  padding: 10px 14px 10px 2px;
+  padding: 8px 14px 8px 2px;
   transition: opacity 0.2s ease;
 }
 
@@ -588,7 +734,7 @@ button,
 
 .home-header-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .chat-list {
@@ -605,12 +751,24 @@ button,
     color 0.25s ease;
 }
 
-/* ---------- chat rows ---------- */
+/* ---------- chat rows ----------
+   Quiet list, not a stack of cards: rows sit on the canvas and are separated
+   by a hairline that starts behind the text, so the avatar column reads as
+   one calm gutter. */
 
 .chat-row {
-  border-bottom: 1px solid var(--border);
-  padding: 4px 0;
-  transition: background 0.2s ease;
+  position: relative;
+  transition: background 0.18s ease;
+}
+
+.chat-row + .chat-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 62px;
+  right: 4px;
+  height: 1px;
+  background: var(--border);
 }
 
 .chat {
@@ -623,15 +781,19 @@ button,
   color: var(--text);
   text-align: left;
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: background 0.18s ease;
 }
 
 .chat-overview-row {
   gap: 14px;
 }
 
+.chat:hover {
+  background: var(--surface);
+}
+
 .chat:active {
-  background: var(--received);
+  background: var(--surface-2);
 }
 
 .chat-text {
@@ -656,8 +818,9 @@ button,
 }
 
 .chat-name {
-  font-size: 16px;
+  font-size: 15.5px;
   font-weight: 500;
+  letter-spacing: -0.01em;
   flex-shrink: 1;
   min-width: 0;
   overflow: hidden;
@@ -669,13 +832,14 @@ button,
   font-size: 12px;
   color: var(--muted);
   flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .chat-subline {
   margin-top: 3px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .chat-preview {
@@ -703,8 +867,8 @@ button,
   align-items: center;
   gap: 5px;
   padding: 1px 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
   font-size: 11.5px;
   color: var(--muted);
   white-space: nowrap;
@@ -715,32 +879,39 @@ button,
   font-style: italic;
 }
 
+/* Unread stays subtle: a slightly stronger name, the preview in the normal
+   text colour, and a small tinted count — never a loud badge. */
 .chat-row.unread .chat-name {
   font-weight: 650;
 }
 
+.chat-row.unread .chat-preview {
+  color: var(--text-soft);
+}
+
 .unread-badge {
-  min-width: 22px;
-  height: 22px;
+  min-width: 20px;
+  height: 19px;
   padding: 0 6px;
-  border-radius: 11px;
-  background: var(--button);
-  color: var(--button-text);
-  font-size: 12px;
+  border-radius: var(--radius-pill);
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: 11.5px;
   font-weight: 600;
-  line-height: 22px;
+  line-height: 19px;
   text-align: center;
   flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .chat-row-actions {
   display: flex;
-  gap: 8px;
-  padding: 2px 4px 12px;
+  gap: var(--space-2);
+  padding: 0 4px 12px 62px;
 }
 
 .request-label {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -749,19 +920,20 @@ button,
 }
 
 .empty {
-  margin-top: 90px;
+  margin-top: 84px;
   text-align: center;
   color: var(--muted);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .empty-title {
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 550;
   color: var(--text);
-  margin-bottom: 8px;
+  letter-spacing: -0.01em;
 }
 
 .empty-text {
@@ -769,6 +941,10 @@ button,
   line-height: 1.55;
   max-width: 260px;
   margin: 0 auto;
+}
+
+.empty-action {
+  margin-top: 8px;
 }
 
 /* ---------- settings ---------- */
@@ -783,7 +959,7 @@ button,
   visibility: hidden;
   pointer-events: none;
   transition:
-    transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    transform 0.3s var(--ease),
     opacity 0.3s ease,
     visibility 0s linear 0.3s;
   display: flex;
@@ -796,28 +972,19 @@ button,
   visibility: visible;
   pointer-events: auto;
   transition:
-    transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    transform 0.3s var(--ease),
     opacity 0.3s ease,
     visibility 0s;
 }
 
 .settings-header {
-  height: 60px;
+  height: 56px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: calc(env(safe-area-inset-top) + 2px) 18px 0;
+  padding: calc(env(safe-area-inset-top) + 2px) 14px 0;
   border-bottom: 1px solid var(--border);
-}
-
-.settings-logo {
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  padding: 10px;
-  margin-left: -10px;
 }
 
 .settings-scroll {
@@ -840,21 +1007,28 @@ button,
   flex-shrink: 0;
 }
 
+/* Centered header title, shared by the overview and its subpages. */
+.settings-page-title,
+.settings-subpanel-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--text);
+}
+
 .settings-section {
-  padding: 26px 22px 16px;
+  padding: 24px 22px 8px;
 }
 
 .settings-section + .settings-section {
-  border-top: 1px solid var(--border);
-  margin-top: 10px;
-  padding-top: 28px;
+  padding-top: 26px;
 }
 
 .settings-section-title {
-  margin: 0 0 16px;
-  font-size: 11.5px;
+  margin: 0 0 6px;
+  font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.09em;
   color: var(--muted);
   font-weight: 600;
 }
@@ -871,7 +1045,7 @@ button,
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 20px 0;
+  padding: 15px 0;
   border: 0;
   border-bottom: 1px solid var(--border);
   background: transparent;
@@ -882,12 +1056,16 @@ button,
 .settings-row.clickable {
   cursor: pointer;
   transition:
-    background 0.2s ease,
-    color 0.2s ease;
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.settings-row.clickable:hover {
+  color: var(--accent-text);
 }
 
 .settings-row.clickable:active {
-  background: var(--received);
+  background: var(--surface-2);
 }
 
 .settings-row-main {
@@ -929,8 +1107,8 @@ button,
 .settings-static-row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  padding: 18px 0;
+  gap: var(--space-3);
+  padding: 15px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -942,6 +1120,11 @@ button,
   color: var(--text);
   text-align: left;
   cursor: pointer;
+  transition: color 0.18s ease;
+}
+
+.settings-email-row:hover {
+  color: var(--accent-text);
 }
 
 .settings-static-label {
@@ -962,6 +1145,7 @@ button,
   font-size: 14px;
   color: var(--muted);
   text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .settings-inline-form {
@@ -970,7 +1154,7 @@ button,
   gap: 10px;
   margin-top: 12px;
   padding-bottom: 8px;
-  animation: form-in 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+  animation: form-in 0.22s var(--ease);
 }
 
 .settings-inline-form.closing {
@@ -1015,8 +1199,8 @@ button,
 }
 
 .settings-search-row {
-  gap: 12px;
-  padding: 16px 4px;
+  gap: var(--space-3);
+  padding: 14px 4px;
 }
 
 .settings-search-row:disabled {
@@ -1027,7 +1211,7 @@ button,
 /* Active-connection rows on Settings → People */
 .settings-connection-row {
   gap: 14px;
-  padding: 14px 4px;
+  padding: 12px 4px;
 }
 
 .settings-connection-row:disabled {
@@ -1043,8 +1227,8 @@ button,
 .blocked-search-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 18px 0;
+  gap: var(--space-3);
+  padding: 16px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -1055,7 +1239,7 @@ button,
   gap: 6px;
 }
 
-/* settings subpage (blocked users) — mirrors the overlay's slide-in */
+/* settings subpage — mirrors the overlay's slide-in */
 .settings-subpanel {
   position: absolute;
   inset: 0;
@@ -1068,7 +1252,7 @@ button,
   visibility: hidden;
   pointer-events: none;
   transition:
-    transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    transform 0.3s var(--ease),
     opacity 0.3s ease,
     visibility 0s linear 0.3s;
 }
@@ -1079,7 +1263,7 @@ button,
   visibility: visible;
   pointer-events: auto;
   transition:
-    transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+    transform 0.3s var(--ease),
     opacity 0.3s ease,
     visibility 0s;
 }
@@ -1090,14 +1274,12 @@ button,
   z-index: 3;
 }
 
-.settings-subpanel-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text);
+.settings-subpanel .settings-scroll {
+  padding: 8px 22px 32px;
 }
 
-.settings-subpanel .settings-scroll {
-  padding: 18px 22px 32px;
+.settings-subpanel .settings-section:first-child {
+  padding-top: 22px;
 }
 
 .settings-subpanel .settings-row:last-child {
@@ -1105,7 +1287,7 @@ button,
 }
 
 .settings-blocked-empty {
-  padding: 20px 0;
+  padding: 18px 0;
 }
 
 /* settings category overview — rows open the matching subpage */
@@ -1114,6 +1296,10 @@ button,
   align-items: center;
   gap: 10px;
   color: var(--muted);
+}
+
+.settings-category-row .settings-row-label {
+  font-weight: 450;
 }
 
 .blocked-row-control {
@@ -1130,41 +1316,47 @@ button,
 
 .badge-soft {
   display: inline-block;
-  padding: 3px 9px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  padding: 2px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
   font-size: 12px;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .option-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px 0 16px;
+  gap: 10px;
+  padding: 10px 0 16px;
 }
 
 .option {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 54px;
+  height: 52px;
   padding: 0 16px;
   border: 1px solid var(--border);
-  border-radius: 13px;
-  background: transparent;
+  border-radius: var(--radius-md);
+  background: var(--surface);
   color: var(--text);
   font-size: 15.5px;
   cursor: pointer;
   transition:
-    border-color 0.25s ease,
-    background 0.25s ease,
-    color 0.25s ease;
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.option:hover {
+  border-color: var(--border-strong);
 }
 
 .option.selected {
-  border-color: var(--button);
-  background: var(--received);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
 }
 
 .option-label {
@@ -1177,15 +1369,25 @@ button,
   color: var(--muted);
 }
 
+.option.selected .option-label svg {
+  color: var(--accent-text);
+}
+
+/* About group: version, legal surfaces and the source link. Kept as the
+   shared footer element, laid out as a quiet row list. */
 .settings-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 14px 20px;
-  padding: 32px 22px calc(env(safe-area-inset-bottom) + 26px);
+  gap: 4px 18px;
+  /* The bottom navigation below already carries the safe-area inset. */
+  padding: 4px 0 24px;
   font-size: 13px;
   color: var(--muted);
+}
+
+.settings-footer-version {
+  font-variant-numeric: tabular-nums;
 }
 
 .settings-github {
@@ -1201,9 +1403,9 @@ button,
 .toggle {
   width: 46px;
   height: 28px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
   padding: 2px;
   cursor: pointer;
   transition:
@@ -1218,23 +1420,100 @@ button,
   border-radius: 50%;
   background: var(--muted);
   transition:
-    transform 0.2s cubic-bezier(0.32, 0.72, 0, 1),
+    transform 0.2s var(--ease),
     background 0.2s ease;
 }
 
 .toggle.on {
-  background: var(--button);
-  border-color: var(--button);
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
 }
 
 .toggle.on .toggle-knob {
   transform: translateX(18px);
-  background: var(--button-text);
+  background: #fbfaf7;
 }
 
 .toggle:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+/* ---------- primary navigation ----------
+   Chats | New chat | Settings. Understated: the active destination is only
+   tinted with the accent colour, no filled pills or oversized buttons. */
+
+.bottom-nav {
+  /* Sticky and in-flow: it stays at the bottom of the viewport without ever
+     covering the last row, and it needs no extra scroll container. */
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  height: calc(var(--nav-height) + env(safe-area-inset-bottom));
+  padding: 0 6px env(safe-area-inset-bottom);
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  transition: opacity 0.2s ease;
+}
+
+/* A Settings subpanel covers the bar: it keeps its box (stable geometry
+   during the slide) but disappears from view. */
+.bottom-nav.covered {
+  opacity: 0;
+}
+
+.bottom-nav-item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 6px 2px;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease;
+}
+
+.bottom-nav-item:hover {
+  color: var(--text-soft);
+}
+
+.bottom-nav-item:active {
+  background: var(--surface-2);
+}
+
+.bottom-nav-item.active {
+  color: var(--accent-text);
+}
+
+.bottom-nav-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+  line-height: 1.2;
+}
+
+.bottom-nav-item.active .bottom-nav-label {
+  font-weight: 600;
+}
+
+/* Inside the padded overview the bar bleeds to the column edges, so rows
+   scrolling behind it are covered across the full width. */
+.home-screen > .bottom-nav {
+  margin-left: -22px;
+  margin-right: -22px;
+  padding-left: 28px;
+  padding-right: 28px;
 }
 
 /* ---------- dialogs & bottom sheets ---------- */
@@ -1270,12 +1549,15 @@ button,
 .dialog {
   width: 100%;
   max-width: 340px;
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 22px;
-  animation: dialog-in 0.22s cubic-bezier(0.32, 0.72, 0, 1);
-  transition: background 0.25s ease, border-color 0.25s ease;
+  box-shadow: var(--shadow-2);
+  animation: dialog-in 0.22s var(--ease);
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease;
 }
 
 .dialog-title {
@@ -1294,7 +1576,7 @@ button,
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   margin-top: 20px;
 }
 
@@ -1313,20 +1595,20 @@ button,
 @keyframes dialog-in {
   from {
     opacity: 0;
-    transform: scale(0.96);
+    transform: scale(0.97);
   }
 }
 
 .sheet {
   width: 100%;
-  max-width: 430px;
+  max-width: var(--column);
   margin: 0 auto;
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-bottom: 0;
-  border-radius: 18px 18px 0 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   padding: 10px 16px calc(env(safe-area-inset-bottom) + 14px);
-  animation: sheet-in 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+  animation: sheet-in 0.22s var(--ease);
 }
 
 .sheet.closing {
@@ -1348,7 +1630,7 @@ button,
 .sheet-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   height: 52px;
   padding: 0 8px;
   border: 0;
@@ -1358,6 +1640,11 @@ button,
   font-size: 15.5px;
   cursor: pointer;
   text-align: left;
+  transition: background 0.18s ease;
+}
+
+.sheet-item:hover:not(:disabled) {
+  background: var(--surface-2);
 }
 
 .sheet-item:last-of-type {
@@ -1384,15 +1671,20 @@ button,
 
 .sheet-cancel {
   width: 100%;
-  height: 50px;
+  height: 48px;
   margin-top: 8px;
   border: 0;
-  border-radius: 13px;
-  background: var(--received);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
   color: var(--text);
   font-size: 15.5px;
   font-weight: 500;
   cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.sheet-cancel:hover {
+  background: var(--border);
 }
 
 @keyframes sheet-in {
@@ -1414,7 +1706,7 @@ button,
 .chat-screen {
   position: relative;
   width: 100%;
-  max-width: 430px;
+  max-width: var(--column);
   height: 100dvh;
   margin: 0 auto;
   display: flex;
@@ -1425,12 +1717,12 @@ button,
 }
 
 .chat-header {
-  height: 64px;
+  height: 62px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 16px;
+  padding: 0 14px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -1440,15 +1732,23 @@ button,
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding-left: 6px;
+  padding-left: 8px;
 }
 
 .chat-peer-name {
-  font-size: 16px;
+  font-size: 15.5px;
   font-weight: 600;
+  letter-spacing: -0.012em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.chat-peer-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
 }
 
 .chat-peer-username {
@@ -1457,13 +1757,35 @@ button,
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Quiet end-to-end-encryption marker. It is decorative for layout purposes
+   (role="img" + aria-label carry the meaning) and stays out of the way. */
+.chat-e2ee {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 1;
+  min-width: 0;
+  padding-left: 7px;
+  border-left: 1px solid var(--border-strong);
+  color: var(--accent-text);
+  font-size: 11.5px;
+  line-height: 1.2;
+}
+
+.chat-e2ee-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .messages {
   position: relative;
   flex: 1;
   overflow-y: auto;
-  padding: 18px 18px 10px;
+  padding: 18px 16px 10px;
   display: flex;
   flex-direction: column;
   overscroll-behavior: contain;
@@ -1474,14 +1796,15 @@ button,
 
 .message {
   max-width: 78%;
-  padding: 7px 12px 6px;
-  border-radius: 14px;
-  font-size: 15px;
-  line-height: 1.42;
+  padding: 8px 13px 7px;
+  border-radius: var(--radius-md);
+  font-size: 15.5px;
+  line-height: 1.45;
+  letter-spacing: -0.006em;
   word-break: break-word;
   white-space: pre-wrap;
   animation: msg-in 0.16s ease-out;
-  margin-top: 4px;
+  margin-top: 3px;
   cursor: default;
   touch-action: manipulation;
 }
@@ -1548,7 +1871,7 @@ button,
 }
 
 .message.group-first {
-  margin-top: 16px;
+  margin-top: 14px;
 }
 
 .message.group-first.received {
@@ -1584,8 +1907,9 @@ button,
 .time {
   margin-top: 3px;
   font-size: 10.5px;
-  opacity: 0.55;
+  opacity: 0.6;
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .system-line {
@@ -1597,6 +1921,10 @@ button,
   text-align: center;
   line-height: 1.5;
   max-width: 85%;
+}
+
+.system-line.own {
+  color: var(--muted);
 }
 
 .chat-empty {
@@ -1611,7 +1939,7 @@ button,
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: var(--space-3);
   flex: 1;
 }
 
@@ -1638,8 +1966,10 @@ button,
   flex-shrink: 0;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
-  background: var(--received);
-  transition: background 0.25s ease, opacity 0.2s ease;
+  background: var(--surface-2);
+  transition:
+    background 0.25s ease,
+    opacity 0.2s ease;
   animation: fade-in 0.2s ease-out;
 }
 
@@ -1667,12 +1997,12 @@ button,
   background: none;
   color: var(--muted);
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
 }
 
 .request-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .request-info-text {
@@ -1682,12 +2012,12 @@ button,
   color: var(--muted);
 }
 
-/* composer */
+/* composer — deliberately just a text field and a send button */
 
 .composer {
-  padding: 8px 12px calc(env(safe-area-inset-bottom) + 22px);
+  padding: 10px 14px calc(env(safe-area-inset-bottom) + 18px);
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: flex-end;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
@@ -1697,29 +2027,32 @@ button,
 .composer-input {
   flex: 1;
   min-width: 0;
-  min-height: 52px;
+  min-height: 46px;
   max-height: 110px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
   color: var(--text);
-  padding: 14px 15px;
-  font-size: 15px;
+  padding: 12px 14px;
+  font-size: 15.5px;
   line-height: 1.42;
   outline: none;
   resize: none;
   overflow-y: hidden;
   transition:
-    border-color 0.25s ease,
-    color 0.25s ease;
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .composer-input::placeholder {
   color: var(--muted);
+  opacity: 0.85;
 }
 
 .composer-input:focus {
-  border-color: var(--muted);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .composer-input.disabled {
@@ -1740,7 +2073,7 @@ button,
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 10px 18px;
   line-height: 1.45;
 }
@@ -1749,15 +2082,17 @@ button,
  * E2EE initialization failed (audit C1). Reuses the .composer-disabled.blocked
  * layout (text + action, stacked) but reads as a state that needs attention
  * rather than a passive hint, so the explanation is set in the normal text
- * colour instead of --muted. No new colours are introduced.
+ * colour on a soft danger tint.
  */
 .composer-disabled.e2ee-error {
   color: var(--text);
+  background: var(--danger-soft);
+  border-top-color: var(--border-strong);
 }
 
 .send {
-  width: 52px;
-  height: 52px;
+  width: 46px;
+  height: 46px;
   flex-shrink: 0;
   border: 0;
   border-radius: 50%;
@@ -1772,12 +2107,16 @@ button,
     transform 0.2s ease;
 }
 
+.send:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
 .send:active {
   transform: scale(0.94);
 }
 
 .send:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: default;
 }
 
@@ -1803,7 +2142,7 @@ button,
 
 /*
  * R6 — light mode only. `--button` and `--sent` resolve to the same color
- * (#292925), so over the user's own bubbles the disc has no edge at all and
+ * (#2a2a24), so over the user's own bubbles the disc has no edge at all and
  * the shared dark drop shadow disappears into them (~1.09:1 over the bubble).
  * Dark mode does not have that problem: the identical shadow stays visible
  * against the light disc (~1.51:1), so it keeps the base rule untouched.
@@ -1813,13 +2152,10 @@ button,
  * `box-shadow` rather than a `border`/`outline` — it changes neither the
  * geometry nor the entrance animation nor the global `:focus-visible`
  * outline. Scoped to `.scroll-down` so the other `var(--button)` consumers
- * (`.btn-small`, `.btn-primary`, `.button`, `.unread-badge`, `.toggle.on`)
- * are unaffected.
+ * (`.btn-small`, `.btn-primary`, `.button`) are unaffected.
  */
 :root:not(.dark) .scroll-down {
-  box-shadow:
-    0 0 0 2px var(--bg),
-    0 2px 10px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 0 0 2px var(--bg), 0 2px 10px rgba(0, 0, 0, 0.18);
 }
 
 @keyframes scroll-down-in {
@@ -1877,7 +2213,7 @@ button,
 .legal-header-actions {
   justify-self: end;
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .legal-content {
@@ -1894,8 +2230,8 @@ button,
   --legal-card-inset: clamp(18px, 5vw, 24px);
 
   border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--bg);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
 }
 
 .legal-imprint-card {
@@ -1961,8 +2297,8 @@ button,
   margin: 32px 0 38px;
   padding: 16px 18px;
   border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--received);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
   font-size: 13px;
   line-height: 1.55;
 }
@@ -1998,169 +2334,151 @@ button,
   font-size: 14.5px;
   font-style: normal;
   line-height: 1.7;
+  color: var(--text-soft);
 }
 
 .legal-section p + p {
-  margin-top: 4px;
+  margin-top: 12px;
 }
 
 .legal-section address strong {
-  font-weight: 550;
+  color: var(--text);
+  font-weight: 600;
 }
 
 .legal-contact-list {
   margin: 0;
+  font-size: 14.5px;
+  line-height: 1.7;
 }
 
 .legal-contact-list > div {
   display: grid;
-  grid-template-columns: minmax(72px, 110px) 1fr;
-  gap: 12px;
-  padding: 7px 0;
+  grid-template-columns: minmax(96px, auto) 1fr;
+  gap: 4px 16px;
 }
 
 .legal-contact-list dt {
   color: var(--muted);
-  font-size: 14px;
 }
 
 .legal-contact-list dd {
-  min-width: 0;
   margin: 0;
-  font-size: 14.5px;
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
 .legal-contact-list .link {
+  color: var(--text);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
-/* The contact e-mail belongs to the "Service provider" block, directly below
-   the postal address, so it needs a small gap instead of the section rhythm. */
 .legal-contact-list.legal-provider-contact {
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
-/* ---------- privacy policy: contents + section rhythm ---------- */
-
-/* The policy is long, so it gets a quiet table of contents: same rules as the
-   sections (a top border, small-caps label), no boxes and no card chrome. */
 .legal-toc {
-  margin-top: 32px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
+  margin: 32px 0 8px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
 
 .legal-toc-title {
-  margin: 0 0 8px;
-  color: var(--muted);
-  font-size: 11px;
+  margin: 0 0 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
+  color: var(--muted);
 }
 
 .legal-toc-list {
-  display: grid;
-  /* min(240px, 100%) keeps a single column instead of overflowing on a
-     320px-wide phone. */
-  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
-  gap: 0 24px;
   margin: 0;
   padding: 0;
   list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 6px 20px;
 }
 
 .legal-toc-link {
   display: block;
-  width: 100%;
-  /* German section titles contain long compounds ("Ende-zu-Ende-…") that must
-     not push the narrow column wider than the viewport. */
-  overflow-wrap: anywhere;
-  padding: 4px 0;
-  border: 0;
-  background: none;
-  color: var(--text);
-  font: inherit;
+  padding: 2px 0;
+  color: var(--text-soft);
   font-size: 13.5px;
-  line-height: 1.45;
-  text-align: left;
+  line-height: 1.5;
   cursor: pointer;
+  background: none;
+  border: 0;
+  text-align: left;
+  font-family: inherit;
+  transition: color 0.18s ease;
 }
 
 .legal-toc-link:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  color: var(--accent-text);
 }
 
-/* Privacy sections get a slightly looser paragraph rhythm than the imprint,
-   because their paragraphs are long blocks rather than single lines. The
-   doubled class keeps the rule above `.legal-section p + p` in specificity. */
 .legal-section-privacy {
-  scroll-margin-top: 16px;
+  /* Keep the anchor clear of the sticky-ish header when jumped to. */
+  scroll-margin-top: calc(env(safe-area-inset-top) + 80px);
 }
 
-/* The policy quotes identifiers verbatim (@getmaapp/signal-wasm,
-   sb-<project-ref>-auth-token, messages.ciphertext); they must wrap rather than
-   widen the column on small screens. */
 .legal-section-privacy p {
   overflow-wrap: anywhere;
 }
 
 .legal-section-privacy > * + * {
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 .legal-section-privacy > h2 + * {
-  margin-top: 0;
+  margin-top: 12px;
 }
 
-/* Programmatic focus after a contents jump must not draw a box around the
-   whole section, while keyboard focus keeps the global outline. */
 .legal-section-privacy:focus:not(:focus-visible) {
   outline: none;
 }
 
-/* Published sources for the provider statements; muted, not a call-to-action. */
 .legal-refs {
-  padding: 12px 14px;
+  margin-top: 32px;
+  padding: 18px 20px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
 
 .legal-refs-title {
-  margin: 0 0 6px;
-  color: var(--muted);
-  font-size: 11px;
+  margin: 0 0 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
+  color: var(--muted);
 }
 
 .legal-refs-list {
-  display: grid;
-  gap: 5px;
   margin: 0;
   padding: 0;
   list-style: none;
   font-size: 13.5px;
-  line-height: 1.5;
+  line-height: 1.7;
 }
 
 .legal-refs-list .link {
+  color: var(--text-soft);
   text-decoration: underline;
   text-underline-offset: 3px;
-  overflow-wrap: anywhere;
 }
 
-/* ---------- legal / contact form ---------- */
-
 .contact-form {
-  margin-top: 24px;
+  margin-top: 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .contact-field {
@@ -2170,110 +2488,109 @@ button,
 }
 
 .contact-label {
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 500;
-  color: var(--text);
+  color: var(--muted);
 }
 
 .contact-input {
   width: 100%;
-  height: 48px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg);
+  height: 46px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   color: var(--text);
   padding: 0 14px;
   font-size: 15px;
   outline: none;
-  transition: border-color 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .contact-input:focus {
-  border-color: var(--muted);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .contact-textarea {
   width: 100%;
-  min-height: 120px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg);
+  min-height: 132px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   color: var(--text);
   padding: 12px 14px;
   font-size: 15px;
-  line-height: 1.5;
-  outline: none;
+  line-height: 1.55;
   resize: vertical;
-  transition: border-color 0.2s ease;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .contact-textarea:focus {
-  border-color: var(--muted);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .contact-privacy-note {
-  margin: 0;
   font-size: 12.5px;
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--muted);
 }
 
 .contact-success {
-  padding: 16px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--received);
   font-size: 14px;
-  line-height: 1.5;
-  color: var(--text);
+  color: var(--ok);
 }
 
 .contact-success-box {
   margin-top: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
 }
 
 .contact-error {
-  margin: 0;
   font-size: 13.5px;
-  color: #e53935;
+  color: var(--danger);
 }
 
-/* ---------- shared / utility ---------- */
-
 .notice {
-  margin: 0;
+  margin: 12px 0;
   font-size: 14px;
   color: var(--muted);
 }
 
 .error {
-  margin: 0;
-  font-size: 14px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
   color: var(--danger);
-  animation: fade-in 0.2s ease-out;
+  font-size: 13.5px;
+  line-height: 1.5;
 }
 
 .chat-error {
-  margin: 0;
-  padding: 0 18px 4px;
-  font-size: 14px;
+  margin: 0 16px 8px;
 }
 
 .loading {
-  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
+  min-height: 100dvh;
   color: var(--muted);
-  font-size: 16px;
+  font-size: 15px;
 }
 
 .config-screen {
   width: 100%;
-  max-width: 430px;
+  max-width: var(--column);
   min-height: 100dvh;
   margin: 0 auto;
   padding:
@@ -2283,35 +2600,65 @@ button,
 }
 
 .config-screen .brand {
-  margin-bottom: 24px;
+  margin-top: 12vh;
+  margin-bottom: 28px;
 }
 
 .config-screen p {
-  color: var(--muted);
-  font-size: 15px;
+  margin: 0 0 12px;
+  font-size: 14px;
   line-height: 1.6;
+  color: var(--muted);
 }
 
 .config-screen code {
   color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
 }
 
-/* ---------- desktop ---------- */
+/* ---------- responsive ---------- */
 
+/* Narrow phones: keep the E2EE marker from pushing the username away. */
+@media (max-width: 359px) {
+  .chat-e2ee-label {
+    display: none;
+  }
+
+  .home-screen {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .home-screen > .bottom-nav {
+    margin-left: -16px;
+    margin-right: -16px;
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+
+  .settings-section {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+/* Tablet / desktop: the app stays a phone-width column with a soft frame. */
 @media (min-width: 760px) {
   .auth-screen,
   .home-screen,
   .chat-screen,
   .legal-screen {
-    margin-top: 20px;
-    margin-bottom: 20px;
+    margin-top: 24px;
+    margin-bottom: 24px;
     border: 1px solid var(--border);
-    border-radius: 18px;
-    min-height: calc(100dvh - 40px);
+    border-radius: var(--radius-lg);
+    min-height: calc(100dvh - 48px);
+    box-shadow: var(--shadow-1);
   }
 
   .chat-screen {
-    height: calc(100dvh - 40px);
+    height: calc(100dvh - 48px);
   }
 
   .brand {
@@ -2323,42 +2670,38 @@ button,
   }
 
   .settings-header,
-  .settings-scroll {
+  .settings-scroll,
+  .settings-search-wrap {
     max-width: 480px;
   }
 
   .settings-header {
     width: 100%;
   }
+
+  .sheet {
+    border-radius: var(--radius-lg);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+
+  /* Follow the frame's rounded bottom corners. */
+  .home-screen > .bottom-nav {
+    border-radius: 0 0 calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px);
+  }
 }
 
-/* ---------- markdown in messages ---------- */
-
-/*
- * Markdown palette — the bubble is the color context, not the global theme.
+/* ---------- markdown in messages ----------
  *
- * The bubble background depends on the theme AND on who sent the message
- * (light theme: sent = dark bubble, received = light bubble; dark theme:
- * sent = light bubble, received = dark bubble). Markdown must keep enough
- * contrast against whichever bubble it sits on, so each bubble context
- * defines its own palette here. The .md-* rules below only consume these
- * variables — the markdown renderer never needs to know about theme or
- * sender/receiver.
+ * The bubble is the color context, not the global theme: the bubble background
+ * depends on the theme AND on who sent the message. Markdown must keep enough
+ * contrast against whichever bubble it sits on, so each bubble context defines
+ * its own palette here. The .md-* rules below only consume these variables —
+ * the markdown renderer never needs to know about theme or sender/receiver.
  *
  * Dark bubble  -> light surfaces on dark (light overlays).
  * Light bubble -> dark surfaces on light (dark overlays).
  */
-
-/* Light bubble (received in light mode): dark surfaces on light. */
-:root {
-  --md-inline-code-bg: rgba(0, 0, 0, 0.08);
-  --md-inline-code-border: rgba(0, 0, 0, 0.06);
-  --md-code-bg: rgba(0, 0, 0, 0.07);
-  --md-code-border: rgba(0, 0, 0, 0.08);
-  --md-quote-border: var(--border);
-  --md-quote-text: var(--muted);
-  --md-link-underline: var(--muted);
-}
 
 /* Dark bubble (sent in light mode): light surfaces on dark. */
 .message.sent {
@@ -2384,13 +2727,13 @@ button,
 
 /* Light bubble (sent in dark mode): dark surfaces on light. */
 :root.dark .message.sent {
-  --md-inline-code-bg: rgba(25, 25, 23, 0.1);
-  --md-inline-code-border: rgba(25, 25, 23, 0.18);
-  --md-code-bg: rgba(25, 25, 23, 0.08);
-  --md-code-border: rgba(25, 25, 23, 0.32);
-  --md-quote-border: rgba(25, 25, 23, 0.38);
+  --md-inline-code-bg: rgba(23, 22, 20, 0.1);
+  --md-inline-code-border: rgba(23, 22, 20, 0.18);
+  --md-code-bg: rgba(23, 22, 20, 0.08);
+  --md-code-border: rgba(23, 22, 20, 0.32);
+  --md-quote-border: rgba(23, 22, 20, 0.38);
   --md-quote-text: var(--sent-text);
-  --md-link-underline: rgba(25, 25, 23, 0.6);
+  --md-link-underline: rgba(23, 22, 20, 0.6);
 }
 
 .md-root {
@@ -2400,11 +2743,10 @@ button,
 }
 
 .message .md-root {
-  white-space: normal;
+  font-size: inherit;
+  line-height: inherit;
 }
 
-/* Blocks at the very start/end of a message hug the bubble padding
-   instead of adding extra air. */
 .md-root > :first-child {
   margin-top: 0;
 }
@@ -2413,26 +2755,23 @@ button,
   margin-bottom: 0;
 }
 
-/* Headings stay modest on purpose: bold, only slightly larger steps,
-   so they feel like part of the message rather than a document. */
 .md-heading {
-  display: block;
-  margin: 0.55em 0 0.35em;
+  margin: 8px 0 4px;
   font-weight: 600;
   line-height: 1.3;
-  text-align: left;
+  letter-spacing: -0.01em;
 }
 
 .md-h1 {
-  font-size: 1.28em;
+  font-size: 1.35em;
 }
 
 .md-h2 {
-  font-size: 1.16em;
+  font-size: 1.22em;
 }
 
 .md-h3 {
-  font-size: 1.07em;
+  font-size: 1.1em;
 }
 
 .md-h4,
@@ -2442,13 +2781,12 @@ button,
 }
 
 .md-list {
-  margin: 0.5em 0 0.3em;
-  padding-left: 1.3em;
-  text-align: left;
+  margin: 6px 0;
+  padding-left: 20px;
 }
 
 .md-list > li {
-  margin: 0.12em 0;
+  margin: 2px 0;
 }
 
 .md-list > li:first-child {
@@ -2460,68 +2798,57 @@ button,
 }
 
 .md-quote {
-  margin: 0.5em 0 0.3em;
+  margin: 6px 0;
   padding: 2px 0 2px 10px;
   border-left: 2px solid var(--md-quote-border);
   color: var(--md-quote-text);
-  text-align: left;
 }
 
 .md-paragraph {
-  display: block;
+  margin: 0;
 }
 
 .md-paragraph + .md-paragraph {
-  margin-top: 0.65em;
+  margin-top: 8px;
 }
 
 .md-paragraph-gap {
-  display: block;
-  height: 0.65em;
+  height: 8px;
 }
 
 .md-inline-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.9em;
   padding: 1px 5px;
-  border-radius: 6px;
-  background: var(--md-inline-code-bg);
   border: 1px solid var(--md-inline-code-border);
-  word-break: break-all;
+  border-radius: var(--radius-xs);
+  background: var(--md-inline-code-bg);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
 }
 
 .md-code-block {
   margin: 8px 0;
   padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--md-code-bg);
   border: 1px solid var(--md-code-border);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
+  border-radius: var(--radius-sm);
+  background: var(--md-code-bg);
   overflow-x: auto;
-  text-align: left;
 }
 
 .md-code-block code {
-  font-family: inherit;
-  background: transparent;
-  border: 0;
-  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  white-space: pre;
 }
 
 .md-link {
   color: inherit;
   text-decoration: underline;
-  text-underline-offset: 3px;
   text-decoration-color: var(--md-link-underline);
-  word-break: break-all;
+  text-underline-offset: 2px;
 }
 
 .md-bold {
-  font-weight: 700;
+  font-weight: 650;
 }
 
 .md-italic {
@@ -2530,7 +2857,6 @@ button,
 
 .md-strike {
   text-decoration: line-through;
-  opacity: 0.85;
 }
 
 /* ---------- account delete spacing ---------- */
@@ -2540,7 +2866,7 @@ button,
    itself, so the dangerous action is visually set apart. */
 .settings-delete-separator {
   height: 1px;
-  margin: 48px 0 0;
+  margin: 44px 0 0;
   background: var(--border);
 }
 
@@ -2548,8 +2874,8 @@ button,
    above and below the text centers Delete Account between the two
    dividers. */
 .settings-row.delete-spaced {
-  padding-top: 26px;
-  padding-bottom: 26px;
+  padding-top: 24px;
+  padding-bottom: 24px;
 }
 
 /* ---------- reduced motion ---------- */
@@ -2582,7 +2908,7 @@ button,
   }
 }
 
-/* ---------- offline read mode (v0.3.x) ---------- */
+/* ---------- offline read mode ---------- */
 
 /* A single quiet status line. Mobile-first, non-blocking, never a modal:
    cached reading must continue while it is visible. */
@@ -2591,12 +2917,12 @@ button,
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 6px 14px;
   font-size: 12.5px;
   line-height: 1.4;
   color: var(--muted);
-  background: var(--received);
+  background: var(--surface-2);
   border-bottom: 1px solid var(--border);
   text-align: center;
   animation: fade-in 0.2s ease-out;
