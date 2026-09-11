@@ -57,10 +57,18 @@ test('People search lives on its dedicated screen, not in the Settings overview'
     'exactly one PeopleSearch render (no duplicate search implementation)',
   );
   // …mounted only on the dedicated #/new-chat route, never on the Settings
-  // overview or any subpage.
+  // overview or any subpage. The overlay renders the route it was opened with
+  // and keeps it while it closes (`npm run test:transition`), so the rendered
+  // destination can only ever be a route the overlay was actually open at.
   assert.ok(
-    settings.includes("const isNewChatRoute = route.startsWith('#/new-chat')"),
-    'the dedicated people-search route is detected from the hash',
+    settings.includes("const isNewChatRoute = renderedRoute.startsWith('#/new-chat')"),
+    'the dedicated people-search screen is detected from the rendered route',
+  );
+  assert.ok(
+    settings.includes(
+      "const open = route.startsWith('#/settings') || route.startsWith('#/new-chat');",
+    ),
+    'the overlay opens exactly for the Settings and New chat hash routes',
   );
   assert.ok(
     settings.includes('{isNewChatRoute ? ('),

@@ -33,6 +33,7 @@
     "test:privacy": "node --test --experimental-strip-types src/lib/__tests__/privacy-routing.test.mjs src/lib/__tests__/privacy-contact.test.mjs src/lib/__tests__/edge-function-runtime.test.mjs",
     "test:a11y": "node --test --experimental-strip-types src/lib/__tests__/accessibility.test.mjs",
     "test:nav": "node --test src/lib/__tests__/bottom-nav.test.mjs",
+    "test:transition": "node --test src/lib/__tests__/screen-transition.test.mjs",
     "test:crypto:prekeys": "node scripts/run-crypto-prekeys-tests.mjs",
     "test:rls": "node scripts/run-rls-tests.mjs",
     "verify:signal-wasm": "node scripts/verify-signal-wasm.mjs"

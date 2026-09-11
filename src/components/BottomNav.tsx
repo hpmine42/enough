@@ -31,13 +31,17 @@ export function openNewChat(): void {
     navigate('#/new-chat');
   }
   // The screen is rendered on the hashchange tick that follows, so poll
-  // briefly instead of assuming a fixed delay.
+  // briefly instead of assuming a fixed delay. The field can already be in
+  // the DOM while the overlay is still hidden — the closing overlay keeps the
+  // destination it is sliding back out mounted until it opens again — and
+  // focusing a hidden element is a no-op, so polling stops only once the
+  // browser has actually focused the field.
   const startedAt = Date.now();
   const focusSearch = (): void => {
     const input = document.querySelector<HTMLInputElement>(SEARCH_INPUT);
     if (input) {
       input.focus();
-      return;
+      if (document.activeElement === input) return;
     }
     if (Date.now() - startedAt < FOCUS_WAIT_MS) {
       window.setTimeout(focusSearch, FOCUS_RETRY_MS);

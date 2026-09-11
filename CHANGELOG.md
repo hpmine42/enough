@@ -56,6 +56,18 @@ authorization or cryptographic behavior changed.
   and focuses its field — the existing real search, not a parallel flow.
   While a Settings subpanel covers the bar, the bar leaves the accessibility
   tree and the tab order.
+- **One transition, both directions.** `#/` ↔ `#/new-chat` is a single
+  animation: the overlay enters with `translateX(56px)` → `0` and `opacity`
+  `0` → `1` (`transform 0.3s var(--ease)`, `opacity 0.3s ease`) while the chat
+  overview behind it dims to 45% opacity, and leaving the screen is exactly
+  that animation in reverse — same properties, same duration, same easing,
+  same distance, without an additional fade, scale or movement. The overlay
+  keeps the destination it is closing until the exit is over and renders the
+  next destination in the same commit that adds `.open`, so the surface
+  sliding back out is the screen that slid in (previously it had already
+  flipped to the Settings overview, which made the return look like a
+  different animation). The bottom bar is not part of it: it keeps its
+  position, size, stacking and active-state timing on every frame.
 - Settings is no longer a Home header icon (the bar replaces that entry); the
   Home header keeps the logo and the theme toggle.
 
@@ -118,10 +130,20 @@ authorization or cryptographic behavior changed.
   asserts the same invariants against the rendered DOM (same element across
   destinations, sibling of `.app-stage`, covered state on a Settings
   subpage).
+- `test:transition` (new, CI-discovered) guards the bidirectional screen
+  transition between `#/` and `#/new-chat`: entrance and exit declare the same
+  transition properties, duration and easing and the mirrored distance
+  (horizontal only, `opacity`-only dim behind it, no additional animation on
+  the dedicated screen), the overlay renders a destination in the same commit
+  as its `.open` class, and no `.bottom-nav*` rule takes part in the
+  transition. The smoke test records every DOM frame of both directions and
+  asserts that the closing overlay still shows the New chat screen and that
+  the opening one already shows the destination it opens.
 - `test:settings` gained source-level guards for the dedicated people-search
-  screen: the single `PeopleSearch` render is gated to `#/new-chat`, the
-  overview carries no search input or search-specific layout machinery, and
-  "New chat" is the only entry point (bottom navigation + Home empty state).
+  screen: the single `PeopleSearch` render is gated to `#/new-chat` (through
+  the destination the overlay renders), the overview carries no search input
+  or search-specific layout machinery, and "New chat" is the only entry point
+  (bottom navigation + Home empty state).
 - Unchanged by design: E2EE (Signal Protocol, PQXDH, Double Ratchet,
   Kyber-1024, pinned WASM), RLS and migrations, Realtime behavior, Offline
   Read Mode, local crypto-state protection, and every existing i18n string.
