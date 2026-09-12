@@ -991,6 +991,111 @@ button,
     visibility 0s;
 }
 
+/* ---------- the overlay's two top-level destinations ----------
+   The overlay hosts two equal destinations: the dedicated people-search
+   screen ("New chat", #/new-chat) and the Settings overview (#/settings).
+   Both are full-size surfaces of the same shape as a `.settings-subpanel`
+   (own header, own scroll body), so switching between them is one horizontal
+   movement of two peers instead of a single screen swapping its content.
+
+   Each destination keeps its side: New chat is the left area, Settings the
+   right one. Moving to Settings therefore moves everything left — the search
+   screen out to the left, the Settings overview in from the right — and
+   moving back to New chat is exactly that movement played backwards (both
+   move right). Same distance, same duration, same curve in both directions,
+   which is why no direction state is needed anywhere.
+
+   The animations belong to the swap only: the overlay's own entrance/exit and
+   the Settings subpages keep their own transitions, so a plain `.active` pane
+   carries no animation at all and no second screen animation can ever run on
+   top of the overlay's slide. */
+.settings-pane {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+/* The destination a running swap is animating away from: it stays underneath
+   the arriving pane (which is why it loses the stacking order), keeps its own
+   content for the exit and is not interactive. Its base style is already the
+   end of the exit, so without animations (reduced motion, or an environment
+   that does not run them) only the arriving pane is left visible. */
+.settings-pane.leaving {
+  z-index: 0;
+  pointer-events: none;
+}
+
+.settings-pane-new-chat.entering {
+  animation: pane-in-left 0.3s var(--ease);
+}
+
+.settings-pane-settings.entering {
+  animation: pane-in-right 0.3s var(--ease);
+}
+
+.settings-pane-new-chat.leaving {
+  transform: translateX(-56px);
+  opacity: 0;
+  animation: pane-out-left 0.3s var(--ease) forwards;
+}
+
+.settings-pane-settings.leaving {
+  transform: translateX(56px);
+  opacity: 0;
+  animation: pane-out-right 0.3s var(--ease) forwards;
+}
+
+/* Leaving New chat: the search screen slides out to the left while the
+   Settings overview arrives from the right — both travel the same 56px, so
+   the two areas move as one. */
+@keyframes pane-out-left {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-56px);
+  }
+}
+
+@keyframes pane-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(56px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Leaving Settings: the same movement in reverse — everything moves right. */
+@keyframes pane-out-right {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(56px);
+  }
+}
+
+@keyframes pane-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-56px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .settings-header {
   height: 56px;
   flex-shrink: 0;

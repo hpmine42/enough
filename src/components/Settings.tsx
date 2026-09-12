@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { usePreferences } from '../context/PreferencesContext';
 import { useHashRoute, navigate } from '../lib/router';
@@ -98,6 +98,45 @@ export function settingsCategoryFromRoute(route: string): SettingsCategory | nul
 }
 
 /**
+ * The two equal top-level destinations the overlay hosts: the dedicated
+ * people-search screen ("New chat", `#/new-chat`) and the Settings overview
+ * (`#/settings`). Both are full app areas of the same rank, which is why
+ * switching between them is a horizontal swap between two peers — not a
+ * level change like opening a Settings subpage.
+ */
+type OverlayDestination = 'new-chat' | 'settings';
+
+/**
+ * The top-level destination a route points at, or `null` for every route
+ * that is not one of them: `#/settings/<category>` is one level deeper (the
+ * subpanel keeps its own slide), and `#/` and `#/chat/…` are outside the
+ * overlay entirely.
+ */
+function topLevelDestination(route: string): OverlayDestination | null {
+  if (route === '#/new-chat') return 'new-chat';
+  if (route === '#/settings') return 'settings';
+  return null;
+}
+
+/** Where an overlay destination is in the swap. */
+type PaneState = 'active' | 'entering' | 'leaving';
+
+/**
+ * Duration of one swap, in milliseconds. Must stay in sync with the
+ * `pane-in-*` / `pane-out-*` animation duration in `index.css`
+ * (`npm run test:transition` asserts both sides).
+ */
+const SWAP_DURATION_MS = 300;
+
+/**
+ * Upper bound for keeping the leaving destination mounted. Its exit is
+ * normally ended by the pane's own `animationend`; this timer is the fallback
+ * for environments that do not run CSS animations at all (the jsdom smoke
+ * test), so it is longer than the animation and can never cut an exit short.
+ */
+const SWAP_CLEANUP_MS = SWAP_DURATION_MS + 100;
+
+/**
  * Visual groupings of the six top-level categories on the overview (v0.5.0
  * redesign; `blocked` lives inside People). The grouping is presentational
  * only: every category keeps its own subpage, title and content. The rendered
@@ -163,6 +202,72 @@ function CategoryRow({
 }
 
 /* ------------------------------------------------------------------ */
+/* overlay destination pane                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One top-level destination of the overlay as a full-size surface — the same
+ * shape as `.settings-subpanel`: its own header and its own scroll body. That
+ * is what lets the two destinations of the overlay move against each other
+ * instead of a single screen swapping its content.
+ *
+ * `state` drives the swap (see `.settings-pane` in `index.css`):
+ *   `active`   — the destination the route points at, at rest;
+ *   `entering` — that destination while a swap is running: it is already
+ *                rendered with its content and plays the entry animation;
+ *   `leaving`  — the destination a swap is animating away from: it keeps its
+ *                own content (and its scroll position — the pane element is
+ *                not remounted) for exactly the exit animation and then ends
+ *                the swap through `onExitEnd`.
+ *
+ * The header is part of the pane on purpose: the destination's title belongs
+ * to the area that moves, so no screen ever changes its heading mid-slide.
+ */
+function OverlayPane({
+  destination,
+  state,
+  title,
+  bodyClassName,
+  onExitEnd,
+  children,
+}: {
+  destination: OverlayDestination;
+  state: PaneState;
+  title: string;
+  bodyClassName: string;
+  onExitEnd: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`settings-pane settings-pane-${destination} ${state}`}
+      data-pane={destination}
+      data-pane-state={state}
+      aria-hidden={state === 'leaving' || undefined}
+      onAnimationEnd={state === 'leaving' ? onExitEnd : undefined}
+    >
+      <header className="settings-header">
+        <button
+          type="button"
+          className="icon-button"
+          onClick={() => navigate('#/')}
+          aria-label={t('back')}
+        >
+          <BackIcon size={22} />
+        </button>
+        {/* Same centered title as the subpages: each top-level destination
+            (the Settings overview, the dedicated people-search screen) reads
+            as the top of one navigation stack, and the back button is the
+            single way back to the chats. */}
+        <div className="settings-page-title">{title}</div>
+        <ThemeButton />
+      </header>
+      <div className={`settings-scroll ${bodyClassName}`}>{children}</div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* settings                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -189,6 +294,55 @@ export default function Settings() {
   const [renderedRoute, setRenderedRoute] = useState(route);
   if (open && renderedRoute !== route) setRenderedRoute(route);
   const isNewChatRoute = renderedRoute.startsWith('#/new-chat');
+  // The overlay's two destinations are equal peers, so a route change between
+  // them while the overlay stays open gets its own transition: one horizontal
+  // swap in which the destination that leaves keeps its content for exactly
+  // its exit animation and the destination that arrives is already rendered
+  // with its content. Like the frozen destination above, the leaving
+  // destination is a rendered state: the route of the previous commit is
+  // compared here — before it is updated — and the two state updates of this
+  // render phase are applied before React commits, so the first swapped frame
+  // already carries the arriving pane and the panes' own CSS transitions
+  // start from there. Everything else keeps its own transition and must not
+  // run a second one on top of it: the overlay opening or closing (`#/`,
+  // `#/chat/…`) is the overlay's slide-in/out alone, and a Settings subpage
+  // (`#/settings/<category>`) is the subpanel's own slide.
+  const [seenRoute, setSeenRoute] = useState(route);
+  const [leavingDestination, setLeavingDestination] = useState<OverlayDestination | null>(
+    null,
+  );
+  const previousRoute = seenRoute;
+  if (previousRoute !== route) {
+    const previousDestination = topLevelDestination(previousRoute);
+    const destination = topLevelDestination(route);
+    setSeenRoute(route);
+    setLeavingDestination(
+      previousDestination !== null && destination !== null ? previousDestination : null,
+    );
+  }
+  // The leaving pane is the destination the swap is animating away from. It
+  // is always the other top-level destination and stays mounted — with its own
+  // content, never the arriving one — until its exit has finished.
+  const activeDestination: OverlayDestination = isNewChatRoute ? 'new-chat' : 'settings';
+  const swapRunning = leavingDestination !== null;
+  const leavingPane =
+    leavingDestination === null || leavingDestination === activeDestination
+      ? null
+      : leavingDestination;
+  const paneState = (destination: OverlayDestination): PaneState | null => {
+    if (destination === activeDestination) return swapRunning ? 'entering' : 'active';
+    return destination === leavingPane ? 'leaving' : null;
+  };
+  // End the swap as soon as the exit animation is over. In a browser the
+  // leaving pane's `animationend` fires first; the timer only exists for
+  // environments that do not run CSS animations (the jsdom smoke test) and so
+  // cannot leave a departed pane behind.
+  useEffect(() => {
+    if (leavingDestination === null) return;
+    const timer = window.setTimeout(() => setLeavingDestination(null), SWAP_CLEANUP_MS);
+    return () => window.clearTimeout(timer);
+  }, [leavingDestination]);
+  const endSwap = () => setLeavingDestination(null);
   // The category is the first segment after "#/settings/". A deeper path is
   // preserved so "#/settings/people/blocked" is the nested Blocked Users
   // subpage while the legacy "#/settings/blocked" still opens the same screen
@@ -789,105 +943,116 @@ export default function Settings() {
 
   const searchActive = query.trim() !== '';
 
+  /* DEDICATED PEOPLE-SEARCH SCREEN ("New chat", route #/new-chat).
+     This is the only place the search is mounted: a first-class destination
+     of the bottom navigation, not a Settings subpanel. The category overview
+     is not rendered on this route. All search state (query, results,
+     connections, block relations) lives in this component, so the real
+     existing search behavior — debounced server lookup, connection-request
+     handling, block-aware result rows — is reused without any parallel
+     implementation. A swap renders this body in the leaving pane as well, so
+     the search screen slides away as the screen it was. */
+  const newChatBody = (
+    <PeopleSearch
+      query={query}
+      onSearchChange={handleSearchChange}
+      searchActive={searchActive}
+      searching={searching}
+      searchError={searchError}
+      results={results}
+      statusOf={statusOf}
+      blockedIds={blockedIds}
+      blockedByIds={blockedByIds}
+      blockBusyId={blockBusyId}
+      onUnblock={handleUnblock}
+      onOpenConversation={openConversation}
+      actionBusyId={actionBusyId}
+      me={me}
+    />
+  );
+
+  /* CATEGORY OVERVIEW — no people search here anymore; the dedicated New chat
+     screen is the single search entry point. */
+  const settingsBody = (
+    <>
+      {OVERVIEW_GROUPS.map((group) => (
+        <Section key={group.title} title={t(group.title)}>
+          {group.categories.map((cat) => (
+            <CategoryRow
+              key={cat}
+              category={cat}
+              label={t(CATEGORY_TITLE_KEYS[cat])}
+              badge={cat === 'people' ? blockedIds.size : undefined}
+            />
+          ))}
+        </Section>
+      ))}
+
+      {/* FOOTER — the About group: version, legal surfaces, source. */}
+      <Section title={t('settingsScreen.groupAbout')}>
+        <footer className="settings-footer">
+          <span className="settings-footer-version">
+            {t('settingsScreen.footer')} {__APP_VERSION__}
+          </span>
+          <a
+            className="link settings-legal-link"
+            href={lang === 'de' ? '#/impressum' : '#/imprint'}
+          >
+            {t('legal.imprint')}
+          </a>
+          <a
+            className="link settings-privacy-link"
+            href={lang === 'de' ? '#/datenschutz' : '#/privacy'}
+          >
+            {t('legal.privacy')}
+          </a>
+          <a
+            className="link settings-github"
+            href={GITHUB_URL}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <GithubIcon size={15} />
+            {t('settingsScreen.github')}
+          </a>
+        </footer>
+      </Section>
+    </>
+  );
+
   return (
     <aside
       className={`settings-overlay${open ? ' open' : ''}`}
       aria-hidden={!open}
     >
-      <header className="settings-header">
-        <button
-          type="button"
-          className="icon-button"
-          onClick={() => navigate('#/')}
-          aria-label={t('back')}
+      {/* TOP-LEVEL DESTINATIONS — the two equal areas of this overlay, each
+          one a full-size surface with its own header and content. The
+          destination the route points at is rendered as the active (or,
+          during a swap, arriving) pane; the destination a swap is animating
+          away from stays mounted as the leaving pane until its exit is over.
+          New chat is the left area and Settings the right one, so both
+          directions of the swap are the same movement and its reverse. */}
+      {paneState('new-chat') !== null && (
+        <OverlayPane
+          destination="new-chat"
+          state={paneState('new-chat')!}
+          title={t('nav.newChat')}
+          bodyClassName="newchat-screen"
+          onExitEnd={endSwap}
         >
-          <BackIcon size={22} />
-        </button>
-        {/* Same centered title as the subpages: each top-level destination
-            (the Settings overview, the dedicated people-search screen) reads
-            as the top of one navigation stack, and the back button is the
-            single way back to the chats. */}
-        <div className="settings-page-title">
-          {isNewChatRoute ? t('nav.newChat') : t('settingsScreen.title')}
-        </div>
-        <ThemeButton />
-      </header>
-
-      {isNewChatRoute ? (
-        /* DEDICATED PEOPLE-SEARCH SCREEN ("New chat", route #/new-chat).
-            This is the only place the search is mounted: a first-class
-            destination of the bottom navigation, not a Settings subpanel.
-            The category overview below is not rendered on this route. All
-            search state (query, results, connections, block relations)
-            lives in this component, so the real existing search behavior —
-            debounced server lookup, connection-request handling,
-            block-aware result rows — is reused without any parallel
-            implementation. */
-        <div className="settings-scroll newchat-screen">
-          <PeopleSearch
-            query={query}
-            onSearchChange={handleSearchChange}
-            searchActive={searchActive}
-            searching={searching}
-            searchError={searchError}
-            results={results}
-            statusOf={statusOf}
-            blockedIds={blockedIds}
-            blockedByIds={blockedByIds}
-            blockBusyId={blockBusyId}
-            onUnblock={handleUnblock}
-            onOpenConversation={openConversation}
-            actionBusyId={actionBusyId}
-            me={me}
-          />
-        </div>
-      ) : (
-        /* CATEGORY OVERVIEW — no people search here anymore; the dedicated
-            New chat screen is the single search entry point. */
-        <div className="settings-scroll settings-overview">
-          {OVERVIEW_GROUPS.map((group) => (
-            <Section key={group.title} title={t(group.title)}>
-              {group.categories.map((cat) => (
-                <CategoryRow
-                  key={cat}
-                  category={cat}
-                  label={t(CATEGORY_TITLE_KEYS[cat])}
-                  badge={cat === 'people' ? blockedIds.size : undefined}
-                />
-              ))}
-            </Section>
-          ))}
-
-          {/* FOOTER — the About group: version, legal surfaces, source. */}
-          <Section title={t('settingsScreen.groupAbout')}>
-            <footer className="settings-footer">
-              <span className="settings-footer-version">
-                {t('settingsScreen.footer')} {__APP_VERSION__}
-              </span>
-              <a
-                className="link settings-legal-link"
-                href={lang === 'de' ? '#/impressum' : '#/imprint'}
-              >
-                {t('legal.imprint')}
-              </a>
-              <a
-                className="link settings-privacy-link"
-                href={lang === 'de' ? '#/datenschutz' : '#/privacy'}
-              >
-                {t('legal.privacy')}
-              </a>
-              <a
-                className="link settings-github"
-                href={GITHUB_URL}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <GithubIcon size={15} />
-                {t('settingsScreen.github')}
-              </a>
-            </footer>
-          </Section>
-        </div>
+          {newChatBody}
+        </OverlayPane>
+      )}
+      {paneState('settings') !== null && (
+        <OverlayPane
+          destination="settings"
+          state={paneState('settings')!}
+          title={t('settingsScreen.title')}
+          bodyClassName="settings-overview"
+          onExitEnd={endSwap}
+        >
+          {settingsBody}
+        </OverlayPane>
       )}
 
       {/* The primary navigation is NOT rendered here: as a child of this
