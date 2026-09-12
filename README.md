@@ -332,7 +332,10 @@ fallback for auto-confirm setups.
   properties, duration and easing and the mirrored distance, the dedicated
   screen adds no motion of its own, the overlay renders its destination in the
   same commit as its `.open` class, and the bottom bar is excluded from the
-  transition. The runtime counterpart lives in `npm run smoke`
+  transition. The same guards cover the swap between the overlay's two
+  top-level destinations (`#/new-chat` ↔ `#/settings`): mirrored keyframes,
+  one duration, easing and distance for both directions, and no motion on any
+  other element. The runtime counterpart lives in `npm run smoke`
 - `npm run test:privacy` — privacy routing, contact form validation, and
   Edge-Function runtime guards
 - `npm run test:crypto:prekeys` — **live PostgreSQL** RPC/RLS tests for

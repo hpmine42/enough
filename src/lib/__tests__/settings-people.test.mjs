@@ -70,9 +70,29 @@ test('People search lives on its dedicated screen, not in the Settings overview'
     ),
     'the overlay opens exactly for the Settings and New chat hash routes',
   );
+  // The overlay renders each top-level destination as its own pane (the
+  // New chat ↔ Settings swap, `npm run test:transition`). The search body
+  // belongs to the New chat pane alone — the Settings pane never renders it —
+  // and that pane only exists while the overlay shows the New chat
+  // destination (or, for the duration of a swap, the destination it is
+  // leaving, which must keep its own content).
+  const searchBody = settings.slice(
+    settings.indexOf('const newChatBody'),
+    settings.indexOf('const settingsBody'),
+  );
   assert.ok(
-    settings.includes('{isNewChatRoute ? ('),
-    'the search screen renders only for the #/new-chat route',
+    searchBody.includes('<PeopleSearch'),
+    'the search body belongs to the New chat pane',
+  );
+  assert.ok(
+    settings.includes("{paneState('new-chat') !== null && ("),
+    'the search pane exists only for the New chat destination',
+  );
+  assert.ok(
+    !settings
+      .slice(settings.indexOf("paneState('settings')"))
+      .includes('newChatBody'),
+    'the Settings pane never renders the search',
   );
   assert.ok(
     settings.includes('newchat-screen'),

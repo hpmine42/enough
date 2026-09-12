@@ -68,6 +68,19 @@ authorization or cryptographic behavior changed.
   flipped to the Settings overview, which made the return look like a
   different animation). The bottom bar is not part of it: it keeps its
   position, size, stacking and active-state timing on every frame.
+- **Both directions inside the overlay as well.** `#/new-chat` ↔ `#/settings`
+  is the same one movement between the overlay's two equal top-level
+  destinations: each is a full-size surface with its own header and scroll
+  body — New chat the left area, Settings the right one — the destination that
+  leaves keeps its own content (and its scroll position; it is not remounted)
+  for exactly its exit while the arriving destination is already rendered with
+  its content, and the reverse direction is that movement played backwards:
+  same distance, same duration, same easing, no additional fade, scale or
+  second screen animation. Switching between the two destinations used to
+  replace the overlay's content in the commit the route changed, so the
+  surface the user was looking at vanished instead of moving. The overlay's
+  own entrance/exit and the Settings subpages keep their transitions, and the
+  bottom bar takes no part in the swap.
 - Settings is no longer a Home header icon (the bar replaces that entry); the
   Home header keeps the logo and the theme toggle.
 
@@ -136,9 +149,17 @@ authorization or cryptographic behavior changed.
   (horizontal only, `opacity`-only dim behind it, no additional animation on
   the dedicated screen), the overlay renders a destination in the same commit
   as its `.open` class, and no `.bottom-nav*` rule takes part in the
-  transition. The smoke test records every DOM frame of both directions and
-  asserts that the closing overlay still shows the New chat screen and that
-  the opening one already shows the destination it opens.
+  transition. It also guards the swap between the overlay's two top-level
+  destinations (`#/new-chat` ↔ `#/settings`): the four pane animations are
+  mirrored keyframe for keyframe, both directions use the same duration,
+  easing and distance, the leaving pane rests at the end state of its exit,
+  and no element other than the two panes is animated. The smoke test records
+  every DOM frame of both the transition and the swap and asserts that the
+  closing overlay still shows the New chat screen, that the opening one
+  already shows the destination it opens, and that on every frame of a swap
+  the leaving pane keeps its own content while the arriving pane is already
+  rendered with its own; the overlay's class list and the persistent bar stay
+  untouched on every frame.
 - `test:settings` gained source-level guards for the dedicated people-search
   screen: the single `PeopleSearch` render is gated to `#/new-chat` (through
   the destination the overlay renders), the overview carries no search input
