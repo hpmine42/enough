@@ -79,6 +79,33 @@ export function displayName(profile?: Profile | null): string {
   return dn ? dn : profile?.username ?? '…';
 }
 
+/**
+ * Whether a peer profile contains the minimal identity data required to
+ * render a finished chat row (username). The display name is optional — it
+ * falls back to the username — but a missing/placeholder username means the
+ * identity is not yet available and the row must stay in its skeleton state
+ * rather than rendering "…" as an apparent contact.
+ */
+export function isProfileReady(profile?: Profile | null): boolean {
+  const u = profile?.username?.trim() ?? '';
+  if (!u) return false;
+  if (u === '…' || u === '...') return false;
+  return true;
+}
+
+/**
+ * Whether a chat row's identity can be rendered as a finished contact.
+ * Self-connections ("My Notes") and ended (deleted-account) rows never
+ * require a peer profile; all other rows need a ready profile.
+ */
+export function isChatIdentityReady(
+  profile: Profile | null,
+  opts: { self: boolean; ended: boolean },
+): boolean {
+  if (opts.self || opts.ended) return true;
+  return isProfileReady(profile);
+}
+
 export function normalizeUsername(input: string): string {
   return input.trim().replace(/^@/, '').toLowerCase();
 }

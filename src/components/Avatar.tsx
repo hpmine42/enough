@@ -72,16 +72,24 @@ function PersonIcon({ size }: { size: number }) {
 }
 
 export default function Avatar({ name, size = 40 }: AvatarProps): JSX.Element {
+  const trimmed = name?.trim() ?? '';
+  // Placeholder strings ('…', '...', '@…') must never be rendered as avatar
+  // content. They signal a missing identity that the caller should treat as a
+  // loading state (skeleton) rather than a finished contact. Treat them as
+  // absent so the fallback person icon is shown with the neutral colour.
+  const isPlaceholder =
+    trimmed === '' || trimmed === '…' || trimmed === '...' || trimmed === '@…';
   // Derive the initial from the first grapheme-like character.
   // For common scripts (Latin, Cyrillic, etc.) the first char is sufficient.
   // For the app's two supported languages (English, German) this works well.
-  const initial = name
-    ? [...name.trim()].find(
+  const initial = !isPlaceholder
+    ? [...trimmed].find(
         (ch) => ch !== '(' && ch !== '[' && ch !== '@' && ch !== '"' && ch !== "'",
       )
     : null;
-  const showInitial = initial && initial.length > 0 && initial !== '?';
-  const bg = name ? pickColour(name) : COLOURS[0];
+  const showInitial =
+    !isPlaceholder && initial && initial.length > 0 && initial !== '?' && initial !== '…';
+  const bg = !isPlaceholder && name ? pickColour(name) : COLOURS[0];
 
   return (
     <div

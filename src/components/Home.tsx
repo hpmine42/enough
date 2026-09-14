@@ -25,6 +25,7 @@ import {
   effectiveStatus,
   formatDate,
   formatRelative,
+  isChatIdentityReady,
   isSelfConnection,
   otherUserId,
 } from '../lib/helpers';
@@ -311,8 +312,6 @@ export default function Home() {
           deletions.revealed.has(c.id),
         ),
       );
-      setConnections(visible);
-      setDeletedForMe(deletions.messages);
 
       const ids = visible.map((c) => otherUserId(c, me));
       const profilesResult = await getProfiles(ids);
@@ -321,7 +320,6 @@ export default function Home() {
         setLoadError(profilesResult.error);
         return;
       }
-      setOthers(profilesResult.data);
 
       const last: Record<string, Message> = {};
       for (const c of visible) {
@@ -329,7 +327,6 @@ export default function Home() {
         const until = deletions.chatUntil.get(c.id);
         if (msg && !isHiddenByChatDeletion(msg.created_at, until)) last[c.id] = msg;
       }
-      setLastMessages(last);
 
       const readState = await getReadState(me);
       const counts = await getUnreadCounts(
@@ -338,6 +335,15 @@ export default function Home() {
         readState,
       );
       if (!isCurrent()) return;
+      // Commit the overview atomically: connections are not exposed before
+      // their peer profiles are available, so the list never flashes a
+      // placeholder avatar/name ("…") — it stays on the skeleton until a
+      // finished row can be rendered. Cached snapshots (offline path) are
+      // already complete and are committed immediately above.
+      setConnections(visible);
+      setDeletedForMe(deletions.messages);
+      setOthers(profilesResult.data);
+      setLastMessages(last);
       setUnread(counts);
       // The full load succeeded, so the server is reachable and this data is
       // current: clear a previous "unreachable" latch and refresh the local
@@ -949,12 +955,33 @@ export default function Home() {
           {rows.map(({ conn, status, other, last, unread: unreadCount }) => {
             const self = isSelfConnection(conn);
             const ended = status === 'ended';
+            const identityReady = isChatIdentityReady(other, { self, ended });
+            if (!identityReady) {
+              // Identity not yet available (profiles still loading or fetch
+              // in flight for a new realtime row). Show a quiet skeleton with
+              // the same geometry as a finished row instead of a green
+              // placeholder avatar with "…" / "@…".
+              return (
+                <div
+                  key={conn.id}
+                  className="skeleton-row"
+                  aria-hidden="true"
+                  data-testid="chat-row-skeleton"
+                >
+                  <span className="skeleton-avatar" />
+                  <span className="skeleton-lines">
+                    <span className="skeleton-line w62" />
+                    <span className="skeleton-line w40" />
+                  </span>
+                </div>
+              );
+            }
             const name = self
               ? t('settingsScreen.myNotes')
               : ended
                 ? t('chat.deletedAccount')
                 : displayName(other);
-            const sub = ended ? '' : `@${other?.username ?? '…'}`;
+            const sub = ended ? '' : `@${other!.username}`;
             const isRequest = status !== 'accepted' && status !== 'ended';
             const isIncoming = status === 'pending' && conn.user_b === me;
             const isOutgoing = status === 'pending' && conn.user_a === me;
