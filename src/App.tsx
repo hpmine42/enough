@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { useAuth } from './context/AuthContext';
 import { useHashRoute } from './lib/router';
+import type { ChatOpenIdentity } from './lib/types';
 import Chat from './components/Chat';
 import Home from './components/Home';
 import Login from './components/Login';
@@ -17,6 +19,10 @@ import { t, useLang } from './i18n';
 export default function App() {
   const { configured, loading, user, recovery } = useAuth();
   const route = useHashRoute();
+  // Home already resolved the identity shown in each finished overview row.
+  // Keep the selected row across the Home -> Chat remount so the chat header
+  // can use those exact data on its first render instead of loading them again.
+  const [chatOpenIdentity, setChatOpenIdentity] = useState<ChatOpenIdentity | null>(null);
   // Re-render the whole tree on language changes so every t() string updates
   // without a page reload.
   useLang();
@@ -75,6 +81,13 @@ export default function App() {
   // screen) dim the stage behind them.
   const overlayOpen = route.startsWith('#/settings') || route.startsWith('#/new-chat');
   const chatMatch = route.match(/^#\/chat\/(.+)$/);
+  const chatConnectionId = chatMatch ? decodeURIComponent(chatMatch[1]) : null;
+  const openingIdentity =
+    chatConnectionId &&
+    chatOpenIdentity?.accountId === user.id &&
+    chatOpenIdentity.connection.id === chatConnectionId
+      ? chatOpenIdentity
+      : null;
   // Destination the bottom navigation marks as active — same routing as
   // before, just derived here because the bar is a top-level layer.
   const active: 'chats' | 'new-chat' | 'settings' = route.startsWith('#/new-chat')
@@ -92,10 +105,10 @@ export default function App() {
       {/* Application content: free to animate (screens slide in, the stage
           dims behind an overlay) — the navigation is NOT inside it. */}
       <div className={`app-stage${overlayOpen ? ' shifted' : ''}`}>
-        {chatMatch ? (
-          <Chat connectionId={decodeURIComponent(chatMatch[1])} />
+        {chatConnectionId ? (
+          <Chat connectionId={chatConnectionId} initialIdentity={openingIdentity} />
         ) : (
-          <Home />
+          <Home onOpenChat={setChatOpenIdentity} />
         )}
       </div>
       {/* Overlay: slides in with a transform — the navigation is NOT inside

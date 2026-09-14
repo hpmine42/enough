@@ -31,7 +31,7 @@ import {
 } from '../lib/helpers';
 import { supabase } from '../lib/supabase';
 import { getLang, t } from '../i18n';
-import { BlockState, Connection, Message, Profile } from '../lib/types';
+import { BlockState, ChatOpenIdentity, Connection, Message, Profile } from '../lib/types';
 import {
   computeReconcileState,
   createConversationEventGate,
@@ -133,7 +133,11 @@ function previewOf(
   return last.ciphertext;
 }
 
-export default function Home() {
+export default function Home({
+  onOpenChat,
+}: {
+  onOpenChat?: (identity: ChatOpenIdentity) => void;
+}) {
   const { user } = useAuth();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [others, setOthers] = useState<Record<string, Profile>>({});
@@ -797,6 +801,14 @@ export default function Home() {
       suppressClickRef.current = false;
       return;
     }
+    // A finished overview row already has the peer identity required by the
+    // chat header. Hand it to App before changing the route; otherwise Home is
+    // unmounted and Chat has to start again from null while refetching it.
+    onOpenChat?.({
+      accountId: me,
+      connection: conn,
+      peer: others[otherUserId(conn, me)] ?? null,
+    });
     navigate(`#/chat/${conn.id}`);
   }
 
