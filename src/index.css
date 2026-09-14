@@ -2045,6 +2045,48 @@ button,
   min-width: 0;
 }
 
+/* Identity-only loading state for direct chat links. A chat opened from Home
+   receives the resolved identity immediately and never enters this branch. */
+.chat-header-identity-skeleton {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-left: 2px;
+  animation: skeleton-breathe 1.5s ease-in-out infinite;
+}
+
+.chat-header-skeleton-avatar {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
+}
+
+.chat-header-skeleton-lines {
+  min-width: 0;
+  width: min(150px, 48vw);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.chat-header-skeleton-line {
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+}
+
+.chat-header-skeleton-line.name {
+  width: 72%;
+}
+
+.chat-header-skeleton-line.username {
+  width: 48%;
+}
+
 /* Quiet, icon-only end-to-end-encryption marker: a tiny lock that carries
    its meaning through role="img" + aria-label and never competes with the
    contact name for horizontal space. */

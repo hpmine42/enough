@@ -36,7 +36,7 @@ import {
   isTailResolved,
   shouldAnchorInitial,
 } from '../lib/chatScroll';
-import { advanceReadPosition, compareMessagesAsc, displayName, effectiveStatus, formatDate, isSelfConnection, otherUserId } from '../lib/helpers';
+import { advanceReadPosition, compareMessagesAsc, displayName, effectiveStatus, formatDate, isProfileReady, isSelfConnection, otherUserId } from '../lib/helpers';
 import {
   applyMessageUpdate,
   captureRealtimeRow,
@@ -51,7 +51,7 @@ import type { PendingRealtimeRow } from '../lib/chatRealtime';
 import { supabase } from '../lib/supabase';
 import { prefersReducedMotion } from '../lib/theme';
 import { getLang, t, useLang } from '../i18n';
-import { BlockState, Connection, Message, Profile } from '../lib/types';
+import { BlockState, ChatOpenIdentity, Connection, Message, Profile } from '../lib/types';
 import { useE2EE } from '../context/E2EEContext';
 import { prepareSend, decryptForDisplay, isEnvelope } from '../lib/e2ee/message-flow';
 import { cachePlaintext, getCachedPlaintext } from '../lib/e2ee/message-cache';
@@ -83,13 +83,29 @@ interface SheetTarget {
   within24h: boolean;
 }
 
-export default function Chat({ connectionId }: { connectionId: string }) {
+export default function Chat({
+  connectionId,
+  initialIdentity,
+}: {
+  connectionId: string;
+  initialIdentity?: ChatOpenIdentity | null;
+}) {
   const { user } = useAuth();
   const { manager, status: e2eeStatus, errorCode: e2eeErrorCode, retry: retryE2EE, resetDeviceState: resetDeviceE2EE } = useE2EE();
   useLang(); // re-render relative timestamps on language change
 
-  const [conn, setConn] = useState<Connection | null>(null);
-  const [peer, setPeer] = useState<Profile | null>(null);
+  const openingIdentity =
+    initialIdentity &&
+    initialIdentity.accountId === user?.id &&
+    initialIdentity.connection.id === connectionId
+      ? initialIdentity
+      : null;
+  const [conn, setConn] = useState<Connection | null>(
+    () => openingIdentity?.connection ?? null,
+  );
+  const [peer, setPeer] = useState<Profile | null>(
+    () => openingIdentity?.peer ?? null,
+  );
   const [messages, setMessages] = useState<Message[]>([]);
   const [deletedForMe, setDeletedForMe] = useState<Set<string>>(new Set());
   const [hiddenUntil, setHiddenUntil] = useState<string | null>(null);
@@ -253,6 +269,11 @@ export default function Chat({ connectionId }: { connectionId: string }) {
     loadingRef.current = true;
     setLoading(true);
     setValid(true);
+    // Preserve identity data handed over by the finished Home row. On direct
+    // links/reloads there is no handoff, so clear any previous conversation
+    // and let the header remain a skeleton until the profile query resolves.
+    setConn(openingIdentity?.connection ?? null);
+    setPeer(openingIdentity?.peer ?? null);
 
     (async () => {
       setBlockState('none');
@@ -380,7 +401,7 @@ export default function Chat({ connectionId }: { connectionId: string }) {
       flushReadState();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, me, reloadKey]);
+  }, [connectionId, me, reloadKey, openingIdentity]);
 
   /* Reconnection: rerun the EXISTING load path (same effect, same queries,
      same realtime subscription) once connectivity returns. No separate
@@ -1319,6 +1340,18 @@ export default function Chat({ connectionId }: { connectionId: string }) {
   const self = conn ? isSelfConnection(conn) : false;
   const blocked = !self && blockState !== 'none';
   const peerUsername = peer?.username ?? '';
+  // A connection alone is not a renderable identity. Deleted-account chats
+  // have their explicit label; every other header (including My Notes, whose
+  // username is shown) waits for a real profile. A Home handoff satisfies this
+  // on the first render, while direct links use the skeleton until loading.
+  const headerIdentityReady = !!conn && (ended || isProfileReady(peer));
+  const headerName = headerIdentityReady
+    ? self
+      ? t('settingsScreen.myNotes')
+      : ended
+        ? t('chat.deletedAccount')
+        : displayName(peer)
+    : null;
 
   /* --------------------------- E2EE availability -------------------------- */
   // A peer conversation can only be written to while the engine is READY.
@@ -1498,40 +1531,47 @@ export default function Chat({ connectionId }: { connectionId: string }) {
         >
           <BackIcon size={22} />
         </button>
-        <Avatar
-          name={self ? t('settingsScreen.myNotes') : ended ? t('chat.deletedAccount') : displayName(peer)}
-          size={36}
-        />
-        <div className="chat-peer">
-          <div className="chat-peer-name">
-            {self
-              ? t('settingsScreen.myNotes')
-              : ended
-                ? t('chat.deletedAccount')
-                : displayName(peer)}
-          </div>
-          <div className="chat-peer-meta">
-            <div className="chat-peer-username">
-              {ended ? '' : `@${peerUsername || '…'}`}
+        {headerIdentityReady ? (
+          <>
+            <Avatar name={headerName} size={36} />
+            <div className="chat-peer">
+              <div className="chat-peer-name">{headerName}</div>
+              <div className="chat-peer-meta">
+                <div className="chat-peer-username">
+                  {ended ? '' : `@${peer!.username}`}
+                </div>
+                {/* Understated, icon-only E2EE marker for peer conversations: a
+                    small lock that never competes with the contact name for
+                    horizontal space (the accessible name stays on the icon).
+                    It disappears when the engine failed — the explicit recovery
+                    notice below then carries the state instead of a reassuring
+                    icon. My Notes stays plaintext by design, so it never shows
+                    the marker. */}
+                {!self && !ended && !e2eeFailed && (
+                  <span
+                    className="chat-e2ee"
+                    role="img"
+                    aria-label={t('chat.e2eeLabel')}
+                  >
+                    <LockIcon size={11} />
+                  </span>
+                )}
+              </div>
             </div>
-            {/* Understated, icon-only E2EE marker for peer conversations: a
-                small lock that never competes with the contact name for
-                horizontal space (the accessible name stays on the icon).
-                It disappears when the engine failed — the explicit recovery
-                notice below then carries the state instead of a reassuring
-                icon. My Notes stays plaintext by design, so it never shows
-                the marker. */}
-            {!self && !ended && !e2eeFailed && (
-              <span
-                className="chat-e2ee"
-                role="img"
-                aria-label={t('chat.e2eeLabel')}
-              >
-                <LockIcon size={11} />
-              </span>
-            )}
+          </>
+        ) : (
+          <div
+            className="chat-header-identity-skeleton"
+            aria-hidden="true"
+            data-testid="chat-header-identity-skeleton"
+          >
+            <span className="chat-header-skeleton-avatar" />
+            <span className="chat-header-skeleton-lines">
+              <span className="chat-header-skeleton-line name" />
+              <span className="chat-header-skeleton-line username" />
+            </span>
           </div>
-        </div>
+        )}
         <ThemeButton />
         <button
           type="button"

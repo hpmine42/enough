@@ -20,6 +20,13 @@ export interface Connection {
   created_at?: string;
 }
 
+/** Identity data already resolved by one account's chat overview. */
+export interface ChatOpenIdentity {
+  accountId: string;
+  connection: Connection;
+  peer: Profile | null;
+}
+
 export type MessageKind = 'text' | 'name_change' | 'connection_event' | 'deleted_account';
 
 export interface MessageMeta {

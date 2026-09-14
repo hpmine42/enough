@@ -2299,9 +2299,45 @@ assert(
   (unreadBadge?.getAttribute('aria-label') ?? '').startsWith('1 '),
   'unread badge announces the unread count context',
 );
-// Open the conversation.
+// Open the conversation. Record every committed chat-header state so the
+// Home -> Chat handoff cannot briefly regress to an ellipsis identity/default
+// avatar between the click and the resolved conversation render.
+const chatOpenHeaderStates = [];
+const chatOpenObserver = new dom.window.MutationObserver(() => {
+  const header = dom.window.document.querySelector('.chat-header');
+  if (!header) return;
+  chatOpenHeaderStates.push({
+    name: header.querySelector('.chat-peer-name')?.textContent?.trim() ?? null,
+    username: header.querySelector('.chat-peer-username')?.textContent?.trim() ?? null,
+    avatar: header.querySelector('.avatar')?.textContent?.trim() ?? null,
+    skeleton: header.querySelector('.chat-header-identity-skeleton') !== null,
+  });
+});
+chatOpenObserver.observe(dom.window.document.body, { childList: true, subtree: true });
 click('.chat-row .chat');
 await waitFor(() => text('.chat-peer-name') === 'Benno Schmidt', 'chat opens after accept');
+await Promise.resolve(); // allow MutationObserver to deliver the final commit record
+chatOpenObserver.disconnect();
+assert(chatOpenHeaderStates.length > 0, 'chat-open path records at least one rendered header state');
+assert(
+  chatOpenHeaderStates.every(
+    (state) =>
+      state.name !== '…' &&
+      state.name !== '...' &&
+      state.username !== '@…' &&
+      state.username !== '@...' &&
+      state.avatar !== '…' &&
+      state.avatar !== '...',
+  ),
+  'chat-open path never renders ellipsis name, username, or avatar content',
+);
+assert(
+  chatOpenHeaderStates.every(
+    (state) =>
+      !state.skeleton && state.name === 'Benno Schmidt' && state.username === '@benno',
+  ),
+  'known overview identity is reused in every rendered chat header state',
+);
 
 /* chat with messages: bubble + time + composer active */
 await waitFor(
