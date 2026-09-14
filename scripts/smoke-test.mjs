@@ -1580,6 +1580,191 @@ assert(
   'privacy link stays reachable from the overview',
 );
 
+/* v0.5.0: New chat ↔ Settings is ONE horizontal swap between two equal
+   top-level destinations — the runtime counterpart of the `test:transition`
+   guards. Both directions are recorded frame by frame: the destination that
+   slides away keeps its own content (it is never swapped for the arriving
+   screen), the destination that arrives is already rendered with its own
+   content in the same frame, and the persistent bar takes no part in the
+   movement. Duration, easing and distance are asserted against the stylesheet
+   in `npm run test:transition` (the jsdom environment does not run CSS). */
+const swapPane = (destination) =>
+  dom.window.document.querySelector(`.settings-overlay [data-pane="${destination}"]`);
+const swapPaneState = (destination) =>
+  swapPane(destination)?.getAttribute('data-pane-state') ?? null;
+const swapPaneTitle = (destination) =>
+  swapPane(destination)?.querySelector('.settings-page-title')?.textContent?.trim() ?? null;
+const swapPaneHasSearch = (destination) =>
+  swapPane(destination)?.querySelector('.newchat-screen input') !== null;
+const swapPaneRows = (destination) =>
+  swapPane(destination)?.querySelectorAll('.settings-category-row').length ?? 0;
+
+/**
+ * Records the swap-relevant DOM after every mutation `run()` causes: the pane
+ * states (and their content), the overlay's own class list and the persistent
+ * bar. A swap renders the arriving pane and keeps the leaving one in the SAME
+ * React commit, so every recorded frame is a real frame of the animation.
+ */
+function recordSwapFrames(run) {
+  const overlay = dom.window.document.querySelector('.settings-overlay');
+  const bar = navLayer;
+  const snapshot = () => ({
+    overlayClass: overlay.getAttribute('class'),
+    barClass: bar.getAttribute('class'),
+    barStyle: bar.getAttribute('style'),
+    newChat: swapPaneState('new-chat'),
+    settings: swapPaneState('settings'),
+    newChatTitle: swapPaneTitle('new-chat'),
+    newChatSearch: swapPaneHasSearch('new-chat'),
+    settingsTitle: swapPaneTitle('settings'),
+    settingsRows: swapPaneRows('settings'),
+  });
+  const frames = [snapshot()];
+  const observer = new dom.window.MutationObserver(() => frames.push(snapshot()));
+  observer.observe(overlay, { attributes: true, childList: true, subtree: true });
+  run();
+  return { frames, stop: () => observer.disconnect() };
+}
+
+/** Every frame must render each pane it shows with its own content. */
+function swapFramesKeepTheirContent(frames) {
+  return frames.every(
+    (frame) =>
+      (frame.newChat === null ||
+        (frame.newChatTitle === 'New chat' && frame.newChatSearch === true)) &&
+      (frame.settings === null ||
+        (frame.settingsTitle === 'Settings' && frame.settingsRows === 6)),
+  );
+}
+
+/** The overlay's own class list and the bar must not change during a swap. */
+function swapFramesLeaveTheFramesAlone(frames) {
+  return frames.every(
+    (frame) =>
+      frame.overlayClass === 'settings-overlay open' &&
+      frame.barClass === navLayer.getAttribute('class') &&
+      frame.barStyle === null,
+  );
+}
+
+// --- direction 1: Settings → New chat (bottom navigation) ---------------
+const settingsToNewChat = recordSwapFrames(() => click('.bottom-nav [data-nav="new-chat"]'));
+await waitFor(
+  () => swapPaneState('new-chat') === 'active' && swapPaneState('settings') === null,
+  'Settings → New chat: the arriving destination is the only pane left',
+);
+settingsToNewChat.stop();
+const newChatSwapFrame = settingsToNewChat.frames.find(
+  (frame) => frame.newChat === 'entering' && frame.settings === 'leaving',
+);
+assert(
+  newChatSwapFrame !== undefined,
+  'a swap renders the arriving New chat pane and the leaving Settings pane in one frame',
+);
+assert(
+  newChatSwapFrame !== undefined &&
+    newChatSwapFrame.newChatTitle === 'New chat' &&
+    newChatSwapFrame.newChatSearch === true,
+  'the arriving New chat pane is already rendered with its own content',
+);
+assert(
+  newChatSwapFrame !== undefined &&
+    newChatSwapFrame.settingsTitle === 'Settings' &&
+    newChatSwapFrame.settingsRows === 6,
+  'the leaving Settings pane keeps the content it is sliding away with',
+);
+assert(
+  swapFramesKeepTheirContent(settingsToNewChat.frames),
+  'no frame of the swap ever shows a pane without its own content',
+);
+assert(
+  swapFramesLeaveTheFramesAlone(settingsToNewChat.frames),
+  'the swap runs inside the open overlay and leaves the persistent bar untouched',
+);
+assert(
+  text('.settings-overlay .settings-page-title') === 'New chat' &&
+    peopleSearchSection() !== null &&
+    dom.window.document.querySelector('.settings-category-row') === null,
+  'only the arrival is left in the overlay once the swap is over',
+);
+
+// --- direction 2: New chat → Settings (direct hash navigation) ----------
+const newChatToSettings = recordSwapFrames(() => setHash('#/settings'));
+await waitFor(
+  () => swapPaneState('settings') === 'active' && swapPaneState('new-chat') === null,
+  'New chat → Settings: the departing pane is unmounted after its exit',
+);
+newChatToSettings.stop();
+const settingsSwapFrame = newChatToSettings.frames.find(
+  (frame) => frame.settings === 'entering' && frame.newChat === 'leaving',
+);
+assert(
+  settingsSwapFrame !== undefined,
+  'the reverse swap renders the arriving Settings pane and the leaving New chat pane in one frame',
+);
+assert(
+  settingsSwapFrame !== undefined &&
+    settingsSwapFrame.settingsTitle === 'Settings' &&
+    settingsSwapFrame.settingsRows === 6,
+  'the arriving Settings pane is already rendered with its own content',
+);
+assert(
+  settingsSwapFrame !== undefined &&
+    settingsSwapFrame.newChatTitle === 'New chat' &&
+    settingsSwapFrame.newChatSearch === true,
+  'the leaving New chat pane keeps the search screen it is sliding away with',
+);
+assert(
+  swapFramesKeepTheirContent(newChatToSettings.frames),
+  'the reverse swap keeps every pane content-correct on every frame',
+);
+assert(
+  swapFramesLeaveTheFramesAlone(newChatToSettings.frames),
+  'the reverse swap leaves the overlay and the bar untouched as well',
+);
+assert(
+  text('.settings-overlay .settings-page-title') === 'Settings' &&
+    dom.window.document.querySelector('.settings-category-row') !== null &&
+    peopleSearchSection() === null,
+  'the reverse swap ends on the Settings overview alone',
+);
+assert(
+  dom.window.document.querySelector('.bottom-nav') === navLayer &&
+    navLayer.classList.contains('covered') === false &&
+    dom.window.document
+      .querySelector('.bottom-nav [data-nav="settings"]')
+      ?.classList.contains('active') === true,
+  'the bar stays the same element and only switches its active tint across both swaps',
+);
+
+// --- the reference transition must not have gained a swap ---------------
+// The overlay's own entrance/exit is NOT a swap: neither the slide-out to the
+// chats nor the slide-in on the way back may run a pane animation on top.
+setHash('#/');
+await waitFor(
+  () =>
+    dom.window.document.querySelector('.settings-overlay')?.classList.contains('open') ===
+    false,
+  'overlay closes without a swap',
+);
+assert(
+  swapPaneState('settings') === 'active' && swapPaneState('new-chat') === null,
+  'closing the overlay keeps the frozen destination and runs no pane animation',
+);
+setHash('#/settings');
+await waitFor(
+  () => swapPaneState('settings') === 'active' && swapPaneState('new-chat') === null,
+  'the overlay opens again with its own slide only',
+);
+assert(
+  swapPaneState('settings') === 'active' && swapPaneState('new-chat') === null,
+  'the overlay entrance adds no pane animation to its own transition',
+);
+assert(
+  categoryRows().length === 6,
+  'the Settings overview is back and complete after the swap coverage',
+);
+
 /* R4: opening a category opens its subpage; back returns to the overview */
 click('.settings-category-row[data-category="profile"]');
 // Layout-stability regression: the overview must keep its content (title,
