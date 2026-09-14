@@ -32,7 +32,10 @@
   --danger: #a44a35;
   --danger-soft: rgba(164, 74, 53, 0.1);
   --ok: #4f6b52;
-  --badge-bg: #4c6350;
+  /* Unread count: the app's own ink, identical in both themes, so the
+     counter reads as part of the chrome (same family as the primary
+     buttons and the send disc) instead of a foreign accent surface. */
+  --badge-bg: #2b2b25;
   --badge-text: #f7f5f0;
   --overlay: rgba(35, 34, 30, 0.4);
   --shadow-1: 0 1px 2px rgba(35, 34, 30, 0.06);
@@ -98,8 +101,8 @@
   --danger: #d9907e;
   --danger-soft: rgba(217, 144, 126, 0.14);
   --ok: #a3bd8d;
-  --badge-bg: rgba(157, 187, 159, 0.18);
-  --badge-text: #a9c6ab;
+  --badge-bg: #e5e2d8;
+  --badge-text: #171614;
   --overlay: rgba(0, 0, 0, 0.55);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-2: 0 6px 24px rgba(0, 0, 0, 0.45);
@@ -709,7 +712,7 @@ button,
   flex-direction: column;
   /* The bottom navigation is a fixed top-level layer now, so the screens it
      floats over reserve its space instead of hosting it in flow. */
-  padding: calc(env(safe-area-inset-top) + 20px) 22px var(--nav-clearance);
+  padding: calc(env(safe-area-inset-top) + 16px) 20px var(--nav-clearance);
   animation: screen-in 0.2s ease-out;
 }
 
@@ -720,16 +723,21 @@ button,
   }
 }
 
+/* Clear screen header: the wordmark acts as the screen title, the theme
+   toggle anchors the right edge. No chrome, no divider — the canvas and the
+   type carry the hierarchy. */
 .home-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--space-5);
+  min-height: 44px;
+  margin-bottom: var(--space-3);
+  padding: 0 2px;
 }
 
 .logo {
-  font-size: 19px;
-  font-weight: 600;
+  font-size: 21px;
+  font-weight: 650;
   letter-spacing: -0.03em;
 }
 
@@ -766,21 +774,33 @@ button,
 }
 
 /* ---------- chat rows ----------
-   Quiet list, not a stack of cards: rows sit on the canvas and are separated
-   by a hairline that starts behind the text, so the avatar column reads as
-   one calm gutter. */
+   A quiet modern list, not a stack of cards and not a dated settings list:
+   rows sit directly on the canvas, separated by one inset hairline that
+   starts behind the text column. Surfaces appear only as interaction
+   states (hover/pressed), softly rounded. One left axis (avatar + name +
+   preview) and one right axis (time above unread count) give each row a
+   clear two-line hierarchy. */
 
 .chat-row {
   position: relative;
-  transition: background 0.18s ease;
+  /* New rows fade in place; existing rows only reorder (React keeps their
+     DOM nodes, so the animation never replays on a re-sort). */
+  animation: row-in 0.24s var(--ease) both;
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
 .chat-row + .chat-row::before {
   content: '';
   position: absolute;
   top: 0;
-  left: 62px;
-  right: 4px;
+  left: 68px;
+  right: 8px;
   height: 1px;
   background: var(--border);
 }
@@ -789,17 +809,15 @@ button,
   width: 100%;
   display: flex;
   align-items: center;
-  padding: 12px 4px;
+  gap: 14px;
+  padding: 13px 8px;
   border: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   text-align: left;
   cursor: pointer;
   transition: background 0.18s ease;
-}
-
-.chat-overview-row {
-  gap: 14px;
 }
 
 .chat:hover {
@@ -813,28 +831,30 @@ button,
 .chat-text {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .chat-topline {
   display: flex;
   align-items: baseline;
-  gap: 10px;
   min-width: 0;
 }
 
 .chat-identity {
   display: flex;
   align-items: baseline;
-  gap: 7px;
+  gap: 6px;
   flex: 1;
   min-width: 0;
   overflow: hidden;
 }
 
 .chat-name {
-  font-size: 15.5px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.011em;
   flex-shrink: 1;
   min-width: 0;
   overflow: hidden;
@@ -842,59 +862,77 @@ button,
   white-space: nowrap;
 }
 
+.chat-username {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  letter-spacing: -0.005em;
+  color: var(--muted);
+}
+
 .chat-time {
   font-size: 12px;
   color: var(--muted);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+  line-height: 1.25;
 }
 
 .chat-subline {
-  margin-top: 3px;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  min-width: 0;
 }
 
 .chat-preview {
+  flex: 1;
+  min-width: 0;
   font-size: 14px;
+  line-height: 1.4;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  min-width: 0;
 }
 
-.chat-username {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12.5px;
-  color: var(--muted);
+/* Overview rows only: the trailing column is stretched over the full row
+   height, so the time optically sits on the name line and the unread count
+   below it on the preview line — a single calm right edge. */
+.chat-overview-row .chat-trailing {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 2px 0;
 }
 
-/* My Notes rows: inline the subtle tag with the name so every overview row
-   keeps the same two-line structure while notes remain recognizable. */
+/* My Notes rows: a quiet typographic tag in the identity line — small caps,
+   no border, no extra chrome. The row keeps the exact same two-line
+   anatomy as every other row. */
 .chat-notes-tag {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 1px 8px;
-  border: 1px solid var(--border-strong);
+  gap: 4px;
+  padding: 2px 7px;
   border-radius: var(--radius-pill);
-  font-size: 11.5px;
+  background: var(--surface-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
   color: var(--muted);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
-.chat-row.notes .chat-name {
-  font-style: italic;
-}
-
-/* Unread stays subtle: a slightly stronger name, the preview in the normal
-   text colour, and a small tinted count — never a loud badge. */
+/* Unread stays typographic: a stronger name, the preview stepped up to the
+   soft text colour, the timestamp tinted with the accent — and a compact
+   ink counter. Quiet, scannable, no loud badge. */
 .chat-row.unread .chat-name {
   font-weight: 650;
 }
@@ -903,38 +941,125 @@ button,
   color: var(--text-soft);
 }
 
+.chat-row.unread .chat-time {
+  color: var(--accent-text);
+}
+
 .unread-badge {
   min-width: 20px;
-  height: 19px;
-  padding: 0 6px;
+  height: 20px;
+  padding: 0 7px;
   border-radius: var(--radius-pill);
   background: var(--badge-bg);
   color: var(--badge-text);
-  font-size: 11.5px;
-  font-weight: 600;
-  line-height: 19px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 20px;
   text-align: center;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.005em;
 }
 
 .chat-row-actions {
   display: flex;
   gap: var(--space-2);
-  padding: 0 4px 12px 62px;
+  padding: 0 8px 13px 68px;
 }
 
+/* Connection-request state: the label replaces the preview on the same
+   line and leads with a small status dot, so a request reads as an
+   actionable state instead of a second kind of list item. */
 .request-label {
   font-size: 13px;
-  color: var(--muted);
+  font-weight: 500;
+  color: var(--accent-text);
 }
 
-.chat-row.request .chat-name {
-  font-weight: 600;
+.request-label::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 6px;
+  flex-shrink: 0;
 }
+
+/* ---------- loading skeleton ---------- */
+
+.chat-list-skeleton {
+  display: flex;
+  flex-direction: column;
+}
+
+.skeleton-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 8px;
+  animation: skeleton-breathe 1.5s ease-in-out infinite;
+}
+
+.skeleton-row + .skeleton-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 68px;
+  right: 8px;
+  height: 1px;
+  background: var(--border);
+}
+
+.skeleton-avatar {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
+}
+
+.skeleton-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 3px 0;
+}
+
+.skeleton-line {
+  height: 11px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+}
+
+.skeleton-line.w62 {
+  width: 62%;
+}
+
+.skeleton-line.w40 {
+  width: 40%;
+}
+
+@keyframes skeleton-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* ---------- empty & error state ----------
+   One centered block for both: a clear title, a single quiet line of text
+   and one primary action. No icon, no card — the canvas and the type do
+   the work. */
 
 .empty {
-  margin-top: 84px;
+  margin: 14vh auto 0;
   text-align: center;
   color: var(--muted);
   display: flex;
@@ -944,21 +1069,21 @@ button,
 }
 
 .empty-title {
-  font-size: 16px;
-  font-weight: 550;
+  font-size: 17px;
+  font-weight: 600;
   color: var(--text);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 
 .empty-text {
   font-size: 14px;
-  line-height: 1.55;
-  max-width: 260px;
+  line-height: 1.6;
+  max-width: 280px;
   margin: 0 auto;
 }
 
 .empty-action {
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
 /* ---------- settings ---------- */

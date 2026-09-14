@@ -357,7 +357,7 @@ test('dialogs and sheets keep their accessible-name contract', () => {
 
 test('unread badge announces its count (role + label)', () => {
   const src = componentSource['Home.tsx'];
-  const m = src.match(/<span className="unread-badge"[^]*?>/);
+  const m = src.match(/<span\s+className="unread-badge"[^]*?>/);
   assert.ok(m, 'unread badge element exists');
   assert.ok(m[0].includes('role="status"'), 'unread badge must keep role="status"');
   assert.ok(

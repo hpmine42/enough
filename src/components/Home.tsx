@@ -910,7 +910,24 @@ export default function Home() {
             {t('errors.retry')}
           </button>
         </section>
-      ) : !hasChats && !loading ? (
+      ) : loading && !hasChats ? (
+        /* First paint while the overview data is still loading: a quiet
+           skeleton mirrors the final row anatomy (avatar + two lines) so the
+           real list appears without a flash of empty space. Purely
+           decorative — no content, no announcements, hidden from assistive
+           technology; the global reduced-motion block stills the pulse. */
+        <div className="chat-list-skeleton" aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="skeleton-row">
+              <span className="skeleton-avatar" />
+              <span className="skeleton-lines">
+                <span className="skeleton-line w62" />
+                <span className="skeleton-line w40" />
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : !hasChats ? (
         <section className="empty">
           <div className="empty-title">{t('home.nothingHere')}</div>
           <div className="empty-text">{t('home.startChat')}</div>
@@ -919,7 +936,7 @@ export default function Home() {
             className="btn-primary empty-action"
             onClick={openNewChat}
           >
-            {t('settingsScreen.searchPeople')}
+            {t('nav.newChat')}
           </button>
         </section>
       ) : (
@@ -948,6 +965,11 @@ export default function Home() {
                   getLang(),
                 )
               : null;
+            const time = last
+              ? formatRelative(last.created_at, getLang())
+              : conn.created_at
+                ? formatRelative(conn.created_at, getLang())
+                : '';
 
             return (
               <div
@@ -974,27 +996,20 @@ export default function Home() {
                   }}
                   onContextMenu={(e) => e.preventDefault()}
                 >
-                  <Avatar name={name} size={44} />
+                  <Avatar name={name} size={46} />
                   <div className="chat-text">
                     <div className="chat-topline">
                       <div className="chat-identity">
                         <span className="chat-name">{name}</span>
                         {self ? (
                           <span className="chat-notes-tag">
-                            <NoteIcon size={12} />
+                            <NoteIcon size={11} />
                             {t('chat.myNotesTag')}
                           </span>
                         ) : (
                           sub && <span className="chat-username">{sub}</span>
                         )}
                       </div>
-                      <span className="chat-time">
-                        {last
-                          ? formatRelative(last.created_at, getLang())
-                          : conn.created_at
-                            ? formatRelative(conn.created_at, getLang())
-                            : ''}
-                      </span>
                     </div>
                     <div className="chat-subline">
                       {isRequest ? (
@@ -1008,30 +1023,38 @@ export default function Home() {
                                 : t('connection.requestExpired')}
                         </span>
                       ) : (
-                        <>
-                          {!(self && !last) && (
-                            <span className="chat-preview">
-                              {previewOf(
-                                last ?? undefined,
-                                getLang(),
-                                other?.username ?? '',
-                                me,
-                                deletedForMe,
-                              ) ?? ''}
-                            </span>
-                          )}
-                          {unreadCount > 0 && (
-                            // role="status" so the aria-label is an effective
-                            // accessible name (a plain span's label is ignored
-                            // by assistive tech) and count changes are
-                            // announced politely.
-                            <span className="unread-badge" role="status" aria-label={`${unreadCount} ${t('unread.unreadCount', { count: unreadCount })}`}>
-                              {unreadCount > 99 ? '99+' : unreadCount}
-                            </span>
-                          )}
-                        </>
+                        !(self && !last) && (
+                          <span className="chat-preview">
+                            {previewOf(
+                              last ?? undefined,
+                              getLang(),
+                              other?.username ?? '',
+                              me,
+                              deletedForMe,
+                            ) ?? ''}
+                          </span>
+                        )
                       )}
                     </div>
+                  </div>
+                  {/* One quiet trailing axis: the timestamp sits on the name
+                      line, the unread count below it on the preview line —
+                      no third column, no competing alignment. */}
+                  <div className="chat-trailing">
+                    <span className="chat-time">{time}</span>
+                    {unreadCount > 0 && (
+                      // role="status" so the aria-label is an effective
+                      // accessible name (a plain span's label is ignored
+                      // by assistive tech) and count changes are
+                      // announced politely.
+                      <span
+                        className="unread-badge"
+                        role="status"
+                        aria-label={`${unreadCount} ${t('unread.unreadCount', { count: unreadCount })}`}
+                      >
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </span>
+                    )}
                   </div>
                 </button>
                 {isIncoming && (

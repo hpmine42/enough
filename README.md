@@ -54,8 +54,10 @@ existing flow are unchanged.
   geometry: no font-weight reflow, no transform, the bar stays on the same
   pixel line
 - **Chat overview**: a calm hairline-separated list instead of card-like rows,
-  subtler unread state (tinted count, slightly stronger name), and an empty
-  state that offers the real "Search people" action
+  two-line rows with the timestamp and unread count on one trailing axis, a
+  quiet typographic unread state (stronger name, stepped-up preview, tinted
+  time, compact ink counter), a first-paint skeleton and an empty state that
+  offers the New chat action
 - **Chat**: refined bubbles and composer, a quiet, icon-only end-to-end
   encryption marker in the header for peer conversations (a small labelled
   lock that never competes with the contact name for space) that disappears
@@ -120,9 +122,10 @@ New in v0.4.0 (v0.3.0 features below remain):
   Settings has the full language control; no page reload on switch
 - Theme: Light / Dark / System (default), persisted, no flash of the wrong theme
 - Minimal Home: logo, theme toggle, two-line chat rows (display name
-  with inline `@username` or My Notes tag, preview + unread badge), relative
-  timestamps, 44 px avatars with a clear gap from the text. Settings is
-  reached from the bottom navigation since v0.5.0 (it was a header icon)
+  with inline `@username` or My Notes tag, preview; timestamp and unread
+  count on one trailing axis), relative timestamps, 46 px avatars with a
+  clear gap from the text. Settings is reached from the bottom navigation
+  since v0.5.0 (it was a header icon)
 - Settings as a full-screen slide-in with a grouped category overview
   (Account / Preferences / Security / About) and subpages:
   Profile, People (blocked-users count, with `#/settings/blocked` as a
