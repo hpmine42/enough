@@ -2264,18 +2264,29 @@ assert(
 );
 const overviewLayout = overviewPeerRow?.querySelector('.chat.chat-overview-row');
 const overviewAvatar = overviewLayout?.querySelector(':scope > .avatar');
+const overviewTrailing = overviewLayout?.querySelector(':scope > .chat-trailing');
 assert(
   overviewLayout?.firstElementChild === overviewAvatar &&
-    overviewLayout.children[1] === overviewPeerText,
-  'chat overview spacing layout keeps the avatar before the text block',
+    overviewLayout.children[1] === overviewPeerText &&
+    overviewLayout.children[2] === overviewTrailing,
+  'chat overview layout keeps avatar → text block → trailing column order',
 );
 assert(
-  overviewAvatar?.style.width === '44px' && overviewAvatar.style.height === '44px',
+  overviewAvatar?.style.width === '46px' && overviewAvatar.style.height === '46px',
   'chat overview avatar uses the larger row-specific size',
+);
+assert(
+  overviewTrailing?.children[0]?.classList.contains('chat-time') === true &&
+    overviewTrailing?.children[0]?.textContent?.length > 0,
+  'the trailing column leads with the timestamp on the name line',
 );
 await waitFor(
   () => text('.unread-badge') === '1',
   'first incoming message is unread before a read-state row exists',
+);
+assert(
+  overviewTrailing?.lastElementChild?.classList.contains('unread-badge') === true,
+  'the unread count sits below the timestamp on the preview line',
 );
 /* D1: the badge announces "1 new" — role="status" makes the aria-label an
    effective accessible name (a plain span's label is ignored by ATs). */
