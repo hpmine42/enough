@@ -759,9 +759,12 @@ button,
   gap: var(--space-2);
 }
 
+/* One list principle for the whole app: entries are separated by spacing and
+   vertical hierarchy — never by a decorative line between them. */
 .chat-list {
   display: flex;
   flex-direction: column;
+  gap: var(--space-1);
 }
 
 /* ---------- avatar ---------- */
@@ -775,11 +778,12 @@ button,
 
 /* ---------- chat rows ----------
    A quiet modern list, not a stack of cards and not a dated settings list:
-   rows sit directly on the canvas, separated by one inset hairline that
-   starts behind the text column. Surfaces appear only as interaction
-   states (hover/pressed), softly rounded. One left axis (avatar + name +
-   preview) and one right axis (time above unread count) give each row a
-   clear two-line hierarchy. */
+   rows sit directly on the canvas and are kept apart by their own rhythm —
+   the row padding, the list gap and the two-line hierarchy do the
+   separating, so no hairline runs between them. Surfaces appear only as
+   interaction states (hover/pressed), softly rounded. One left axis
+   (avatar + name + preview) and one right axis (time above unread count)
+   give each row a clear two-line hierarchy. */
 
 .chat-row {
   position: relative;
@@ -795,22 +799,12 @@ button,
   }
 }
 
-.chat-row + .chat-row::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 68px;
-  right: 8px;
-  height: 1px;
-  background: var(--border);
-}
-
 .chat {
   width: 100%;
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 13px 8px;
+  padding: 14px 8px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -988,9 +982,12 @@ button,
 
 /* ---------- loading skeleton ---------- */
 
+/* Mirrors the real list exactly: same row rhythm, same spacing, and — like
+   the loaded rows — no separator line between the placeholders. */
 .chat-list-skeleton {
   display: flex;
   flex-direction: column;
+  gap: var(--space-1);
 }
 
 .skeleton-row {
@@ -998,18 +995,8 @@ button,
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 13px 8px;
+  padding: 14px 8px;
   animation: skeleton-breathe 1.5s ease-in-out infinite;
-}
-
-.skeleton-row + .skeleton-row::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 68px;
-  right: 8px;
-  height: 1px;
-  background: var(--border);
 }
 
 .skeleton-avatar {
@@ -1089,6 +1076,12 @@ button,
 /* ---------- settings ---------- */
 
 .settings-overlay {
+  /* Horizontal inset of a row's own surface. Rows bleed into the padding of
+     their section (negative inline margin of the same size) so the hover /
+     press surface starts before the text while every label stays on the
+     section's reading axis. */
+  --row-inset: 10px;
+
   position: fixed;
   inset: 0;
   z-index: 40;
@@ -1259,12 +1252,15 @@ button,
   color: var(--text);
 }
 
+/* A group is a spacing unit: the section title opens it, the rows inside it
+   keep a tight rhythm, and the distance to the next group is what makes the
+   grouping legible — no divider lines anywhere in between. */
 .settings-section {
-  padding: 24px 22px 8px;
+  padding: 24px 22px 12px;
 }
 
 .settings-section + .settings-section {
-  padding-top: 26px;
+  padding-top: 30px;
 }
 
 .settings-section-title {
@@ -1276,24 +1272,29 @@ button,
   font-weight: 600;
 }
 
-.settings-section > .settings-row:last-child,
-.settings-section > .settings-profile > .settings-static-row:last-child,
-.settings-section > .settings-profile > .settings-email-row {
-  border-bottom: 0;
-}
-
+/* One menu/list row: no separator line, no card. The row bleeds to the
+   section's content edges (negative inline margin) while its own padding
+   keeps the label on the section's reading axis, so the hover/press surface
+   can be a soft rounded rect around the text. */
 .settings-row {
-  width: 100%;
+  width: calc(100% + var(--row-inset) * 2);
+  margin: 0 calc(var(--row-inset) * -1);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 15px 0;
+  padding: 13px var(--row-inset);
   border: 0;
-  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   text-align: left;
+}
+
+/* Two entries of one group are separated by spacing alone. */
+.settings-row + .settings-row,
+.settings-static-row + .settings-static-row {
+  margin-top: var(--space-1);
 }
 
 .settings-row.clickable {
@@ -1304,6 +1305,7 @@ button,
 }
 
 .settings-row.clickable:hover {
+  background: var(--surface);
   color: var(--accent-text);
 }
 
@@ -1347,26 +1349,31 @@ button,
   align-items: center;
 }
 
+/* Profile facts: same row geometry as a menu row, same separation by
+   spacing — only the trailing value replaces the chevron/control. */
 .settings-static-row {
+  width: calc(100% + var(--row-inset) * 2);
+  margin: 0 calc(var(--row-inset) * -1);
   display: flex;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: 15px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.settings-email-row {
-  width: 100%;
+  padding: 13px var(--row-inset);
   border: 0;
-  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   text-align: left;
+}
+
+.settings-email-row {
   cursor: pointer;
-  transition: color 0.18s ease;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
 }
 
 .settings-email-row:hover {
+  background: var(--surface);
   color: var(--accent-text);
 }
 
@@ -1434,7 +1441,12 @@ button,
   align-self: flex-start;
 }
 
+/* Results are one list: the same quiet rhythm as the chat overview, so the
+   entries are told apart by spacing and by their own hover surface. */
 .settings-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
   margin-top: 12px;
   padding-bottom: 10px;
   max-height: 55vh;
@@ -1443,7 +1455,7 @@ button,
 
 .settings-search-row {
   gap: var(--space-3);
-  padding: 14px 4px;
+  padding: 14px 8px;
 }
 
 .settings-search-row:disabled {
@@ -1451,10 +1463,11 @@ button,
   cursor: default;
 }
 
-/* Active-connection rows on Settings → People */
+/* Active-connection rows on Settings → People. Same geometry as an overview
+   row (they share the `.chat` row base) minus the separator. */
 .settings-connection-row {
   gap: 14px;
-  padding: 12px 4px;
+  padding: 12px 8px;
 }
 
 .settings-connection-row:disabled {
@@ -1466,13 +1479,13 @@ button,
   margin: 8px 0;
 }
 
-/* search result whose peer is blocked (either direction) */
+/* search result whose peer is blocked (either direction) — the same row as
+   every other result, only its trailing column carries the block state. */
 .blocked-search-row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 16px 0;
-  border-bottom: 1px solid var(--border);
+  padding: 14px 8px;
 }
 
 .blocked-search-row .chat-trailing {
@@ -1523,10 +1536,6 @@ button,
 
 .settings-subpanel .settings-section:first-child {
   padding-top: 22px;
-}
-
-.settings-subpanel .settings-row:last-child {
-  border-bottom: 0;
 }
 
 .settings-blocked-empty {
@@ -1898,9 +1907,13 @@ button,
   text-align: center;
 }
 
+/* Same list principle as the menus: the actions are separated by their own
+   spacing and by the hover surface of the tapped item — no hairlines
+   between them. */
 .sheet-items {
   display: flex;
   flex-direction: column;
+  gap: var(--space-1);
 }
 
 .sheet-item {
@@ -1908,9 +1921,9 @@ button,
   align-items: center;
   gap: var(--space-3);
   height: 52px;
-  padding: 0 8px;
+  padding: 0 var(--space-3);
   border: 0;
-  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   font-size: 15.5px;
@@ -1921,10 +1934,6 @@ button,
 
 .sheet-item:hover:not(:disabled) {
   background: var(--surface-2);
-}
-
-.sheet-item:last-of-type {
-  border-bottom: 0;
 }
 
 .sheet-item.danger {
@@ -3109,21 +3118,12 @@ button,
 
 /* ---------- account delete spacing ---------- */
 
-/* Upper divider above the Delete Account row. The gap above it is
-   intentionally kept noticeably larger than the spacing around the row
-   itself, so the dangerous action is visually set apart. */
-.settings-delete-separator {
-  height: 1px;
-  margin: 44px 0 0;
-  background: var(--border);
-}
-
-/* The row's own border-bottom acts as the lower divider. Equal padding
-   above and below the text centers Delete Account between the two
-   dividers. */
+/* Distance, not a divider line: the gap above Delete Account is
+   intentionally much larger than the row rhythm around it (44px against the
+   4px between two ordinary rows), so the destructive action stands on its
+   own without a line above it. */
 .settings-row.delete-spaced {
-  padding-top: 24px;
-  padding-bottom: 24px;
+  margin-top: 44px;
 }
 
 /* ---------- reduced motion ---------- */

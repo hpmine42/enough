@@ -170,7 +170,9 @@ export default function AccountSettings({
           <div className="settings-row-label">{t('settingsScreen.signOut')}</div>
         </div>
       </button>
-      <div className="settings-delete-separator" aria-hidden="true" />
+      {/* No separator line above Delete Account: the distance of the row
+          itself (`.settings-row.delete-spaced`) sets the destructive action
+          apart from the account actions above it. */}
       <button
         type="button"
         className="settings-row clickable danger-text delete-spaced"
