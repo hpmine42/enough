@@ -53,11 +53,12 @@ existing flow are unchanged.
   tint for the active destination — tapping changes colour only, never
   geometry: no font-weight reflow, no transform, the bar stays on the same
   pixel line
-- **Chat overview**: a calm hairline-separated list instead of card-like rows,
-  two-line rows with the timestamp and unread count on one trailing axis, a
-  quiet typographic unread state (stronger name, stepped-up preview, tinted
-  time, compact ink counter), a first-paint skeleton and an empty state that
-  offers the New chat action
+- **Chat overview**: a calm list without separator lines — rows sit on the
+  canvas and are told apart by spacing and their two-line hierarchy
+  (timestamp and unread count on one trailing axis) instead of hairlines or
+  cards; a quiet typographic unread state (stronger name, stepped-up preview,
+  tinted time, compact ink counter), a first-paint skeleton and an empty state
+  that offers the New chat action
 - **Chat**: refined bubbles and composer, a quiet, icon-only end-to-end
   encryption marker in the header for peer conversations (a small labelled
   lock that never competes with the contact name for space) that disappears
@@ -68,9 +69,10 @@ existing flow are unchanged.
   search, connection-request and block-aware behaviour, now a first-class
   destination with the input focused on arrival
 - **Settings**: the overview is grouped into Account / Preferences / Security /
-  About with a centered header title matching its subpages. All categories,
-  subpages, routes and actions are unchanged except that the user-search field
-  no longer lives here
+  About with a centered header title matching its subpages. Groups and rows
+  are separated by spacing alone — no divider lines between single entries.
+  All categories, subpages, routes and actions are unchanged except that the
+  user-search field no longer lives here
 - **Authentication screens**: clearer hierarchy with the brand tagline, larger
   input surfaces, accent focus rings and tinted error surfaces. Validation,
   email confirmation, recovery and routing are unchanged

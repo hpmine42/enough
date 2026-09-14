@@ -30,6 +30,16 @@ authorization or cryptographic behavior changed.
 - The palette moved with it: `#F7F5F0` / `#171614` are now the `theme-color`
   meta values, the manifest colours and the installed-app status bar colour
   (`index.html`, `src/lib/theme.ts`, `public/manifest.webmanifest`).
+- **One list principle: no separator lines.** Every list and menu of the app —
+  chat overview (and its first-paint skeleton), Settings groups and their
+  subpages, people search on the dedicated "New chat" screen, bottom-sheet
+  actions — separates its entries by spacing, typography and vertical
+  hierarchy, never by a decorative hairline between single entries. Hover and
+  press stay a quiet surface change (`--surface` / `--surface-2`, rounded, no
+  glow, no gradient), Settings groups stay legible through distance alone, and
+  the destructive "Delete account" row is set apart by a 44px gap instead of a
+  divider. Guarded by `npm run test:lists`
+  (`src/lib/__tests__/list-separators.test.mjs`).
 
 ### Navigation
 
@@ -86,8 +96,9 @@ authorization or cryptographic behavior changed.
 
 ### Screens
 
-- **Chat overview**: hairline-separated rows instead of card-like blocks,
-  inset dividers, subtler unread state (small tinted count, slightly stronger
+- **Chat overview**: rows sit on the canvas and are told apart by their own
+  rhythm (row padding + 4px list gap) instead of card-like blocks or inset
+  dividers, subtler unread state (small tinted count, slightly stronger
   name), and an empty state that offers the real "Search people" action. The
   overview scrolls with the page and the bar sits in flow at the bottom
   (`position: sticky`), so it never covers a row.

@@ -4,9 +4,10 @@
 // the Node test runner without a full React/E2EE harness (their rendered
 // counterpart — navigation, long-press menu, empty state — is exercised by
 // the smoke test). They pin the structure the overview redesign introduced:
-// the two-line row anatomy with one trailing time/unread axis, the quiet
-// inset separators, the first-paint skeleton, the typographic unread state
-// and the shared empty state.
+// the two-line row anatomy with one trailing time/unread axis, the spacing
+// between rows (no separator lines — see `list-separators.test.mjs`), the
+// first-paint skeleton, the typographic unread state and the shared empty
+// state.
 //
 // Run with:
 //   npm run test:home
@@ -115,11 +116,18 @@ test('long names, usernames and previews truncate instead of wrapping', () => {
   assert.ok(identity && /overflow:\s*hidden/.test(identity), 'the identity line clips as one unit');
 });
 
-test('rows are separated by one inset hairline, not card borders', () => {
-  const sep = css.match(/\.chat-row \+ \.chat-row::before\s*\{([^}]*)\}/);
-  assert.ok(sep, 'the row separator exists');
-  assert.ok(/left:\s*68px/.test(sep[1]), 'the hairline starts behind the avatar gutter');
-  assert.ok(/height:\s*1px/.test(sep[1]), 'a hairline, not a heavy divider');
+test('rows are separated by spacing, not by an inset hairline', () => {
+  assert.ok(
+    !/\.chat-row \+ \.chat-row::before/.test(css),
+    'the overview draws no separator line between its rows',
+  );
+  const list = rule('chat-list');
+  assert.ok(list && /gap:\s*var\(--space-1\)/.test(list), 'the list separates its rows with spacing');
+  const chat = rule('chat');
+  assert.ok(
+    chat && /padding:\s*14px 8px/.test(chat),
+    'every row keeps its own vertical rhythm',
+  );
   const rowRule = rule('chat-row');
   assert.ok(rowRule && !/border(-|:)/.test(rowRule), 'rows carry no card borders');
 });
