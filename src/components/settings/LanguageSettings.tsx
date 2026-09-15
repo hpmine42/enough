@@ -1,6 +1,6 @@
 import { t, useLang } from '../../i18n';
 import { Lang } from '../../i18n/translations';
-import { CheckIcon } from '../iconsFilled';
+import { CheckIcon } from '../icons';
 import { Section } from './settings-ui';
 
 export default function LanguageSettings() {

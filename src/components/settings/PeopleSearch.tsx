@@ -1,7 +1,7 @@
 import { t } from '../../i18n';
 import { displayName } from '../../lib/helpers';
 import { Connection, Profile } from '../../lib/types';
-import { SearchIcon } from '../iconsFilled';
+import { SearchIcon } from '../icons';
 import { Section } from './settings-ui';
 
 interface PeopleSearchProps {

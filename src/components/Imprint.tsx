@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { imprintConfig } from '../config/imprint';
 import { t, useLang } from '../i18n';
 import { navigate, useHashRoute } from '../lib/router';
-import { BackIcon } from './iconsFilled';
+import { BackIcon } from './icons';
 import ThemeButton from './ThemeButton';
 import ContactForm from './ContactForm';
 

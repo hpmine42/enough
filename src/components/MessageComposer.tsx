@@ -2,7 +2,7 @@ import { FormEvent, KeyboardEvent, useRef } from 'react';
 import { usePreferences } from '../context/PreferencesContext';
 import { sanitizeMessagePlaintext } from '../lib/input';
 import { t } from '../i18n';
-import { SendIcon } from './iconsFilled';
+import { SendIcon } from './icons';
 
 interface MessageComposerProps {
   /**

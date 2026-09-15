@@ -7,7 +7,7 @@ import {
   ThemeMode,
 } from '../lib/theme';
 import { t, useLang } from '../i18n';
-import { MoonIcon, SunIcon, SystemIcon } from './iconsFilled';
+import { MoonIcon, SunIcon, SystemIcon } from './icons';
 
 interface ThemeButtonProps {
   className?: string;
