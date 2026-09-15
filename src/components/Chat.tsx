@@ -71,7 +71,7 @@ import BottomSheet from './BottomSheet';
 import ChatActionMenu from './ChatActionMenu';
 import Dialog from './Dialog';
 import ThemeButton from './ThemeButton';
-import { BackIcon, TrashIcon, DownIcon, InfoIcon, LockIcon } from './icons';
+import { BackIcon, TrashIcon, DownIcon, InfoIcon, LockIcon } from './iconsFilled';
 
 const PAGE_SIZE = 40;
 const LONG_PRESS_MS = 550;

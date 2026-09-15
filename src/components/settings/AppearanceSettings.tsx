@@ -1,6 +1,6 @@
 import { t } from '../../i18n';
 import { applyMode, ThemeMode } from '../../lib/theme';
-import { CheckIcon, MoonIcon, SunIcon, SystemIcon } from '../icons';
+import { CheckIcon, MoonIcon, SunIcon, SystemIcon } from '../iconsFilled';
 import { Section } from './settings-ui';
 
 interface AppearanceSettingsProps {
