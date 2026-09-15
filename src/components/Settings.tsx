@@ -42,7 +42,7 @@ import {
   BackIcon,
   ChevronIcon,
   GithubIcon,
-} from './iconsFilled';
+} from './icons';
 import { shouldSkipNetwork } from '../lib/connectivity';
 import { Section } from './settings/settings-ui';
 import ProfileSettings from './settings/ProfileSettings';
