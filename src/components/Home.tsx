@@ -68,7 +68,7 @@ import ThemeButton from './ThemeButton';
 // top-level layer in App.tsx, and this screen only reserves its space
 // (`--nav-clearance`) so the bar never covers a row.
 import { openNewChat } from './BottomNav';
-import { NoteIcon } from './icons';
+import { NoteIcon } from './iconsFilled';
 import ChatActionMenu from './ChatActionMenu';
 import Dialog from './Dialog';
 

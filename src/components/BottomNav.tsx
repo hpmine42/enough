@@ -1,6 +1,6 @@
 import { navigate } from '../lib/router';
 import { t, useLang } from '../i18n';
-import { ChatsIcon, ComposeIcon, GearIcon } from './icons';
+import { ChatsIcon, ComposeIcon, GearIcon } from './iconsFilled';
 
 interface BottomNavProps {
   /** Destination that is currently shown (drives the subtle active state). */

@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from 'react';
 import { imprintConfig } from '../config/imprint';
 import { t, useLang, type TranslationKey } from '../i18n';
 import { navigate, useHashRoute } from '../lib/router';
-import { BackIcon } from './icons';
+import { BackIcon } from './iconsFilled';
 import ThemeButton from './ThemeButton';
 
 /**
