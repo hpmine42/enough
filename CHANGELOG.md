@@ -33,10 +33,27 @@ verified, and what remains open.
   controls, find-in-page bar) follow an explicitly selected theme even while the
   operating system prefers the opposite. The pre-paint bootstrap in `index.html`
   does the same before React mounts.
+- **Theme-aware manifest for installed Android PWAs.** Chrome/Android derives the
+  installed WebAPK's status bar and navigation bar colours strictly from the Web App
+  Manifest, ignoring runtime `meta[name="theme-color"]` inside standalone windows
+  (crbug 40759522). Manifest delivery is now theme-aware: `public/manifest.dark.webmanifest`
+  supplies the dark canvas base for dark installs, `index.html`'s inline pre-paint
+  bootstrap swaps `link[rel="manifest"]` before React mounts, and `src/lib/theme.ts`
+  maintains the pointer dynamically on every in-app theme toggle.
+- **Dynamic service worker manifest rewriting & theme record.** `scripts/pwa-plugin.ts`
+  no longer answers manifest requests with `cacheFirstStatic`. Manifest requests use
+  network-first handling with dynamic in-memory colour rewriting to match the active
+  in-app theme, backed by an `enough-theme.txt` record in the Cache Storage shell
+  cache populated via same-origin `postMessage`. Chrome's background manifest re-reads
+  now receive colours matching the active in-app theme regardless of operating system mode.
 - **`npm run test:pwachrome`** (`src/lib/__tests__/pwa-chrome-color.test.mjs`) pins
   all four channels to the same two values and tests the runtime sync behaviourally
-  against a stubbed document; `docs/pwa.md` documents the channels and the one
-  remaining platform limitation.
+  against a stubbed document; verifies both manifest colour variants differ only in
+  `theme_color`/`background_color`, that `pwa-plugin.ts` special-cases the manifest
+  URL and bypasses `cacheFirstStatic`, that `index.html` swaps the manifest link in
+  pre-paint bootstrap, and that `render()` syncs the theme to the service worker with
+  fail-safe stubs; `docs/pwa.md` documents the channels, WebAPK update semantics, and
+  edge-to-edge status-bar research.
 
 ---
 

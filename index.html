@@ -67,6 +67,15 @@
           // operating system prefers the opposite.
           var scheme = document.querySelector('meta[name="color-scheme"]');
           if (scheme) scheme.setAttribute('content', dark ? 'dark' : 'light');
+          // Point at the theme-matching manifest variant before first paint so
+          // Chromium reads the right manifest colours on install or update.
+          var manifest = document.querySelector('link[rel="manifest"]');
+          if (manifest) {
+            manifest.setAttribute(
+              'href',
+              dark ? './manifest.dark.webmanifest' : './manifest.webmanifest',
+            );
+          }
         } catch (e) {}
       })();
     </script>

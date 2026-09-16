@@ -48,6 +48,41 @@ export const THEME_CHROME_COLORS: Record<Theme, string> = {
   dark: '#171614',
 };
 
+function syncWorkerTheme(theme: Theme): void {
+  if (
+    typeof navigator === 'undefined' ||
+    !('serviceWorker' in navigator) ||
+    !navigator.serviceWorker
+  ) {
+    return;
+  }
+  try {
+    const sw = navigator.serviceWorker;
+    const msg = { type: 'enough-theme', theme };
+    if (sw.controller && typeof sw.controller.postMessage === 'function') {
+      sw.controller.postMessage(msg);
+    }
+    if (sw.ready && typeof sw.ready.then === 'function') {
+      sw.ready
+        .then((reg) => {
+          if (
+            reg &&
+            reg.active &&
+            typeof reg.active.postMessage === 'function' &&
+            reg.active !== sw.controller
+          ) {
+            reg.active.postMessage(msg);
+          }
+        })
+        .catch(() => {
+          /* ignore worker ready rejection */
+        });
+    }
+  } catch {
+    /* ignore worker communication error */
+  }
+}
+
 function render(theme: Theme): void {
   document.documentElement.classList.toggle('dark', theme === 'dark');
   // Keep every theme-color meta in sync (light + dark media variants and the
@@ -64,6 +99,14 @@ function render(theme: Theme): void {
   document
     .querySelector('meta[name="color-scheme"]')
     ?.setAttribute('content', theme);
+  // Point Chromium at the theme-matching manifest variant so installs and
+  // background updates receive the in-app chrome colours.
+  const manifestHref =
+    theme === 'dark' ? './manifest.dark.webmanifest' : './manifest.webmanifest';
+  document
+    .querySelector('link[rel="manifest"]')
+    ?.setAttribute('href', manifestHref);
+  syncWorkerTheme(theme);
 }
 function notifyThemeChange(mode: ThemeMode): void {
   window.dispatchEvent(
