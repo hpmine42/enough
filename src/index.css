@@ -128,6 +128,26 @@ body {
   min-height: 100%;
 }
 
+/*
+ * The canvas token is painted on the ROOT element and on the React root, not
+ * only on <body>.
+ *
+ * An installed PWA derives the strip it draws around the display cutout /
+ * status bar from the page's own background: iOS 26+ ignores
+ * `meta name="theme-color"` there completely and reads the root element's
+ * `background-color`, and an unpainted <html> leaves that region on the UA
+ * default light canvas — a pale band above an otherwise dark app. The
+ * manifest cannot cover it either (it holds one colour per scheme, not one per
+ * in-app theme), so <html> is the only channel that follows an explicit
+ * light/dark choice. Keeping #root on the same token makes the colour reach
+ * every pixel the screens leave unpainted.
+ */
+html,
+#root {
+  background: var(--bg);
+  transition: background 0.25s ease;
+}
+
 body {
   background: var(--bg);
   color: var(--text);

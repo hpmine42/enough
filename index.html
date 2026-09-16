@@ -54,11 +54,19 @@
           else dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
           if (dark) document.documentElement.classList.add('dark');
           // Keep the installed-app status bar in sync before React mounts.
+          // These two literals are the --bg token of each theme and are kept
+          // equal to src/lib/theme.ts and public/manifest.webmanifest by
+          // `npm run test:pwachrome`.
           var color = dark ? '#171614' : '#F7F5F0';
           var metas = document.querySelectorAll('meta[name="theme-color"]');
           for (var i = 0; i < metas.length; i++) {
             metas[i].setAttribute('content', color);
           }
+          // Declare the *used* scheme, not just the supported ones, so the
+          // platform UI follows an explicit in-app choice even when the
+          // operating system prefers the opposite.
+          var scheme = document.querySelector('meta[name="color-scheme"]');
+          if (scheme) scheme.setAttribute('content', dark ? 'dark' : 'light');
         } catch (e) {}
       })();
     </script>

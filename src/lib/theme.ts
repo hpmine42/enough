@@ -32,14 +32,38 @@ export function nextThemeMode(mode: ThemeMode): ThemeMode {
   return mode === 'light' ? 'dark' : mode === 'dark' ? 'system' : 'light';
 }
 
+/**
+ * The colour the platform chrome is painted with — the app canvas per theme.
+ *
+ * The browser reads these values for the installed-PWA status bar and splash
+ * (`public/manifest.webmanifest`, whose `color_scheme_dark` mirrors the dark
+ * one), for every `meta[name="theme-color"]`, and — via `--bg`, which also
+ * paints `<html>` itself — for the strip iOS 26+ draws around the cutout.
+ * All four channels MUST agree with the `--bg` token in `src/index.css`;
+ * `src/lib/__tests__/pwa-chrome-color.test.mjs` (`npm run test:pwachrome`)
+ * pins it.
+ */
+export const THEME_CHROME_COLORS: Record<Theme, string> = {
+  light: '#F7F5F0',
+  dark: '#171614',
+};
+
 function render(theme: Theme): void {
   document.documentElement.classList.toggle('dark', theme === 'dark');
   // Keep every theme-color meta in sync (light + dark media variants and the
   // installed-PWA status bar all read these tags).
-  const color = theme === 'dark' ? '#171614' : '#F7F5F0';
+  const color = THEME_CHROME_COLORS[theme];
   document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
     meta.setAttribute('content', color);
   });
+  // Declare the *used* scheme, not just the supported ones. This is what makes
+  // the platform UI — status-bar icons, form controls, the find-in-page bar —
+  // follow an explicit in-app choice while the operating system still reports
+  // the opposite preference (the `color-scheme` CSS property on :root only
+  // reaches the document itself).
+  document
+    .querySelector('meta[name="color-scheme"]')
+    ?.setAttribute('content', theme);
 }
 function notifyThemeChange(mode: ThemeMode): void {
   window.dispatchEvent(

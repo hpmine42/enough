@@ -9,6 +9,37 @@ verified, and what remains open.
 
 ---
 
+## Unreleased
+
+### PWA chrome
+
+- **The installed app's top is now the same colour as the app.** In dark mode the
+  standalone window kept a pale band above the dark canvas, because the strip the
+  platform draws around the cutout / status bar is not painted by the stylesheet:
+  iOS 26+ ignores `meta name="theme-color"` in a standalone window and derives that
+  region from the **root element's** background, and `<html>` carried none (only
+  `<body>` did), so it fell back to the UA default light canvas. `src/index.css`
+  now paints the `--bg` token on `<html>` and `#root` as well, with the same theme
+  transition as `<body>`.
+- **The manifest carries both schemes.** `public/manifest.webmanifest` declared
+  only the light `theme_color` / `background_color`, and Chrome/Android read the
+  manifest — not the document metas — for the installed status bar, the
+  task-switcher tile and the splash screen. A `color_scheme_dark` block
+  (W3C manifest #1207; ignored where unsupported) now supplies `#171614` for a
+  dark operating system, so a cold start no longer flashes light.
+- **`src/lib/theme.ts` exports `THEME_CHROME_COLORS`** as the single pair of chrome
+  colours, and every theme change now also narrows `meta name="color-scheme"` to
+  the *used* scheme — that is what makes the platform UI (status-bar icons, form
+  controls, find-in-page bar) follow an explicitly selected theme even while the
+  operating system prefers the opposite. The pre-paint bootstrap in `index.html`
+  does the same before React mounts.
+- **`npm run test:pwachrome`** (`src/lib/__tests__/pwa-chrome-color.test.mjs`) pins
+  all four channels to the same two values and tests the runtime sync behaviourally
+  against a stubbed document; `docs/pwa.md` documents the channels and the one
+  remaining platform limitation.
+
+---
+
 ## 0.5.0
 
 The UX/UI redesign milestone — **"Quiet Modern"**: warm, minimal, calm,
