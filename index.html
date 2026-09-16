@@ -35,7 +35,9 @@
          HTTP spec, and Supabase strips them from the URL after processing. -->
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>enough.</title>
-    <!-- Relative so GitHub Pages /enough/ and local / both resolve correctly. -->
+    <!-- Relative so GitHub Pages /enough/ and local / both resolve correctly.
+         The pre-paint script and src/lib/theme.ts swap this link between
+         manifest.webmanifest and manifest.dark.webmanifest per theme. -->
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
@@ -67,6 +69,19 @@
           // operating system prefers the opposite.
           var scheme = document.querySelector('meta[name="color-scheme"]');
           if (scheme) scheme.setAttribute('content', dark ? 'dark' : 'light');
+          // Point the manifest at the theme's variant: an installed app on
+          // Chrome/Android paints its system bars from the manifest document
+          // — not from the metas above — and a fresh install reads it before
+          // any service worker is active. The service worker additionally
+          // rewrites every copy it serves to the stored theme. The URLs match
+          // public/manifest(.dark).webmanifest; pinned by test:pwachrome.
+          var manifestLink = document.querySelector('link[rel="manifest"]');
+          if (manifestLink) {
+            manifestLink.setAttribute(
+              'href',
+              dark ? './manifest.dark.webmanifest' : './manifest.webmanifest'
+            );
+          }
         } catch (e) {}
       })();
     </script>

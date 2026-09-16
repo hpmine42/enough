@@ -13,6 +13,7 @@ import type { Plugin, ResolvedConfig } from 'vite';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, posix } from 'node:path';
+import { THEME_CHROME_COLORS } from '../src/lib/theme.ts';
 
 const SW_FILENAME = 'sw.js';
 
@@ -38,6 +39,11 @@ function buildSwSource(opts: {
   const baseJson = JSON.stringify(opts.base);
   const cacheIdJson = JSON.stringify(opts.cacheId);
   const swNameJson = JSON.stringify(SW_FILENAME);
+  // The two canvas colours are injected from THEME_CHROME_COLORS so the
+  // worker can never drift from the stylesheet (single source of truth;
+  // pinned by `npm run test:pwachrome`).
+  const lightCanvasJson = JSON.stringify(THEME_CHROME_COLORS.light);
+  const darkCanvasJson = JSON.stringify(THEME_CHROME_COLORS.dark);
 
   return `/* enough. service worker — generated at build time. Do not edit. */
 /* eslint-disable no-restricted-globals */
@@ -45,6 +51,21 @@ const CACHE_ID = ${cacheIdJson};
 const PRECACHE = ${precacheJson};
 const BASE = ${baseJson};
 const SW_NAME = ${swNameJson};
+
+// The app canvas per theme, injected from THEME_CHROME_COLORS in
+// src/lib/theme.ts at build time. An installed app on Chrome/Android paints
+// its status bar and gesture-bar band from the MANIFEST document — the
+// runtime metas never reach an installed window — so this worker rewrites
+// that document to the stored in-app theme on every manifest fetch.
+const LIGHT_CANVAS = ${lightCanvasJson};
+const DARK_CANVAS = ${darkCanvasJson};
+
+// The page's effective theme, written by the message handler below as a tiny
+// Cache Storage entry next to the app shell. It is a presentation preference
+// only: it is never sent anywhere, never leaves this origin, and never feeds
+// an authentication or trust decision.
+const THEME_RECORD_URL = new URL('theme.txt', self.location.origin + BASE).href;
+const THEME_MESSAGE_TYPE = 'enough-theme';
 
 // Only same-origin GETs for static app-shell assets are eligible for caching.
 // Supabase Auth, REST, Realtime (wss) and any other cross-origin traffic is
@@ -75,11 +96,25 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       const keys = await caches.keys();
-      await Promise.all(
-        keys
-          .filter((key) => key.startsWith('enough-shell-') && key !== CACHE_ID)
-          .map((key) => caches.delete(key)),
+      const stale = keys.filter(
+        (key) => key.startsWith('enough-shell-') && key !== CACHE_ID,
       );
+      // The theme record must survive the cache rotation: otherwise the
+      // first manifest fetch after every deploy would be answered with the
+      // raw file colours until the page posts its theme again. Copy it into
+      // the new cache before the old ones are deleted.
+      const cache = await caches.open(CACHE_ID);
+      if (!(await cache.match(THEME_RECORD_URL))) {
+        for (const key of stale) {
+          const oldCache = await caches.open(key);
+          const record = await oldCache.match(THEME_RECORD_URL);
+          if (record) {
+            await cache.put(THEME_RECORD_URL, record.clone());
+            break;
+          }
+        }
+      }
+      await Promise.all(stale.map((key) => caches.delete(key)));
       await self.clients.claim();
     })(),
   );
@@ -132,6 +167,17 @@ self.addEventListener('fetch', (event) => {
 
   // Never cache the service worker script itself through the SW.
   if (url.pathname.endsWith('/' + SW_NAME) || url.pathname.endsWith(SW_NAME)) {
+    return;
+  }
+
+  // Installed-app chrome: an installed Chromium window paints its status bar
+  // and gesture-bar band from the manifest document, not from the document
+  // metas (crbug 40759522 / 40686953 / 40634649). Answer every manifest
+  // request from the stored in-app theme BEFORE the generic static-asset
+  // branch — a cache-first replay of a light copy would pin the installed
+  // bars to the wrong theme forever.
+  if (isManifestRequest(url)) {
+    event.respondWith(serveThemedManifest(request));
     return;
   }
 
@@ -214,6 +260,98 @@ async function revalidate(cache, request) {
     /* offline */
   }
 }
+
+/* ----- themed manifest (installed-app chrome colours) --------------- */
+
+function isManifestRequest(url) {
+  return url.pathname.endsWith('.webmanifest');
+}
+
+async function readThemeRecord() {
+  try {
+    const cache = await caches.open(CACHE_ID);
+    const record = await cache.match(THEME_RECORD_URL);
+    if (!record) return null;
+    const value = (await record.text()).trim();
+    return value === 'dark' || value === 'light' ? value : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function themeManifestBody(body, theme) {
+  // Collapse BOTH colour constants onto the theme's canvas so the response
+  // follows the in-app theme no matter which variant file the raw copy came
+  // from and what its color_scheme_dark block declares. With no stored theme
+  // (before the first page load ever posted one) the raw copy is served
+  // unchanged — still correct, because the page points the manifest link at
+  // the theme's variant file from before first paint.
+  if (theme === 'dark') return body.split(LIGHT_CANVAS).join(DARK_CANVAS);
+  if (theme === 'light') return body.split(DARK_CANVAS).join(LIGHT_CANVAS);
+  return body;
+}
+
+async function serveThemedManifest(request) {
+  const cache = await caches.open(CACHE_ID);
+  const theme = await readThemeRecord();
+
+  // Strategy: keep the RAW file — precached at install, refreshed
+  // network-first here — as the single source of truth for icons, scope and
+  // id, and rewrite the two chrome colours from the theme record on EVERY
+  // response. The rewritten copy is deliberately never cached: cache entries
+  // keyed by theme would have to be invalidated on every deploy, and one
+  // forgotten entry would replay stale colours to Chrome's manifest re-read.
+  let body = null;
+  try {
+    // Network-first: a deploy may have changed the manifest body, and the
+    // installed app's manifest re-read must not receive a stale copy while
+    // the network is reachable.
+    const fresh = await fetch(request);
+    if (fresh && fresh.ok) body = await fresh.text();
+  } catch (_) {
+    /* offline — fall back to the precached raw copy below */
+  }
+  if (body === null) {
+    const raw =
+      (await cache.match(request, { ignoreSearch: true })) ||
+      (await cache.match(
+        new URL('manifest.webmanifest', self.location.origin + BASE).href,
+      ));
+    if (raw) body = await raw.text();
+  }
+  if (body === null) {
+    // Nothing precached yet (worker racing its own install): pass through.
+    return fetch(request);
+  }
+
+  return new Response(themeManifestBody(body, theme), {
+    status: 200,
+    headers: { 'Content-Type': 'application/manifest+json; charset=utf-8' },
+  });
+}
+
+// The only message this worker accepts is the page's effective theme, and
+// only from this origin's own window clients: a foreign source cannot set
+// even a presentation preference here. Everything else is ignored.
+self.addEventListener('message', (event) => {
+  const data = event.data;
+  if (!data || typeof data !== 'object' || data.type !== THEME_MESSAGE_TYPE) return;
+  if (data.theme !== 'light' && data.theme !== 'dark') return;
+  if (event.origin !== self.location.origin) return;
+  const source = event.source;
+  if (!source || typeof source.id !== 'string') return;
+  event.waitUntil(
+    (async () => {
+      const known = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+      if (!known.some((client) => client.id === source.id)) return;
+      const cache = await caches.open(CACHE_ID);
+      await cache.put(THEME_RECORD_URL, new Response(data.theme));
+    })(),
+  );
+});
 `;
 }
 
@@ -282,10 +420,14 @@ export function enoughPwa(): Plugin {
       writeFileSync(join(absOut, SW_FILENAME), source, 'utf8');
 
       // Mirror a tiny build stamp next to the SW so diagnostics / smoke tests
-      // can assert a fresh worker was emitted.
+      // can assert a fresh worker was emitted and see the precache list.
       writeFileSync(
         join(absOut, 'sw-build.json'),
-        `${JSON.stringify({ cacheId, base, precacheCount: urls.length }, null, 2)}\n`,
+        `${JSON.stringify(
+          { cacheId, base, precacheCount: urls.length, precache: urls },
+          null,
+          2,
+        )}\n`,
         'utf8',
       );
     },

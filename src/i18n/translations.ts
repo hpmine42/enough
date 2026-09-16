@@ -305,6 +305,8 @@ export const translations = {
       light: 'Light',
       dark: 'Dark',
       system: 'System',
+      appearanceInstalledHint:
+        'In the installed app, Android updates the colours around the app when the app updates or is reinstalled.',
       chat: 'Chat',
       enterToSend: 'Enter to send',
       enterToSendHint: 'Enter sends the message. Shift + Enter makes a new line.',
@@ -786,6 +788,8 @@ export const translations = {
       light: 'Hell',
       dark: 'Dunkel',
       system: 'System',
+      appearanceInstalledHint:
+        'In der installierten App aktualisiert Android die Farben rund um die App, wenn die App aktualisiert oder neu installiert wird.',
       chat: 'Chat',
       enterToSend: 'Enter zum Senden',
       enterToSendHint: 'Enter sendet die Nachricht. Shift + Enter fügt eine Zeile ein.',

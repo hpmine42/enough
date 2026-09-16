@@ -38,6 +38,58 @@ verified, and what remains open.
   against a stubbed document; `docs/pwa.md` documents the channels and the one
   remaining platform limitation.
 
+### PWA chrome — installed Android
+
+The follow-up to the entry above: #121 fixed iOS (root-element background) and
+the `prefers-color-scheme` channels, but on Chrome/Android an **installed**
+standalone app paints its status bar and gesture-bar band from the *manifest*,
+not the document — and `color_scheme_dark` only answers to the OS scheme. An
+app explicitly set to dark on a light-OS device therefore kept light bands
+(the reporter's exact configuration; the bands were `#F7F5F0`, exactly the
+manifest `theme_color`, while `npm run smoke` already proved both
+`theme-color` metas were correct at runtime).
+
+- **The manifest is now theme-aware.** New `public/manifest.dark.webmanifest`,
+  byte-identical to `public/manifest.webmanifest` except
+  `theme_color`/`background_color` (same `id`/`scope`/icons — Chromium must
+  not see a second app). `index.html`'s pre-paint bootstrap and
+  `render()` in `src/lib/theme.ts` point `link[rel="manifest"]` at the
+  theme's variant before first paint and on every change, so fresh installs
+  and Chromium's manifest re-reads fetch the right file even without a
+  service worker.
+- **The service worker serves the manifest per theme.** `scripts/pwa-plugin.ts`
+  intercepts every `*.webmanifest` request *before* the static-asset branch
+  (never `cacheFirstStatic` again — a cached light copy would be replayed to
+  Chrome's manifest re-read forever): network-first for the raw body, colours
+  rewritten to the stored theme on every response, precached raw copy as the
+  offline fallback. The theme is a tiny `theme.txt` record in the existing
+  `enough-shell-*` cache, posted by the page via `postMessage` and migrated
+  across cache rotations. Privacy contract unchanged: same-origin static
+  assets only; the message handler accepts only `{ type: 'enough-theme' }`
+  from this origin's own window clients, and the record is a presentation
+  preference that is never sent anywhere and never feeds an auth decision.
+- **Expectation-setting for the timing lag.** WebAPK metadata is frozen at
+  install time and refreshed by Chrome's app-update job, so on an existing
+  install the bars may only follow after that update or a reinstall; the
+  Appearance settings note says so (new i18n key, EN + DE). `color_scheme_dark`
+  stays as the standard/no-worker fallback; the light base stays the file
+  default because `system` is the default mode.
+- **Guards extended.** `npm run test:pwachrome` now also pins: both manifest
+  variants differ only in the two chrome colours; the worker's manifest branch
+  precedes `cacheFirstStatic`; the manifest is network-first with the raw
+  precache fallback; the message handler's origin/client validation; the
+  pre-paint manifest-link swap; and `render()`'s worker post (behavioural,
+  including the no-worker no-throw paths). `docs/pwa.md` documents the
+  channel table as it actually behaves, including the build-level probe of
+  this change and the still-open device verification.
+
+**Verification status:** build, `test:pwachrome`, `smoke` and all
+non-PostgreSQL suites pass; the generated worker's themed-manifest logic was
+additionally exercised against a stubbed Cache Storage. The on-device bar
+colours (light-OS/dark-app and dark-OS/light-app, fresh vs. existing
+install) remain a manual checklist item in `docs/pwa.md` — no Android device
+was available in this change session, so no device result is claimed.
+
 ---
 
 ## 0.5.0

@@ -47,6 +47,7 @@ export default function AppearanceSettings({
           </button>
         ))}
       </div>
+      <p className="field-hint muted">{t('settingsScreen.appearanceInstalledHint')}</p>
     </Section>
   );
 }
