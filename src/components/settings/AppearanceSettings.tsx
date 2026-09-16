@@ -47,6 +47,9 @@ export default function AppearanceSettings({
           </button>
         ))}
       </div>
+      <p className="settings-row-sub" style={{ padding: '0 4px', margin: 0 }}>
+        {t('settingsScreen.appearancePwaNote')}
+      </p>
     </Section>
   );
 }

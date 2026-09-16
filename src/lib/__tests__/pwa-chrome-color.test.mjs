@@ -44,6 +44,7 @@ const read = (rel) => readFileSync(join(root, rel), 'utf8');
 const css = read('src/index.css');
 const html = read('index.html');
 const manifest = JSON.parse(read('public/manifest.webmanifest'));
+const darkManifest = JSON.parse(read('public/manifest.dark.webmanifest'));
 
 /* ------------------------------------------------------------------ */
 /* Stylesheet helpers (brace-matched, no external CSS parser)         */
@@ -194,6 +195,41 @@ test('manifest light colours match the light canvas token', () => {
   );
 });
 
+test('both colour variants of the manifest exist and differ only in theme_color/background_color', () => {
+  assert.deepEqual(
+    Object.keys(manifest).sort(),
+    Object.keys(darkManifest).sort(),
+    'manifest key sets must match exactly',
+  );
+
+  for (const key of Object.keys(manifest)) {
+    if (key === 'theme_color') {
+      assert.equal(norm(manifest.theme_color), lightCanvas, 'light manifest theme_color');
+      assert.equal(norm(darkManifest.theme_color), darkCanvas, 'dark manifest theme_color');
+    } else if (key === 'background_color') {
+      assert.equal(
+        norm(manifest.background_color),
+        lightCanvas,
+        'light manifest background_color',
+      );
+      assert.equal(
+        norm(darkManifest.background_color),
+        darkCanvas,
+        'dark manifest background_color',
+      );
+    } else {
+      assert.deepEqual(
+        manifest[key],
+        darkManifest[key],
+        `key "${key}" must be byte-identical between manifest variants so Chromium does not fork the install`,
+      );
+    }
+  }
+
+  assert.equal(manifest.id, './', 'manifest id must be "./"');
+  assert.equal(manifest.id, darkManifest.id, 'id member must match across variants');
+});
+
 test('manifest declares a dark scheme so a standalone window is not light', () => {
   const dark = manifest.color_scheme_dark;
   assert.ok(
@@ -262,6 +298,26 @@ test('pre-paint bootstrap re-pins both metas and the used colour scheme', () => 
   );
 });
 
+test('index.html swaps the manifest link inside the pre-paint script, and the literals still equal THEME_CHROME_COLORS', () => {
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? '';
+  assert.ok(
+    script.includes('link[rel="manifest"]') || script.includes('manifest.setAttribute'),
+    'pre-paint script must query and update the manifest link',
+  );
+  assert.ok(
+    script.includes('manifest.dark.webmanifest'),
+    'pre-paint script must reference the dark manifest variant',
+  );
+  assert.ok(
+    script.includes('manifest.webmanifest'),
+    'pre-paint script must reference the light manifest variant',
+  );
+  assert.ok(
+    script.includes(darkCanvas) && script.includes(lightCanvas),
+    `pre-paint script literals must equal THEME_CHROME_COLORS: ${lightCanvas} / ${darkCanvas}`,
+  );
+});
+
 test('iOS keeps drawing the standalone strip from the page background', () => {
   assert.match(
     html,
@@ -292,6 +348,7 @@ const metas = [
   fakeMeta({ name: 'theme-color', content: '#171614', media: '(prefers-color-scheme: dark)' }),
   fakeMeta({ name: 'color-scheme', content: 'light dark' }),
 ];
+const manifestLink = fakeMeta({ rel: 'manifest', href: './manifest.webmanifest' });
 
 const store = new Map();
 const rootClasses = new Set();
@@ -322,7 +379,11 @@ globalThis.document = {
       contains: (c) => rootClasses.has(c),
     },
   },
-  querySelector: (sel) => (sel.includes('color-scheme') ? metas[2] : null),
+  querySelector: (sel) => {
+    if (sel.includes('color-scheme')) return metas[2];
+    if (sel.includes('manifest')) return manifestLink;
+    return null;
+  },
   querySelectorAll: (sel) =>
     sel.includes('theme-color') ? metas.filter((m) => m.getAttribute('media')) : [],
 };
@@ -375,4 +436,162 @@ test('system mode follows the OS on both channels', () => {
   assert.ok(!isDark(), 'system + OS light → light');
   assert.equal(themeColorMetas()[1].getAttribute('content'), lightCanvas);
   assert.equal(metas[2].getAttribute('content'), 'light');
+});
+
+test('render() updates the manifest link to match the active theme', () => {
+  applyMode('dark');
+  assert.equal(
+    manifestLink.getAttribute('href'),
+    './manifest.dark.webmanifest',
+    'manifest link must point to dark variant in dark mode',
+  );
+
+  applyMode('light');
+  assert.equal(
+    manifestLink.getAttribute('href'),
+    './manifest.webmanifest',
+    'manifest link must point to light variant in light mode',
+  );
+});
+
+function setNavigator(val) {
+  Object.defineProperty(globalThis, 'navigator', {
+    value: val,
+    configurable: true,
+    writable: true,
+  });
+}
+
+test('render() posts the theme to the worker when one is controlling the page', () => {
+  const origDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const messages = [];
+  setNavigator({
+    serviceWorker: {
+      controller: {
+        postMessage: (msg) => messages.push(msg),
+      },
+      ready: Promise.resolve({
+        active: {
+          postMessage: (msg) => messages.push(msg),
+        },
+      }),
+    },
+  });
+
+  try {
+    applyMode('dark');
+    assert.ok(
+      messages.some((m) => m.type === 'enough-theme' && m.theme === 'dark'),
+      'dark mode must be posted to the active/controlling service worker',
+    );
+
+    messages.length = 0;
+    applyMode('light');
+    assert.ok(
+      messages.some((m) => m.type === 'enough-theme' && m.theme === 'light'),
+      'light mode must be posted to the active/controlling service worker',
+    );
+  } finally {
+    if (origDesc) {
+      Object.defineProperty(globalThis, 'navigator', origDesc);
+    }
+  }
+});
+
+test('render() no-ops without throwing when navigator.serviceWorker is missing, unsupported, or has no active worker', () => {
+  const origDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+
+  try {
+    // Case A: navigator is undefined
+    setNavigator(undefined);
+    assert.doesNotThrow(() => applyMode('dark'), 'must not throw when navigator is undefined');
+
+    // Case B: serviceWorker not in navigator
+    setNavigator({});
+    assert.doesNotThrow(() => applyMode('light'), 'must not throw when serviceWorker not in navigator');
+
+    // Case C: registration has no active worker
+    setNavigator({
+      serviceWorker: {
+        controller: null,
+        ready: Promise.resolve({ active: null }),
+      },
+    });
+    assert.doesNotThrow(() => applyMode('dark'), 'must not throw when registration has no active worker');
+  } finally {
+    if (origDesc) {
+      Object.defineProperty(globalThis, 'navigator', origDesc);
+    }
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* 5. Service worker: theme-aware manifest and bypass of cacheFirst   */
+/* ------------------------------------------------------------------ */
+
+test('the worker source (scripts/pwa-plugin.ts, as generated) special-cases the manifest URL and does not use cacheFirstStatic for it', async () => {
+  const pluginSource = read('scripts/pwa-plugin.ts');
+  assert.ok(
+    pluginSource.includes('isManifestRequest'),
+    'scripts/pwa-plugin.ts must special-case manifest requests',
+  );
+  assert.ok(
+    pluginSource.includes('networkFirstManifest'),
+    'scripts/pwa-plugin.ts must route manifest requests to networkFirstManifest',
+  );
+
+  const { buildSwSource } = await import('../../../scripts/pwa-plugin.ts');
+  const swCode = buildSwSource({
+    cacheId: 'test-cache-id',
+    precache: ['/index.html', '/manifest.webmanifest', '/manifest.dark.webmanifest'],
+    base: '/',
+  });
+
+  const fetchIdx = swCode.indexOf("self.addEventListener('fetch'");
+  assert.ok(fetchIdx !== -1, 'fetch event listener must exist in generated sw.js');
+  const fetchBlock = swCode.slice(fetchIdx);
+
+  const manifestCallIdx = fetchBlock.indexOf('isManifestRequest(url)');
+  const staticCallIdx = fetchBlock.indexOf('isStaticAsset(url)');
+
+  assert.ok(
+    manifestCallIdx !== -1,
+    'fetch listener must check isManifestRequest',
+  );
+  assert.ok(
+    staticCallIdx !== -1,
+    'fetch listener must check isStaticAsset',
+  );
+  assert.ok(
+    manifestCallIdx < staticCallIdx,
+    'isManifestRequest must be checked before isStaticAsset in fetch handler',
+  );
+
+  // Assert manifest branch returns networkFirstManifest and does NOT hit cacheFirstStatic
+  const manifestBlock = fetchBlock.slice(manifestCallIdx, staticCallIdx);
+  assert.ok(
+    manifestBlock.includes('event.respondWith(networkFirstManifest(request, url))'),
+    'manifest handler must call networkFirstManifest',
+  );
+  assert.ok(
+    !manifestBlock.includes('event.respondWith(cacheFirstStatic'),
+    'manifest handler must not call cacheFirstStatic',
+  );
+
+  // Assert service worker listens for enough-theme messages and stores theme in cache
+  assert.ok(
+    swCode.includes('enough-theme'),
+    'service worker must handle enough-theme message event',
+  );
+  assert.ok(
+    swCode.includes('enough-theme.txt'),
+    'service worker must persist theme to enough-theme.txt in Cache Storage',
+  );
+
+  // Assert colors injected in worker match THEME_CHROME_COLORS
+  assert.ok(
+    swCode.includes(JSON.stringify(THEME_CHROME_COLORS.light)) &&
+      swCode.includes(JSON.stringify(THEME_CHROME_COLORS.dark)),
+    'generated worker must contain THEME_CHROME_COLORS values',
+  );
 });

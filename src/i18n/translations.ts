@@ -302,6 +302,8 @@ export const translations = {
       searchNoResults: 'No one found.',
       language: 'Language',
       appearance: 'Appearance',
+      appearancePwaNote:
+        'On installed mobile apps, the system bar colour follows after the app updates or is reinstalled.',
       light: 'Light',
       dark: 'Dark',
       system: 'System',
@@ -783,6 +785,8 @@ export const translations = {
       searchNoResults: 'Keine Person gefunden.',
       language: 'Sprache',
       appearance: 'Darstellung',
+      appearancePwaNote:
+        'Bei installierten mobilen Apps folgt die Systemleistenfarbe nach einem App-Update oder einer Neuinstallation.',
       light: 'Hell',
       dark: 'Dunkel',
       system: 'System',
