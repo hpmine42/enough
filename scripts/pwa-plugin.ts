@@ -28,11 +28,15 @@ function listFiles(dir: string, base = dir): string[] {
   return out;
 }
 
+/**
+ * The worker source, exactly as `writeFileSync` emits it. Exported for
+ * `npm run test:pwachrome`, which pins behaviour on the *generated* file
+ * instead of on the template text alone.
+ */
 export function buildSwSource(opts: {
   cacheId: string;
   precache: string[];
   base: string;
-  themeColors?: { light: string; dark: string };
 }): string {
   // Paths in the SW are absolute from the origin and already include the
   // Vite base (e.g. "/enough/assets/index-….js").
@@ -40,9 +44,11 @@ export function buildSwSource(opts: {
   const baseJson = JSON.stringify(opts.base);
   const cacheIdJson = JSON.stringify(opts.cacheId);
   const swNameJson = JSON.stringify(SW_FILENAME);
-  const themeColors = opts.themeColors ?? THEME_CHROME_COLORS;
-  const themeLightJson = JSON.stringify(themeColors.light);
-  const themeDarkJson = JSON.stringify(themeColors.dark);
+  // The two canvas colours are injected from THEME_CHROME_COLORS so the
+  // worker can never drift from the stylesheet (single source of truth;
+  // pinned by `npm run test:pwachrome`).
+  const lightCanvasJson = JSON.stringify(THEME_CHROME_COLORS.light);
+  const darkCanvasJson = JSON.stringify(THEME_CHROME_COLORS.dark);
 
   return `/* enough. service worker — generated at build time. Do not edit. */
 /* eslint-disable no-restricted-globals */
@@ -50,9 +56,21 @@ const CACHE_ID = ${cacheIdJson};
 const PRECACHE = ${precacheJson};
 const BASE = ${baseJson};
 const SW_NAME = ${swNameJson};
-const THEME_LIGHT_COLOR = ${themeLightJson};
-const THEME_DARK_COLOR = ${themeDarkJson};
-const THEME_RECORD_URL = new URL('enough-theme.txt', self.location.origin + BASE).href;
+
+// The app canvas per theme, injected from THEME_CHROME_COLORS in
+// src/lib/theme.ts at build time. An installed app on Chrome/Android paints
+// its status bar and gesture-bar band from the MANIFEST document — the
+// runtime metas never reach an installed window — so this worker rewrites
+// that document to the stored in-app theme on every manifest fetch.
+const LIGHT_CANVAS = ${lightCanvasJson};
+const DARK_CANVAS = ${darkCanvasJson};
+
+// The page's effective theme, written by the message handler below as a tiny
+// Cache Storage entry next to the app shell. It is a presentation preference
+// only: it is never sent anywhere, never leaves this origin, and never feeds
+// an authentication or trust decision.
+const THEME_RECORD_URL = new URL('theme.txt', self.location.origin + BASE).href;
+const THEME_MESSAGE_TYPE = 'enough-theme';
 
 // Only same-origin GETs for static app-shell assets are eligible for caching.
 // Supabase Auth, REST, Realtime (wss) and any other cross-origin traffic is
@@ -83,61 +101,26 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       const keys = await caches.keys();
-      await Promise.all(
-        keys
-          .filter((key) => key.startsWith('enough-shell-') && key !== CACHE_ID)
-          .map((key) => caches.delete(key)),
+      const stale = keys.filter(
+        (key) => key.startsWith('enough-shell-') && key !== CACHE_ID,
       );
-      await self.clients.claim();
-    })(),
-  );
-});
-
-// The worker stores a tiny theme record in Cache Storage (enough-theme.txt).
-// It is set by the page via:
-//   navigator.serviceWorker.ready.then(reg => reg.active.postMessage({ type: 'enough-theme', theme }))
-// Privacy contract: same-origin only, never touch Supabase, ignore unknown clients.
-self.addEventListener('message', (event) => {
-  const data = event.data;
-  if (!data || typeof data !== 'object') return;
-  if (data.type !== 'enough-theme') return;
-
-  const theme = data.theme;
-  if (theme !== 'light' && theme !== 'dark') return;
-
-  if (event.origin && event.origin !== self.location.origin) return;
-
-  event.waitUntil(
-    (async () => {
-      if (event.source && event.source.id) {
-        if (self.clients && typeof self.clients.get === 'function') {
-          const client = await self.clients.get(event.source.id);
-          if (!client) return;
-          try {
-            const clientUrl = new URL(client.url);
-            if (clientUrl.origin !== self.location.origin) return;
-          } catch (_) {
-            return;
+      // The theme record must survive the cache rotation: otherwise the
+      // first manifest fetch after every deploy would be answered with the
+      // raw file colours until the page posts its theme again. Copy it into
+      // the new cache before the old ones are deleted.
+      const cache = await caches.open(CACHE_ID);
+      if (!(await cache.match(THEME_RECORD_URL))) {
+        for (const key of stale) {
+          const oldCache = await caches.open(key);
+          const record = await oldCache.match(THEME_RECORD_URL);
+          if (record) {
+            await cache.put(THEME_RECORD_URL, record.clone());
+            break;
           }
         }
-      } else {
-        return;
       }
-
-      try {
-        const cache = await caches.open(CACHE_ID);
-        await cache.put(
-          THEME_RECORD_URL,
-          new Response(theme, {
-            headers: {
-              'Content-Type': 'text/plain; charset=utf-8',
-              'Cache-Control': 'no-store',
-            },
-          }),
-        );
-      } catch (_) {
-        /* storage quota / cache put error */
-      }
+      await Promise.all(stale.map((key) => caches.delete(key)));
+      await self.clients.claim();
     })(),
   );
 });
@@ -161,18 +144,10 @@ function underScope(url) {
   return url.pathname === BASE.slice(0, -1) || url.pathname.startsWith(BASE);
 }
 
-function isManifestRequest(url) {
-  return (
-    url.pathname.endsWith('.webmanifest') ||
-    url.pathname.endsWith('/manifest.webmanifest') ||
-    url.pathname.endsWith('/manifest.dark.webmanifest')
-  );
-}
-
 function isStaticAsset(url) {
-  // Hashed Vite assets + icons + the SW itself (manifests are handled separately).
+  // Hashed Vite assets + icons + manifest + the SW itself.
   if (url.pathname.includes('/assets/')) return true;
-  if (/\\.(?:js|css|png|svg|ico|woff2?|ttf|map)$/i.test(url.pathname)) {
+  if (/\\.(?:js|css|png|svg|ico|webmanifest|woff2?|ttf|map)$/i.test(url.pathname)) {
     return true;
   }
   return false;
@@ -200,6 +175,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Installed-app chrome: an installed Chromium window paints its status bar
+  // and gesture-bar band from the manifest document, not from the document
+  // metas (crbug 40759522 / 40686953 / 40634649). Answer every manifest
+  // request from the stored in-app theme BEFORE the generic static-asset
+  // branch — a cache-first replay of a light copy would pin the installed
+  // bars to the wrong theme forever.
+  if (isManifestRequest(url)) {
+    event.respondWith(serveThemedManifest(request));
+    return;
+  }
+
   if (isNavigationRequest(request)) {
     // App shell: network-first so deploys win; fall back to cached index.html
     // only when offline. Hash routing means every deep link is still index.html.
@@ -207,119 +193,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (isManifestRequest(url)) {
-    // Manifest: network-first with dynamic chrome-colour rewriting to match the
-    // active in-app theme. We do not use cacheFirstStatic here so Chrome never
-    // receives a stale manifest on install or update.
-    event.respondWith(networkFirstManifest(request, url));
-    return;
-  }
-
   if (isStaticAsset(url)) {
-    // Immutable hashed assets: cache-first. Unhashed icons still
+    // Immutable hashed assets: cache-first. Unhashed icons/manifest still
     // revalidate in the background.
     event.respondWith(cacheFirstStatic(request, event));
   }
 });
-
-function rewriteManifestColors(rawText, theme) {
-  const color = theme === 'dark' ? THEME_DARK_COLOR : THEME_LIGHT_COLOR;
-  // Replace only the first (top-level) occurrence of background_color and theme_color.
-  // color_scheme_dark retains its standard values.
-  return rawText
-    .replace(
-      /"background_color"\\s*:\\s*"#[0-9a-fA-F]{6}"/,
-      \`"background_color": "\${color}"\`,
-    )
-    .replace(
-      /"theme_color"\\s*:\\s*"#[0-9a-fA-F]{6}"/,
-      \`"theme_color": "\${color}"\`,
-    );
-}
-
-// We keep the raw manifest file in cache alongside the tiny theme record and rewrite
-// the colours on every response rather than caching multiple rewritten variants.
-// This guarantees that all other manifest members (id, scope, icons, name) remain
-// byte-identical to the deployed build and cannot drift or become desynchronized.
-async function networkFirstManifest(request, url) {
-  const cache = await caches.open(CACHE_ID);
-
-  let targetTheme = null;
-  const paramTheme = url.searchParams.get('theme');
-  if (paramTheme === 'dark' || paramTheme === 'light') {
-    targetTheme = paramTheme;
-  }
-
-  if (!targetTheme) {
-    try {
-      const stored = await cache.match(THEME_RECORD_URL);
-      if (stored) {
-        const text = (await stored.text()).trim();
-        if (text === 'dark' || text === 'light') {
-          targetTheme = text;
-        }
-      }
-    } catch (_) {}
-  }
-
-  if (!targetTheme) {
-    targetTheme = url.pathname.endsWith('manifest.dark.webmanifest') ? 'dark' : 'light';
-  }
-
-  let rawText = null;
-  try {
-    const fresh = await fetch(request);
-    if (fresh && fresh.ok) {
-      rawText = await fresh.text();
-      try {
-        await cache.put(
-          request,
-          new Response(rawText, {
-            headers: fresh.headers,
-            status: fresh.status,
-            statusText: fresh.statusText,
-          }),
-        );
-      } catch (_) {}
-    }
-  } catch (_) {
-    /* offline */
-  }
-
-  if (!rawText) {
-    const fallbackUrls = [
-      request,
-      new URL('manifest.webmanifest', self.location.origin + BASE).href,
-      new URL('manifest.dark.webmanifest', self.location.origin + BASE).href,
-    ];
-    for (const fb of fallbackUrls) {
-      const cached =
-        (await cache.match(fb, { ignoreSearch: false })) ||
-        (await cache.match(fb, { ignoreSearch: true }));
-      if (cached) {
-        rawText = await cached.text();
-        break;
-      }
-    }
-  }
-
-  if (rawText) {
-    const rewritten = rewriteManifestColors(rawText, targetTheme);
-    return new Response(rewritten, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/manifest+json; charset=utf-8',
-        'Cache-Control': 'no-cache',
-      },
-    });
-  }
-
-  return new Response('Manifest unavailable', {
-    status: 503,
-    statusText: 'Service Unavailable',
-    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-  });
-}
 
 async function networkFirstNavigation(request) {
   const cache = await caches.open(CACHE_ID);
@@ -354,7 +233,7 @@ async function cacheFirstStatic(request, event) {
   const cache = await caches.open(CACHE_ID);
   const cached = await cache.match(request, { ignoreSearch: false });
   if (cached) {
-    // Background revalidate for non-hashed assets (icons).
+    // Background revalidate for non-hashed assets (icons, manifest).
     const url = new URL(request.url);
     if (!url.pathname.includes('/assets/') && event && event.waitUntil) {
       event.waitUntil(revalidate(cache, request));
@@ -386,6 +265,98 @@ async function revalidate(cache, request) {
     /* offline */
   }
 }
+
+/* ----- themed manifest (installed-app chrome colours) --------------- */
+
+function isManifestRequest(url) {
+  return url.pathname.endsWith('.webmanifest');
+}
+
+async function readThemeRecord() {
+  try {
+    const cache = await caches.open(CACHE_ID);
+    const record = await cache.match(THEME_RECORD_URL);
+    if (!record) return null;
+    const value = (await record.text()).trim();
+    return value === 'dark' || value === 'light' ? value : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function themeManifestBody(body, theme) {
+  // Collapse BOTH colour constants onto the theme's canvas so the response
+  // follows the in-app theme no matter which variant file the raw copy came
+  // from and what its color_scheme_dark block declares. With no stored theme
+  // (before the first page load ever posted one) the raw copy is served
+  // unchanged — still correct, because the page points the manifest link at
+  // the theme's variant file from before first paint.
+  if (theme === 'dark') return body.split(LIGHT_CANVAS).join(DARK_CANVAS);
+  if (theme === 'light') return body.split(DARK_CANVAS).join(LIGHT_CANVAS);
+  return body;
+}
+
+async function serveThemedManifest(request) {
+  const cache = await caches.open(CACHE_ID);
+  const theme = await readThemeRecord();
+
+  // Strategy: keep the RAW file — precached at install, refreshed
+  // network-first here — as the single source of truth for icons, scope and
+  // id, and rewrite the two chrome colours from the theme record on EVERY
+  // response. The rewritten copy is deliberately never cached: cache entries
+  // keyed by theme would have to be invalidated on every deploy, and one
+  // forgotten entry would replay stale colours to Chrome's manifest re-read.
+  let body = null;
+  try {
+    // Network-first: a deploy may have changed the manifest body, and the
+    // installed app's manifest re-read must not receive a stale copy while
+    // the network is reachable.
+    const fresh = await fetch(request);
+    if (fresh && fresh.ok) body = await fresh.text();
+  } catch (_) {
+    /* offline — fall back to the precached raw copy below */
+  }
+  if (body === null) {
+    const raw =
+      (await cache.match(request, { ignoreSearch: true })) ||
+      (await cache.match(
+        new URL('manifest.webmanifest', self.location.origin + BASE).href,
+      ));
+    if (raw) body = await raw.text();
+  }
+  if (body === null) {
+    // Nothing precached yet (worker racing its own install): pass through.
+    return fetch(request);
+  }
+
+  return new Response(themeManifestBody(body, theme), {
+    status: 200,
+    headers: { 'Content-Type': 'application/manifest+json; charset=utf-8' },
+  });
+}
+
+// The only message this worker accepts is the page's effective theme, and
+// only from this origin's own window clients: a foreign source cannot set
+// even a presentation preference here. Everything else is ignored.
+self.addEventListener('message', (event) => {
+  const data = event.data;
+  if (!data || typeof data !== 'object' || data.type !== THEME_MESSAGE_TYPE) return;
+  if (data.theme !== 'light' && data.theme !== 'dark') return;
+  if (event.origin !== self.location.origin) return;
+  const source = event.source;
+  if (!source || typeof source.id !== 'string') return;
+  event.waitUntil(
+    (async () => {
+      const known = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+      if (!known.some((client) => client.id === source.id)) return;
+      const cache = await caches.open(CACHE_ID);
+      await cache.put(THEME_RECORD_URL, new Response(data.theme));
+    })(),
+  );
+});
 `;
 }
 
@@ -454,10 +425,14 @@ export function enoughPwa(): Plugin {
       writeFileSync(join(absOut, SW_FILENAME), source, 'utf8');
 
       // Mirror a tiny build stamp next to the SW so diagnostics / smoke tests
-      // can assert a fresh worker was emitted.
+      // can assert a fresh worker was emitted and see the precache list.
       writeFileSync(
         join(absOut, 'sw-build.json'),
-        `${JSON.stringify({ cacheId, base, precacheCount: urls.length }, null, 2)}\n`,
+        `${JSON.stringify(
+          { cacheId, base, precacheCount: urls.length, precache: urls },
+          null,
+          2,
+        )}\n`,
         'utf8',
       );
     },
