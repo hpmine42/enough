@@ -306,7 +306,7 @@ export const translations = {
       dark: 'Dark',
       system: 'System',
       appearanceInstalledHint:
-        'In the installed app, Android updates the colours around the app when the app updates or is reinstalled.',
+        'In the installed app, the bars above and below the app keep the colour of the theme that was active when the app was installed. Chrome refreshes them on its own within about a day or two (in the background, while charging on Wi‑Fi) — or immediately if you reinstall the app while this theme is active.',
       chat: 'Chat',
       enterToSend: 'Enter to send',
       enterToSendHint: 'Enter sends the message. Shift + Enter makes a new line.',
@@ -789,7 +789,7 @@ export const translations = {
       dark: 'Dunkel',
       system: 'System',
       appearanceInstalledHint:
-        'In der installierten App aktualisiert Android die Farben rund um die App, wenn die App aktualisiert oder neu installiert wird.',
+        'In der installierten App behalten die Leisten über und unter der App die Farbe des Designs, das bei der Installation aktiv war. Chrome aktualisiert sie von selbst innerhalb von etwa ein bis zwei Tagen (im Hintergrund, beim Laden im WLAN) – oder sofort, wenn du die App neu installierst, während dieses Design aktiv ist.',
       chat: 'Chat',
       enterToSend: 'Enter zum Senden',
       enterToSendHint: 'Enter sendet die Nachricht. Shift + Enter fügt eine Zeile ein.',

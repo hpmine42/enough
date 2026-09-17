@@ -113,11 +113,54 @@ no-preference answer.
 
 Remaining platform timing limitation: WebAPK metadata is frozen at install
 time and refreshed by Chrome's app-update job, so an existing install's bars
-may follow a theme change only after that update or a reinstall. The
-Appearance settings note says so (i18n, EN + DE).
+follow a theme change only after that update or a reinstall. The Appearance
+settings note says so (i18n, EN + DE). What Chromium does, from its sources
+(`chrome/android/.../webapps/WebApkUpdateManager.java`,
+`WebappDataStorage.java`, `WebappIntentDataProvider.java`, all `main`):
+
+- The installed window's toolbar/status-bar colour comes from the WebAPK's
+  baked `theme_color` (`WebappIntentDataProvider.ColorProviderImpl`); the
+  dark variant Chromium would prefer in OS dark mode (`dark_theme_color`)
+  is never filled in — Blink's manifest parser does not read
+  `color_scheme_dark`/`user_preferences` any more (`manifest.mojom` marks the
+  member obsolete) — so the *same* baked colour is shown in OS light **and**
+  OS dark. That is why the band is `#F7F5F0` in both OS schemes when the app
+  was installed while light.
+- Chrome re-reads the manifest at most once per `UPDATE_INTERVAL` (1 day,
+  `WebappDataStorage`), diffs it against the baked values
+  (`THEME_COLOR_DIFFERS` / `BACKGROUND_COLOR_DIFFERS` are update reasons),
+  and then schedules the WebAPK rebuild as a one-off background task with a
+  1–23 h window that requires an unmetered network **and** charging
+  (`WebApkUpdateManager.scheduleUpdate`). Realistically the bars converge
+  one to two days after the theme change, provided the phone charges on
+  Wi‑Fi in between; `chrome://webapks` → *Update* forces it immediately.
+- A reinstall bakes whatever variant the page points at *at that moment*,
+  so “uninstall → open the site → set the theme → Install app” gives the
+  right bars right away.
+
+The document metas cannot shortcut this: Chromium's own maintainers confirm
+(crbug 40759522 comment #39, Aug 2026) that the dynamic top status bar from
+`<meta name="theme-color">` in an installed WebAPK is still broken and
+tracked separately (issue 554055703); only the *bottom* navigation bar was
+fixed in Chrome 153.
 
 ### Probe history
 
+- **2026-09 (follow-up to #124).** Device report after #124 shipped
+  (Chrome ≥ 152, Android 15/16): app reinstalled while **light/system**
+  was active, then switched to dark → top band **and** gesture bar stayed
+  `#F7F5F0` (the light canvas, not pure white) in **both** OS schemes,
+  including after a full restart of the installed app. The shade rules out
+  every document layer (`<html>`, `<body>`, `#root`, safe-area padding and
+  every surface paint `var(--bg)`/`var(--surface)`, none of which is
+  `#F7F5F0` in dark mode) and the UA default (`#FFFFFF`); it is exactly the
+  manifest `theme_color` baked into the WebAPK at install, and the
+  identical result in OS dark mode matches Chromium never filling
+  `dark_theme_color` (above). No stylesheet or manifest change can repaint
+  an *already built* WebAPK; the mechanism from #124 is what the next
+  WebAPK update (≤ 1 day check + 1–23 h charging/Wi‑Fi task) or a
+  reinstall-while-dark picks up. Conclusion: platform timing, not a code
+  defect — the Appearance note now states the real cadence.
 - **2026-09 (this change).** A build-level probe set the base manifest's
   `theme_color`/`background_color` to `#171614` and verified the value
   reaches `dist/` (and hence the Pages artifact) unmodified. The
@@ -186,3 +229,8 @@ the working channel, so the app must not pay the layout cost twice.
 - [ ] Manual (probe): for an *existing* install, note whether the bands
   followed a theme change immediately, after Chrome's app update, or only
   after a reinstall
+- [ ] Manual (probe): uninstall, open the site in Chrome, set **Dark**,
+  *Install app* → both bands read `#171614` in OS light and OS dark; then
+  set **Light** and leave the phone charging on Wi‑Fi — bands read
+  `#F7F5F0` within two days without a reinstall (`chrome://webapks` shows
+  the update)
