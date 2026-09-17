@@ -13,6 +13,25 @@ verified, and what remains open.
 
 ### PWA chrome
 
+- **Pale band in the installed app after #124 — root cause pinned, note and
+  docs corrected.** Report: Chrome ≥ 152 / Android 15–16, app reinstalled
+  while light/system and then switched to dark → the top band *and* the gesture
+  bar stayed `#F7F5F0` in **both** OS schemes, also after a full restart. That
+  shade is the manifest `theme_color` baked into the WebAPK at install — not
+  `<html>`/`<body>`/`#root`, not the safe-area padding, not a surface token and
+  not the UA default white — and Chromium (`WebappIntentDataProvider`,
+  `WebApkUpdateManager`, `WebappDataStorage`, all `main`) shows why nothing in
+  the document can repaint it: the WebAPK's `dark_theme_color` is never filled
+  (Blink no longer parses `color_scheme_dark`), so one baked colour serves both
+  OS schemes; the page metas are ignored for the top bar of an installed WebAPK
+  (crbug 40759522 #39, tracked as 554055703); and the manifest is re-read at
+  most once a day, with the rebuild queued as a 1–23 h charging + Wi‑Fi task.
+  The #124 mechanism (theme-aware manifest pair + worker) is exactly what that
+  re-read picks up, so it stays untouched. `settingsScreen.appearanceInstalledHint`
+  (EN + DE) now states the real cadence and the immediate remedy (reinstall
+  while the wanted theme is active); `docs/pwa.md` records the device probe,
+  the Chromium timing and a new checklist item; `npm run test:pwachrome` pins
+  that the note keeps naming the remedy.
 - **The installed app's top is now the same colour as the app.** In dark mode the
   standalone window kept a pale band above the dark canvas, because the strip the
   platform draws around the cutout / status bar is not painted by the stylesheet:

@@ -630,6 +630,15 @@ test('the Appearance section explains the installed-app timing (EN + DE)', () =>
         'installed bars only follow the theme after Chrome re-reads the ' +
         'manifest, and users need to know that',
     );
+    // The WebAPK bakes the manifest colour at install and Chromium's update
+    // job (daily check + charging/Wi-Fi task) is the only other path, so the
+    // note must name the immediate remedy — reinstalling while the wanted
+    // theme is active — not just "when the app updates".
+    assert.match(
+      note,
+      /reinstall|neu install/i,
+      `settingsScreen.appearanceInstalledHint (${lang}) must mention reinstalling`,
+    );
   }
 });
 
