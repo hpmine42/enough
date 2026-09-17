@@ -302,11 +302,11 @@ export const translations = {
       searchNoResults: 'No one found.',
       language: 'Language',
       appearance: 'Appearance',
-      appearancePwaNote:
-        'On installed mobile apps, the system bar colour follows after the app updates or is reinstalled.',
       light: 'Light',
       dark: 'Dark',
       system: 'System',
+      appearanceInstalledHint:
+        'In the installed app, Android updates the colours around the app when the app updates or is reinstalled.',
       chat: 'Chat',
       enterToSend: 'Enter to send',
       enterToSendHint: 'Enter sends the message. Shift + Enter makes a new line.',
@@ -785,11 +785,11 @@ export const translations = {
       searchNoResults: 'Keine Person gefunden.',
       language: 'Sprache',
       appearance: 'Darstellung',
-      appearancePwaNote:
-        'Bei installierten mobilen Apps folgt die Systemleistenfarbe nach einem App-Update oder einer Neuinstallation.',
       light: 'Hell',
       dark: 'Dunkel',
       system: 'System',
+      appearanceInstalledHint:
+        'In der installierten App aktualisiert Android die Farben rund um die App, wenn die App aktualisiert oder neu installiert wird.',
       chat: 'Chat',
       enterToSend: 'Enter zum Senden',
       enterToSendHint: 'Enter sendet die Nachricht. Shift + Enter fügt eine Zeile ein.',

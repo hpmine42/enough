@@ -33,27 +33,58 @@ verified, and what remains open.
   controls, find-in-page bar) follow an explicitly selected theme even while the
   operating system prefers the opposite. The pre-paint bootstrap in `index.html`
   does the same before React mounts.
-- **Theme-aware manifest for installed Android PWAs.** Chrome/Android derives the
-  installed WebAPK's status bar and navigation bar colours strictly from the Web App
-  Manifest, ignoring runtime `meta[name="theme-color"]` inside standalone windows
-  (crbug 40759522). Manifest delivery is now theme-aware: `public/manifest.dark.webmanifest`
-  supplies the dark canvas base for dark installs, `index.html`'s inline pre-paint
-  bootstrap swaps `link[rel="manifest"]` before React mounts, and `src/lib/theme.ts`
-  maintains the pointer dynamically on every in-app theme toggle.
-- **Dynamic service worker manifest rewriting & theme record.** `scripts/pwa-plugin.ts`
-  no longer answers manifest requests with `cacheFirstStatic`. Manifest requests use
-  network-first handling with dynamic in-memory colour rewriting to match the active
-  in-app theme, backed by an `enough-theme.txt` record in the Cache Storage shell
-  cache populated via same-origin `postMessage`. Chrome's background manifest re-reads
-  now receive colours matching the active in-app theme regardless of operating system mode.
+- **Theme-aware manifest for installed Android PWAs.** The follow-up to the entry
+  above: #121 fixed iOS and the `prefers-color-scheme` channels, but an installed
+  app on Chrome/Android paints its status bar and gesture-bar band from the
+  *manifest* document — the runtime metas never reach a standalone window (crbug
+  40759522 / 40686953 / 40634649) — and `color_scheme_dark` only answers to the
+  operating-system scheme, which never triggers for OS light + app explicitly dark
+  (the reported configuration: bands `#F7F5F0`, exactly the manifest
+  `theme_color`, while `npm run smoke` proved both metas correct). So the manifest
+  itself became theme-aware: new `public/manifest.dark.webmanifest`, byte-identical
+  to `public/manifest.webmanifest` except `theme_color`/`background_color` (same
+  `id`/`scope`/icons, so Chromium keeps seeing one app), with
+  `index.html`'s pre-paint bootstrap and `render()` in `src/lib/theme.ts` pointing
+  `link[rel="manifest"]` at the theme's variant before first paint and on every
+  change — the path that works with no service worker at all, as on a fresh
+  install. `color_scheme_dark` stays in both files as the standard/no-worker
+  fallback, and the light base stays the file default because `system` is the
+  default mode.
+- **The service worker serves the manifest per theme.** `scripts/pwa-plugin.ts`
+  intercepts every `*.webmanifest` request *before* the static-asset branch (never
+  `cacheFirstStatic` again — a cached light copy would be replayed to Chrome's
+  manifest re-read forever): network-first for the raw body, the two chrome colours
+  rewritten from `THEME_CHROME_COLORS` (injected at build time) on every response,
+  the precached raw copy as the offline fallback, and nothing rewritten ever
+  cached, so the file on disk stays the single source of truth. The theme is a tiny
+  `theme.txt` record in the existing `enough-shell-*` cache, posted by the page as
+  `{ type: 'enough-theme', theme }` via `navigator.serviceWorker.ready` and
+  migrated across cache rotations on activate. Privacy contract unchanged:
+  same-origin static assets only, no Supabase traffic; the handler accepts that one
+  message type and only from this origin's own window clients (`event.origin` +
+  `clients.matchAll`), and the record is a presentation preference that is never
+  sent anywhere and never feeds an auth or trust decision.
+- **Expectation-setting for the update lag.** WebAPK metadata is frozen at install
+  time and refreshed by Chrome's app-update job, so on an existing install the bars
+  may only follow after that update or a reinstall; the Appearance settings note
+  says so (new i18n key, EN + DE).
 - **`npm run test:pwachrome`** (`src/lib/__tests__/pwa-chrome-color.test.mjs`) pins
   all four channels to the same two values and tests the runtime sync behaviourally
-  against a stubbed document; verifies both manifest colour variants differ only in
-  `theme_color`/`background_color`, that `pwa-plugin.ts` special-cases the manifest
-  URL and bypasses `cacheFirstStatic`, that `index.html` swaps the manifest link in
-  pre-paint bootstrap, and that `render()` syncs the theme to the service worker with
-  fail-safe stubs; `docs/pwa.md` documents the channels, WebAPK update semantics, and
-  edge-to-edge status-bar research.
+  against a stubbed document, and now also: the two manifest variants differ *only*
+  in the two chrome colours (recursive diff), the worker's manifest branch precedes
+  `cacheFirstStatic`, the themed response is network-first with the raw precache as
+  fallback, the message handler's payload/origin/client validation, the activate
+  migration of the theme record, the pre-paint manifest-link swap, and `render()`'s
+  worker post including every no-worker no-throw path. The generated worker was
+  additionally exercised against a stubbed Cache Storage (install, message, fetch,
+  activate) during the change session.
+- **Not verified on a device.** The on-device band colours (OS light/app dark and
+  OS dark/app light, fresh vs. existing install) stay a manual checklist item in
+  `docs/pwa.md`, which also documents the channels as they actually behave, the
+  build-level probe of this change, and the edge-to-edge question (Chromium issue
+  407420295) that only matters if the manifest channel fails on hardware. No
+  Android device was available in the change session, so no device result is
+  claimed.
 
 ---
 
