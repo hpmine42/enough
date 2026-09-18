@@ -1250,8 +1250,16 @@ button,
   }
 }
 
+/* The header is safe-area aware WITHOUT giving up its height. With a fixed
+   `height` the top safe-area padding ate into the border-box (padding-top
+   could exceed 56px on notched devices), squeezing the 40px controls and
+   the title out of the frame. `min-height` keeps the pre-safe-area geometry
+   (56px box, 53px content line) on devices without an inset and grows the
+   box additively on devices with one — the same model `.legal-header`
+   already uses. Global box-sizing is border-box, so min-height wraps the
+   padding + border instead of adding to them beyond the inset. */
 .settings-header {
-  height: 56px;
+  min-height: calc(env(safe-area-inset-top) + 56px);
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -1566,8 +1574,15 @@ button,
   z-index: 3;
 }
 
+/* Subpanels cover the bottom navigation, so instead of the overview's
+   --nav-clearance they only need their own end spacing — plus the bottom
+   inset on devices with a home indicator, additively (32px stay 32px where
+   there is no inset). The panel itself carries no bottom padding, so this
+   single declaration is the whole safe-area chain for every subpage
+   (Profile/People/Language/Appearance/Chat/Account, incl. the account
+   deletion area at the bottom of Account, and the nested blocked list). */
 .settings-subpanel .settings-scroll {
-  padding: 8px 22px 32px;
+  padding: 8px 22px calc(32px + env(safe-area-inset-bottom));
 }
 
 .settings-subpanel .settings-section:first-child {
@@ -3070,8 +3085,15 @@ button,
     max-width: 480px;
   }
 
+  /* Same 480px column as the scroll body — and now the same centering.
+     `.settings-scroll` centers itself via `margin: 0 auto` in the base
+     rule; the header had the width but no auto margins, so as a flex item
+     of the full-width pane/subpanel it hung on the left while the content
+     centered. `margin: 0 auto` aligns header and content on one column
+     (mobile is untouched: full width, auto margins resolve to 0). */
   .settings-header {
     width: 100%;
+    margin: 0 auto;
   }
 
   .sheet {
