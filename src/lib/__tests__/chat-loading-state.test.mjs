@@ -12,34 +12,36 @@
 //
 //   open chat → "…" in the middle → messages
 //
-// The fix reuses the skeleton vocabulary the app already has (Home first-paint
-// skeleton, chat-header identity skeleton): a quiet, decorative bubble
-// skeleton that fills the same `flex: 1` slot with the same padding as
-// `.messages`, anchored at the bottom like the newest messages. No text, no
-// dots, no timer — `loading` flips exactly when the committed page can be
-// read, never after a delay.
+// That was replaced first by a decorative bubble skeleton, and then (this
+// change) by a completely quiet empty container: no bubble shapes, no pulse,
+// no text, no dots, no timer. The container still fills the same `flex: 1`
+// slot so the composer stays anchored at the bottom without any layout
+// shift, but while loading/revealPending the message area is simply empty.
+// The state is carried semantically by a labelled role="status" region
+// that renders no visible text.
 //
-// The follow-up bug (this file's second half): unmasking the list at the
-// page commit still flashed an intermediate state, because the loaded rows
-// only resolve their display text afterwards (local cache read / engine
-// decrypt run asynchronously). Every bubble rendered as "Decrypting…" /
-// "Entschlüsseln…" until the display path caught up:
+// The follow-up bug: unmasking the list at the page commit flashed an
+// intermediate state, because the loaded rows only resolve their display
+// text afterwards (local cache read / engine decrypt run asynchronously).
+// Every bubble rendered as "Decrypting…" / "Entschlüsseln…" until the
+// display path caught up:
 //
-//   open chat → skeleton → "Entschlüsseln…" everywhere → messages
+//   open chat → (empty area) → "Entschlüsseln…" everywhere → messages
 //
-// The fix keeps the SAME skeleton and the SAME `loading` flag — only the
-// moment of unmasking moves: the page commit now arms a reveal gate, and the
-// gate releases `loading` on the render that carries the LAST display outcome
-// of the first page (resolved plaintext, undecryptable notice, or the
-// settled E2EE failure the bubbles report). Nothing is decrypted
-// differently, and nothing waits for a clock: the app waits exactly as long
-// as the real load/decrypt pass needs — one render tick for a fully cached
-// or empty page, no added frame budget otherwise.
+// The fix keeps the SAME empty loading slot and the SAME `loading` flag —
+// only the moment of unmasking moves: the page commit now arms a reveal
+// gate, and the gate releases `loading` on the render that carries the
+// LAST display outcome of the first page (resolved plaintext, undecryptable
+// notice, or the settled E2EE failure the bubbles report). Nothing is
+// decrypted differently, and nothing waits for a clock: the app waits
+// exactly as long as the real load/decrypt pass needs — one render tick
+// for a fully cached or empty page, no added frame budget otherwise.
 //
 // These guards are source-level (the rendered counterpart — chat open,
-// skeleton frame, messages after the load — is exercised by `npm run smoke`).
-// They fail if the ellipsis or the decrypting placeholder becomes visible
-// again during chat open, or if an artificial delay is introduced.
+// empty loading frame, messages after the load — is exercised by
+// `npm run smoke`). They fail if skeleton bubbles, an ellipsis, or the
+// decrypting placeholder become visible again during chat open, or if an
+// artificial delay is introduced.
 //
 // Run with:
 //   npm run test:chatloading
@@ -74,11 +76,11 @@ function rendered(source) {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 }
 
-/** The loading branch of the chat body ternary (skeleton → !valid → error). */
+/** The loading branch of the chat body ternary (empty slot → !valid → error). */
 const loadingBranch = section(chat, '{loading ? (', ') : !valid ? (');
 const loadingJsx = rendered(loadingBranch);
 
-/* ---------- 1: the central loading state renders no ellipsis ---------- */
+/* ---------- 1: the central loading state renders no ellipsis, no bubbles, no text ---------- */
 
 test('the central chat loading state renders no ellipsis placeholder', () => {
   assert.ok(
@@ -91,25 +93,27 @@ test('the central chat loading state renders no ellipsis placeholder', () => {
     !loadingJsx.includes('chat-loading"'),
     'the text placeholder element is not reused for the pure loading state',
   );
-  // No JSX text child at all: the state is shapes + an accessible name.
+  // No JSX text child at all: the state is an empty container with an accessible name.
   assert.ok(
     !/>[^<>{}]*[A-Za-z0-9…][^<>{}]*</.test(loadingJsx.replace(/\s+/g, ' ')),
     'the loading branch renders no text content',
   );
 });
 
-test('the loading state is a labelled, decorative skeleton', () => {
+test('the loading state is a labelled, empty quiet container (no visible skeleton shapes)', () => {
   assert.match(loadingJsx, /className="chat-messages-skeleton"/);
   assert.match(loadingJsx, /role="status"/);
   assert.match(loadingJsx, /aria-label=\{t\('chat\.loadingMessages'\)\}/);
   assert.match(loadingJsx, /data-testid="chat-loading-skeleton"/);
-  // The shapes are decorative; the accessible name carries the state, so the
-  // information is not visual-only (and nothing is announced twice).
-  assert.match(loadingJsx, /className="chat-skeleton-bubbles" aria-hidden="true"/);
-  assert.equal(
-    loadingJsx.match(/className="chat-skeleton-bubble /g)?.length,
-    3,
-    'the skeleton mirrors a short conversation tail',
+  // No decorative bubble shapes — the container must be empty (self-closing or
+  // with no children) so nothing visually simulates content while loading.
+  assert.ok(
+    !loadingJsx.includes('chat-skeleton-bubbles'),
+    'no decorative bubble wrapper is rendered',
+  );
+  assert.ok(
+    !loadingJsx.includes('chat-skeleton-bubble'),
+    'no skeleton bubble shapes are rendered',
   );
   assert.ok(!loadingJsx.includes('<Avatar'), 'the loading branch renders no avatar');
 });
@@ -162,40 +166,31 @@ function rule(selector) {
   return m ? m[1] : null;
 }
 
-test('the skeleton occupies exactly the message-area slot', () => {
+test('the loading container occupies exactly the message-area flex slot (geometry preserved)', () => {
   const skeleton = rule('chat-messages-skeleton');
-  const bubbles = rule('chat-skeleton-bubbles');
   const messages = rule('messages');
-  assert.ok(skeleton && bubbles && messages, 'skeleton and message list are both styled');
+  assert.ok(skeleton && messages, 'loading container and message list are both styled');
 
-  // Same flex slot as the removed `.chat-loading` placeholder, so the header,
-  // banner and composer keep their positions while loading.
+  // Same flex slot as `.messages`, so the header, banner and composer keep
+  // their positions while loading — no layout shift when messages reveal.
   assert.match(skeleton, /flex:\s*1/);
   assert.match(skeleton, /min-height:\s*0/);
-  // Anchored at the bottom, like the newest messages of a loaded conversation.
-  assert.match(skeleton, /justify-content:\s*flex-end/);
 
-  // Same padding as `.messages` — the skeleton reserves the real box.
-  const padding = (body) => /padding:\s*([^;]+);/.exec(body)?.[1].trim();
-  assert.equal(padding(bubbles), padding(messages), 'skeleton and list share the padding');
-
-  // Neutral, theme-independent surfaces — the same token the other skeletons use.
-  assert.match(rule('chat-skeleton-bubble'), /background:\s*var\(--surface-2\)/);
-  assert.match(rule('chat-skeleton-bubble'), /border-radius:\s*var\(--radius-md\)/);
+  // No animation, no pulse, no decorative shapes on the loading container.
+  assert.ok(!/animation/.test(skeleton), 'the loading container has no animation');
   assert.ok(
-    !/background:\s*(var\(--accent|var\(--sent|#[0-9a-f]{3,8})/i.test(bubbles),
-    'the skeleton carries no accent or bubble colour',
+    !rule('chat-skeleton-bubbles') && !rule('chat-skeleton-bubble'),
+    'the skeleton-bubble CSS rules are removed entirely',
   );
 });
 
-test('the skeleton reuses the existing pulse and invents no dot animation', () => {
-  const bubbles = rule('chat-skeleton-bubbles');
-  assert.match(bubbles, /animation:\s*skeleton-breathe/, 'reuses the shared skeleton keyframes');
+test('the loading state invents no animation, pulse or generated content', () => {
   const skeletonCss = section(css, '.chat-messages-skeleton {', '/* request banner */');
   assert.ok(!skeletonCss.includes('@keyframes'), 'no new keyframes for the loading state');
+  assert.ok(!skeletonCss.includes('animation:'), 'no animation on the loading container');
+  assert.ok(!skeletonCss.includes('skeleton-breathe'), 'no skeleton pulse reused');
   assert.ok(!/content:\s*['"]/.test(skeletonCss), 'no generated dot/text content');
-  // The global reduced-motion block stills every animation, so no extra
-  // exception is needed (v0.2 accessibility contract D1).
+  // The global reduced-motion block is still present (v0.2 accessibility contract D1).
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
@@ -217,8 +212,8 @@ test('the chat loading path contains no artificial timeout or delay', () => {
   assert.ok(chat.includes('INITIAL_ANCHOR_SETTLE_MS'), 'the anchoring timers are the settle passes');
   assert.ok(chat.includes('saveTimerRef.current = window.setTimeout'), 'the third timer debounces the read position');
 
-  // The skeleton is gated by data, not by time: the load effect commits the
-  // page and ARMS the reveal gate in the same synchronous block; the gate
+  // The loading slot is gated by data, not by time: the load effect commits
+  // the page and ARMS the reveal gate in the same synchronous block; the gate
   // itself is a render-derived check with no time component.
   const loadStart = chat.indexOf('/* ----------------------------- data load');
   const loadEnd = chat.search(/\/\* -+ realtime/);
@@ -237,7 +232,7 @@ test('the chat loading path contains no artificial timeout or delay', () => {
 
 /* ---------- 5: the first page reveals only when fully display-ready ------ */
 
-test('the loaded first page stays behind the skeleton until display-ready', () => {
+test('the loaded first page stays behind the empty loading slot until display-ready', () => {
   // The reveal gate is derived from the SAME per-bubble resolver the render
   // loop uses — pending means "do not unmask yet" — so the localized
   // "decrypting" notice can no longer appear for the freshly loaded page.
@@ -249,8 +244,8 @@ test('the loaded first page stays behind the skeleton until display-ready', () =
   const disarm = gate.indexOf('setRevealPending(false);');
   const release = gate.indexOf('setLoading(false);', disarm);
   assert.ok(disarm >= 0 && release > disarm, 'reveal flips loading exactly as it disarms');
-  // The gate can never strand the skeleton: the explanation branches release
-  // it, and both success commits (online page, offline snapshot) arm it.
+  // The gate can never strand the loading slot: the explanation branches
+  // release it, and both success commits (online page, offline snapshot) arm it.
   assert.ok(gate.includes('!valid || loadError'), 'explanation branches release the gate');
   assert.ok(!gate.includes('setTimeout'), 'the reveal gate uses no timer');
   assert.ok(!gate.includes('await new Promise'), 'the reveal gate awaits no delay promise');
@@ -290,13 +285,13 @@ test('opening a chat never renders the localized decrypting notice for the first
   // still pending. That is guaranteed structurally: the only setLoading(false)
   // after a page commit lives inside the reveal gate, and the gate is the
   // render condition of the whole message area (`loading` still owns the
-  // skeleton branch).
+  // empty loading branch).
   const renderGate = section(chat, '{loading ? (', ') : !valid ? (');
   assert.ok(
     chat.includes("t('chat.decrypting')"),
     'the pending bubble state itself is unchanged (realtime / pagination)',
   );
-  assert.match(renderGate, /^\{loading \? \(/, 'the skeleton branch is still gated by `loading` alone');
+  assert.match(renderGate, /^\{loading \? \(/, 'the loading branch is still gated by `loading` alone');
   // `loading` is the single switch for the message area, so while the gate
   // is armed the list cannot be in the DOM at all. Only the two successful
   // commits arm it; every other unmask path stays direct.
@@ -311,8 +306,8 @@ test('opening a chat never renders the localized decrypting notice for the first
 
 test('MessageComposer is rendered outside the loading branch and disabled during loading/reveal', () => {
   // F-01: The composer must NOT be nested inside the `loading === false` branch.
-  // It must already be mounted in its final position while the skeleton is
-  // active, so that unmasking the messages replaces the skeleton 1:1 without
+  // It must already be mounted in its final position while the loading slot is
+  // active, so that unmasking the messages replaces the empty slot 1:1 without
   // pushing the messages upward.
   const loadingBranch = section(chat, '{loading ? (', ') : !valid ? (');
   assert.ok(
@@ -336,4 +331,3 @@ test('MessageComposer is rendered outside the loading branch and disabled during
   // Conversation isolation: composer is keyed by connectionId so drafts never leak across chats
   assert.match(composerTag[0], /key=\{connectionId\}/, 'composer is keyed by connectionId');
 });
-
