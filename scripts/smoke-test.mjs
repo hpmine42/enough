@@ -2176,10 +2176,59 @@ assert(
   'people search section is rendered on the dedicated screen',
 );
 const searchInput = searchSection.querySelector('input');
+/* v0.5 audit F-06: while the debounced lookup runs, the results area must
+   show the quiet labelled skeleton — never the global loading ellipsis.
+   Record every committed frame of the section from the keystroke until the
+   results land: typing arms `searching` synchronously and the debounce
+   keeps the state for hundreds of milliseconds, so the skeleton frame is
+   deterministic. */
+const searchLoadFrames = [];
+const searchLoadObserver = new dom.window.MutationObserver(() => {
+  const section = peopleSearchSection();
+  if (!section) return;
+  const results = section.querySelector('.settings-search-results');
+  if (!results) return;
+  const status = results.querySelector('[role="status"]');
+  searchLoadFrames.push({
+    skeleton: section.querySelector('[data-testid="people-search-loading"]') !== null,
+    statusLabel: status?.getAttribute('aria-label') ?? null,
+    statusText: status?.textContent?.trim() ?? '',
+    visibleText: (results.textContent ?? '').trim(),
+    resultRows: results.querySelectorAll('.chat.settings-search-row, .blocked-search-row').length,
+  });
+});
+searchLoadObserver.observe(dom.window.document.body, { childList: true, subtree: true });
 setInputValue(searchInput, 'benno');
 await waitFor(
   () => [...searchSection.querySelectorAll('.chat-name')].some((n) => n.textContent === 'Benno Schmidt'),
   'person search finds @benno by username',
+);
+await Promise.resolve(); // allow MutationObserver to deliver the final commit record
+searchLoadObserver.disconnect();
+assert(
+  searchLoadFrames.length > 0,
+  'people-search lookup records at least one rendered frame',
+);
+assert(
+  searchLoadFrames.some((frame) => frame.skeleton),
+  'people search shows the quiet loading skeleton while the lookup runs',
+);
+assert(
+  searchLoadFrames.every(
+    (frame) =>
+      !frame.visibleText.includes('…') &&
+      !frame.visibleText.includes('...') &&
+      frame.statusText === '',
+  ),
+  'no people-search frame renders an ellipsis (or any loading text placeholder)',
+);
+assert(
+  searchLoadFrames.some((frame) => frame.skeleton && frame.statusLabel === 'Searching…'),
+  'the search loading state stays semantically announced (EN status label)',
+);
+assert(
+  searchLoadFrames.some((frame) => !frame.skeleton && frame.resultRows > 0),
+  'real search results replace the skeleton once the lookup settles',
 );
 
 /* connection request from search result */

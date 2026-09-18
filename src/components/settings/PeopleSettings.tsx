@@ -121,7 +121,37 @@ export default function PeopleSettings({
   return (
     <>
       <Section title={t('settingsScreen.activeConnections')}>
-        {loading && <p className="muted settings-blocked-empty">{t('loading')}</p>}
+        {/* While the active connections load, the section shows the app's
+            quiet skeleton vocabulary instead of placeholder text — two
+            connection rows (avatar + lines, 44px like the loaded rows),
+            decorative; the state itself is announced by the labelled status
+            region. No timer, no delay: the skeleton is gated by `loading`
+            exactly like the text placeholder it replaced. */}
+        {loading && (
+          <div
+            className="settings-people-skeleton"
+            role="status"
+            aria-label={t('settingsScreen.activeConnectionsLoading')}
+            data-testid="people-connections-loading"
+          >
+            <div className="settings-people-skeleton-rows" aria-hidden="true">
+              <div className="settings-people-skeleton-row">
+                <div className="settings-people-skeleton-avatar" />
+                <div className="skeleton-lines">
+                  <div className="skeleton-line w40" />
+                  <div className="skeleton-line w62" />
+                </div>
+              </div>
+              <div className="settings-people-skeleton-row">
+                <div className="settings-people-skeleton-avatar" />
+                <div className="skeleton-lines">
+                  <div className="skeleton-line w62" />
+                  <div className="skeleton-line w40" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {!loading && error && (
           <p className="error settings-connection-error" role="alert">
             {error}

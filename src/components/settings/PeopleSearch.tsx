@@ -72,7 +72,35 @@ export default function PeopleSearch({
       </div>
       {searchActive && (
         <div className="settings-search-results">
-          {searching && <p className="muted">{t('loading')}</p>}
+          {/* While the debounced lookup runs, the area shows the app's quiet
+              skeleton vocabulary instead of placeholder text — two
+              avatar-less result rows, decorative; the state itself is
+              announced by the labelled status region. No timer, no delay:
+              the skeleton is gated by `searching` exactly like the text
+              placeholder it replaced. */}
+          {searching && (
+            <div
+              className="settings-people-skeleton"
+              role="status"
+              aria-label={t('settingsScreen.searchLoading')}
+              data-testid="people-search-loading"
+            >
+              <div className="settings-people-skeleton-rows" aria-hidden="true">
+                <div className="settings-people-skeleton-row">
+                  <div className="skeleton-lines">
+                    <div className="skeleton-line w40" />
+                    <div className="skeleton-line w62" />
+                  </div>
+                </div>
+                <div className="settings-people-skeleton-row">
+                  <div className="skeleton-lines">
+                    <div className="skeleton-line w62" />
+                    <div className="skeleton-line w40" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           {!searching && searchError && (
             <p className="error" role="alert">
               {searchError}

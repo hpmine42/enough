@@ -1593,6 +1593,38 @@ button,
   padding: 18px 0;
 }
 
+/* Loading placeholders of the People surfaces: the dedicated search screen
+   (while the debounced lookup runs) and Settings → People (while the active
+   connections load). The same quiet skeleton vocabulary the chat overview
+   and the chat itself already use — neutral `--surface-2` shapes with the
+   shared `skeleton-breathe` pulse, decorative (`aria-hidden`), stilled by
+   the global reduced-motion block. The state itself is carried by the
+   labelled `role="status"` wrapper, never by a placeholder text. The rows
+   mirror the geometry of what they precede: two text lines for an
+   avatar-less search result row, avatar + two lines for an active-connection
+   row (44px like the loaded `Avatar`). */
+.settings-people-skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  animation: skeleton-breathe 1.5s ease-in-out infinite;
+}
+
+.settings-people-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 8px;
+}
+
+.settings-people-skeleton-avatar {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
+}
+
 /* settings category overview — rows open the matching subpage */
 .settings-category-control {
   display: flex;
