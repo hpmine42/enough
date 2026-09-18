@@ -55,7 +55,7 @@ import { BlockState, ChatOpenIdentity, Connection, Message, Profile } from '../l
 import { useE2EE } from '../context/E2EEContext';
 import { prepareSend, decryptForDisplay, isEnvelope } from '../lib/e2ee/message-flow';
 import { cachePlaintext, getCachedPlaintext } from '../lib/e2ee/message-cache';
-import { resolveBubbleText, canSendEncrypted, e2eeRecoveryOffersReset, classifyUserMismatch } from '../lib/chatDisplay';
+import { resolveBubbleText, canSendEncrypted, e2eeRecoveryOffersReset, classifyUserMismatch, isChatPageDisplayReady } from '../lib/chatDisplay';
 import {
   reportNetworkSuccess,
   shouldSkipNetwork,
@@ -110,6 +110,13 @@ export default function Chat({
   const [deletedForMe, setDeletedForMe] = useState<Set<string>>(new Set());
   const [hiddenUntil, setHiddenUntil] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Reveal gate for the first page of a freshly opened chat (see the reveal
+  // effect in the derived section): armed by the load effect when a page
+  // commits, released once every bubble of that page has a FINAL display
+  // outcome. While armed, `loading` stays true and the quiet skeleton keeps
+  // covering the message area, so the list never unmasks rows whose display
+  // resolution is still in flight. Data-gated — no timers.
+  const [revealPending, setRevealPending] = useState(false);
   const [valid, setValid] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -269,6 +276,8 @@ export default function Chat({
     loadingRef.current = true;
     setLoading(true);
     setValid(true);
+    // A superseded load must not leave its reveal gate armed behind this one.
+    setRevealPending(false);
     // Preserve identity data handed over by the finished Home row. On direct
     // links/reloads there is no handoff, so clear any previous conversation
     // and let the header remain a skeleton until the profile query resolves.
@@ -299,7 +308,11 @@ export default function Chat({
         loadingRef.current = false;
         setFromCache(true);
         setValid(true);
-        setLoading(false);
+        // Do not unmask the snapshot directly: its rows still resolve
+        // through the display path (cache reads are asynchronous), and the
+        // reveal effect flips `loading` on the commit that settles the last
+        // bubble. Data-gated — no timer is involved.
+        setRevealPending(true);
         return;
       }
       const found = await getConnection(connectionId);
@@ -376,7 +389,12 @@ export default function Chat({
         setHasMore(pageResult.hasMore);
         setDeletedForMe(deletions.messages);
         setFromCache(false);
-        setLoading(false);
+        // The page is committed; the reveal effect flips `loading` once its
+        // last bubble has a final display outcome, instead of the list
+        // briefly rendering every row as "decrypting". The realtime gate
+        // (`loadingRef`) already opened with the commit above, so the
+        // steady-state paths are untouched.
+        setRevealPending(true);
         // The server answered, so this data is current: clear a previous
         // "unreachable" latch and refresh the offline snapshot of exactly
         // this conversation for exactly this account. The snapshot mirrors
@@ -699,6 +717,8 @@ export default function Chat({
     setLoadingOlder(false);
     setPlain({});
     setUndecryptable(new Set());
+    // The reveal gate belongs to the conversation that armed it.
+    setRevealPending(false);
     // C2 recovery state belongs to the previous conversation: an identity
     // notice, an open reset dialog, or a stuck busy flag must never leak
     // into the next chat (in-flight resets guard themselves via the token).
@@ -1374,6 +1394,40 @@ export default function Chat({
     [messages, deletedForMe, hiddenUntil],
   );
 
+  // Reveal gate for the committed first page (armed by the load effect): the
+  // message area keeps the quiet skeleton until every display-gated row has
+  // a FINAL bubble outcome — resolved plaintext, an undecryptable notice, or
+  // the settled E2EE failure the bubbles already report. Opening a chat
+  // therefore goes skeleton → finished list; the transient per-bubble
+  // "decrypting" state is never shown for a freshly loaded page. This gates
+  // RENDERING only: decryption itself runs exactly as before, the wait ends
+  // when the existing display path produces its last outcome (a fully cached
+  // page reveals on the next render, an empty page immediately), and
+  // realtime/pagination rows keep the per-bubble display path unchanged.
+  useEffect(() => {
+    if (!revealPending) return;
+    if (!valid || loadError) {
+      // An explanatory branch owns the message area — never hold the
+      // skeleton over it.
+      setRevealPending(false);
+      setLoading(false);
+      return;
+    }
+    if (
+      !isChatPageDisplayReady(visibleMessages, (id) =>
+        resolveBubbleText({
+          plaintext: plain[id],
+          undecryptable: undecryptable.has(id),
+          e2eeFailed: e2eeFailed && !self,
+        }).kind !== 'pending',
+      )
+    ) {
+      return;
+    }
+    setRevealPending(false);
+    setLoading(false);
+  }, [revealPending, valid, loadError, visibleMessages, plain, undecryptable, e2eeFailed, self]);
+
   // Keep the DOM-index mapping in sync with the rendered message list.
   useEffect(() => {
     visibleMessagesRef.current = visibleMessages;
@@ -1707,8 +1761,11 @@ export default function Chat({
            messages) and keeps the container `flex: 1`, so the screen neither
            collapses nor shifts when the page arrives. The bubble shapes are
            decorative; the state itself is carried by the labelled status
-           region. Nothing here is time-gated — `loading` flips in the commit
-           that hands over the page. */
+           region. Nothing here is time-gated: `loading` flips when the
+           committed page can actually be read — for the first page after the
+           reveal gate above (see the derived section), and in the same
+           commit the page is handed over once there is nothing left to
+           resolve. */
         <div
           className="chat-messages-skeleton"
           role="status"

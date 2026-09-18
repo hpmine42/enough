@@ -14,6 +14,11 @@
 //      trimmed, normalized or otherwise mutated).
 //   4. A peer send is only possible with an explicitly READY engine
 //      (fail-closed); My Notes stays writable as the documented exception.
+//   5. Chat-open reveal (CD12–CD15): a freshly loaded page unmasks only when
+//      every bubble row has a FINAL display outcome, so opening a chat never
+//      shows the transient "decrypting" placeholder; rows the display path
+//      skips (tombstones, system events) never block it, and a settled E2EE
+//      failure releases it with the bubbles' final reported state.
 //
 // Run with:
 //   npm run test:e2eestate
@@ -25,7 +30,13 @@ import { register } from 'node:module';
 
 register(new URL('../../../scripts/load-enough-ts.mjs', import.meta.url), import.meta.url);
 
-const { resolveBubbleText, canSendEncrypted, e2eeRecoveryOffersReset, classifyUserMismatch } = await import('../chatDisplay.ts');
+const {
+  resolveBubbleText,
+  canSendEncrypted,
+  e2eeRecoveryOffersReset,
+  classifyUserMismatch,
+  isChatPageDisplayReady,
+} = await import('../chatDisplay.ts');
 
 /* ------------------------------------------------------------------ */
 /* 1. Resolved plaintext wins                                          */
@@ -208,6 +219,108 @@ test('CD11: the pending state is actually rendered and styled', async () => {
   assert.ok(
     css.includes('@media (prefers-reduced-motion: reduce)'),
     'the global reduced-motion block still neutralizes the pending animation',
+  );
+});
+
+/* ------------------------------------------------------------------ */
+/* Chat-open reveal gate: a page unmasks only when fully display-ready  */
+/* ------------------------------------------------------------------ */
+
+// The Chat reveal gate mirrors the render loop's resolver: a message is
+// display-ready when `resolveBubbleText` for it is NOT `pending`. This is
+// the exact predicate Chat wires into `isChatPageDisplayReady`, so the
+// gate's decisions here are the decisions the list render sees.
+function resolvedPredicateOf(state) {
+  return (id) =>
+    resolveBubbleText({
+      plaintext: state.plain[id],
+      undecryptable: state.undecryptable.includes(id),
+      e2eeFailed: state.e2eeFailed,
+    }).kind !== 'pending';
+}
+
+test('CD12: a page with an unresolved bubble is not display-ready', () => {
+  const messages = [
+    { id: 'm1', deleted_at: null, kind: 'text' },
+    { id: 'm2', deleted_at: null, kind: 'text' },
+  ];
+  const state = { plain: { m1: 'Hello' }, undecryptable: [], e2eeFailed: false };
+  assert.equal(
+    isChatPageDisplayReady(messages, resolvedPredicateOf(state)),
+    false,
+    'the still-pending m2 blocks the reveal — no partially resolved list',
+  );
+  state.plain.m2 = 'World';
+  assert.equal(
+    isChatPageDisplayReady(messages, resolvedPredicateOf(state)),
+    true,
+    'the last outcome releases the page in the same pass that carries it',
+  );
+});
+
+test('CD13: final non-plaintext outcomes are display-ready, not blockers', () => {
+  const messages = [{ id: 'm1', deleted_at: null, kind: 'text' }];
+  // A permanently undecryptable row shows its localized notice — a FINAL
+  // state the user must see, never a state to keep waiting on.
+  assert.equal(
+    isChatPageDisplayReady(messages, resolvedPredicateOf({ plain: {}, undecryptable: ['m1'], e2eeFailed: false })),
+    true,
+    'an undecryptable notice counts as display-ready',
+  );
+  // A settled E2EE failure turns every unresolved peer row into its final
+  // (reported) bubble state — the gate must not strand the skeleton on it.
+  assert.equal(
+    isChatPageDisplayReady(messages, resolvedPredicateOf({ plain: {}, undecryptable: [], e2eeFailed: true })),
+    true,
+    'a failed engine resolves the page to its reported outcome',
+  );
+  // A resolved plaintext always wins even when the engine failed (CD2).
+  assert.equal(
+    isChatPageDisplayReady(messages, resolvedPredicateOf({ plain: { m1: 'x' }, undecryptable: [], e2eeFailed: true })),
+    true,
+    'resolved content is never held back',
+  );
+});
+
+test('CD14: tombstones and system events never block the reveal', () => {
+  // These are exactly the rows the display path skips; requiring an
+  // "outcome" for them would pin the loading state forever. They render as
+  // system lines, so no decrypting placeholder is visible for them anyway.
+  const system = [
+    { id: 'd1', deleted_at: '2026-01-01T00:00:00Z', kind: 'text' },
+    { id: 's1', deleted_at: null, kind: 'name_change' },
+    { id: 's2', deleted_at: null, kind: 'connection_event' },
+    { id: 's3', deleted_at: null, kind: 'deleted_account' },
+  ];
+  const nothingResolved = () => false;
+  assert.equal(
+    isChatPageDisplayReady(system, nothingResolved),
+    true,
+    'a page of only tombstones/system lines reveals immediately',
+  );
+  const mixed = [...system, { id: 'm1', deleted_at: null, kind: 'text' }];
+  assert.equal(
+    isChatPageDisplayReady(mixed, nothingResolved),
+    false,
+    'the one bubble row still gates the page',
+  );
+  assert.equal(
+    isChatPageDisplayReady(mixed, (id) => id === 'm1'),
+    true,
+    'resolving the bubble row releases the mixed page',
+  );
+});
+
+test('CD15: an empty page is display-ready — the gate adds no wait of its own', () => {
+  // A chat with no messages must show its empty state at once; a legacy or
+  // cached row likewise releases as soon as its outcome exists. The gate is
+  // derived from data only — it never resolves on a clock.
+  assert.equal(isChatPageDisplayReady([], () => false), true, 'empty page is ready');
+  assert.equal(isChatPageDisplayReady([], () => true), true, 'empty page is ready either way');
+  // No timers anywhere in the gate's inputs: a pure synchronous decision.
+  assert.ok(
+    !/setTimeout|sleep|await new Promise/.test(isChatPageDisplayReady.toString()),
+    'the reveal predicate contains no time component',
   );
 });
 

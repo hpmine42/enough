@@ -13,6 +13,32 @@ verified, and what remains open.
 
 ### Chat
 
+- **Opening a chat never shows the transient "Entschlüsseln…" state.** After
+  the skeleton fix, the sequence still read *open chat → skeleton → every
+  bubble says "Decrypting…"/"Entschlüsseln…" → messages*: the page commit
+  unmasked the list in the same commit that delivered the rows, while their
+  display plaintext (local cache read / engine decrypt) only resolves
+  afterwards, row by row. A chat-open **reveal gate** now covers that window:
+  the page commit arms it (`setRevealPending(true)` instead of a direct
+  `setLoading(false)` in both the online and the offline-snapshot commit), and
+  the gate releases `loading` on the render where every bubble-rendered row of
+  the committed page has a FINAL display outcome — resolved plaintext, the
+  localized undecryptable notice, or the settled E2EE-failure state the
+  bubbles already report (`isChatPageDisplayReady` in
+  `src/lib/chatDisplay.ts`, wired through the existing `resolveBubbleText`
+  resolver). Tombstones and system events never block the reveal (they render
+  as system lines and are exactly the rows the display path skips), an empty
+  page releases immediately, and an explanation branch (`!valid` / load error)
+  always releases the gate. This is a render-state change only: no decryption,
+  ratchet, envelope, session or cache logic was touched, and the per-bubble
+  pending/undecryptable contract (audit C1) stays as-is for realtime and
+  pagination rows — the transient state is simply no longer visible while the
+  first page arrives. No timer, no artificial delay, no added wait: the app
+  waits exactly as long as the real load/decrypt pass needs. Guarded by
+  extended `npm run test:chatloading` / `npm run test:e2eestate` tests and by
+  chat-open frame assertions in `npm run smoke` that fail on any pending or
+  partially resolved frame during open.
+
 - **Opening a chat no longer shows a centred "…" while the messages load.** The
   chat body rendered `t('loading')` — the global placeholder string, a bare
   '…' — inside `.chat-loading` for the whole initial load (connection →
@@ -28,10 +54,11 @@ verified, and what remains open.
   it without a layout shift. The state is carried by a labelled `role="status"`
   region (new `chat.loadingMessages`, EN + DE) rather than by visible text, and
   `.chat-loading` stays for the explanatory states ("not available" / "not
-  available offline"). No timer was introduced: `loading` still flips in the
-  commit that hands over the page. Guarded by `npm run test:chatloading`
-  (`src/lib/__tests__/chat-loading-state.test.mjs`) and by new chat-open frame
-  assertions in `npm run smoke`.
+  available offline"). No timer was introduced, and the skeleton is never
+  replaced by a text placeholder while the load runs. Guarded by
+  `npm run test:chatloading` (`src/lib/__tests__/chat-loading-state.test.mjs`)
+  and by new chat-open frame assertions in `npm run smoke`. See the next entry
+  for the follow-up that also removed the per-bubble decrypting state.
 
 ### PWA chrome
 

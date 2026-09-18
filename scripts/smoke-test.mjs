@@ -2317,18 +2317,29 @@ chatOpenObserver.observe(dom.window.document.body, { childList: true, subtree: t
 // The message area is recorded in parallel. Opening a chat used to render the
 // global loading string ('…') centred in the chat for as long as the first page
 // was fetched, so every committed frame of this open must show either the quiet
-// skeleton or real messages — never a text placeholder.
+// skeleton or real messages — never a text placeholder. The frame list also
+// guards the follow-up state: unmasking at the page commit used to leave every
+// row rendering the localized "decrypting…" bubble notice until the display
+// path resolved it (and a partially decrypted list whenever only some rows had
+// resolved). The reveal gate keeps the skeleton up until the whole committed
+// page has final bubble content, so no open frame may show a pending bubble,
+// the decrypting notice, or a message list that is still resolving.
 const chatOpenBodyStates = [];
 const chatBodyObserver = new dom.window.MutationObserver(() => {
   const screen = dom.window.document.querySelector('.chat-screen');
   if (!screen) return;
+  const list = screen.querySelector('.messages');
   chatOpenBodyStates.push({
     skeleton: screen.querySelector('[data-testid="chat-loading-skeleton"]') !== null,
     skeletonText: screen.querySelector('.chat-messages-skeleton')?.textContent?.trim() ?? null,
     // `.chat-loading` is the explanatory text state ("not available" / "not
     // available offline"): it must not exist at all while the chat is loading.
     loadingText: screen.querySelector('.chat-loading')?.textContent?.trim() ?? null,
-    messages: screen.querySelectorAll('.messages .message').length,
+    messages: list ? list.querySelectorAll('.message').length : 0,
+    // The transient per-bubble decrypt state (audit C1 vocabulary) exists for
+    // realtime/pagination rows — but never during the chat-open reveal.
+    pendingBubbles: list ? list.querySelectorAll('.message.pending').length : 0,
+    decryptNotice: !!list && /Decrypting|Entschlüsseln/.test(list.textContent ?? ''),
   });
 });
 chatBodyObserver.observe(dom.window.document.body, { childList: true, subtree: true });
@@ -2381,6 +2392,14 @@ assert(
 assert(
   chatOpenBodyStates.some((state) => !state.skeleton && state.messages > 0),
   'the messages replace the skeleton once the page has loaded',
+);
+assert(
+  chatOpenBodyStates.every((state) => state.pendingBubbles === 0 && state.decryptNotice === false),
+  'no chat-open frame renders a decrypting bubble or partially resolved list',
+);
+assert(
+  chatOpenBodyStates.every((state) => state.skeleton || state.messages > 0),
+  'every chat-open frame shows either the quiet skeleton or a finished list',
 );
 assert(
   dom.window.document.querySelector('.composer-input')?.disabled === false,
