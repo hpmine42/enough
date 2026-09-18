@@ -1697,7 +1697,13 @@ export default function Chat({
       <OfflineBanner status={connectivity} />
 
       {loading ? (
-        <div className="chat-loading">{t('loading')}</div>
+        // Quiet loading slot: the central message area stays empty while the
+        // first page loads. The previous centered ellipsis flash text had no
+        // meaning; an empty geometry-preserving slot avoids that flash while
+        // keeping the layout identical to the loaded state (both the empty
+        // slot and the messages section occupy the same flex:1 area), so
+        // there is no layout shift and no artificial delay.
+        <div className="chat-loading" aria-hidden="true" />
       ) : !valid ? (
         <div className="chat-loading">
           {offline ? t('offline.noCachedChat') : t('chat.unavailable')}

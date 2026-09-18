@@ -123,3 +123,73 @@ test('chat-open identity flow contains no artificial timeout or delay', () => {
   assert.ok(!flow.includes('await new Promise'), 'identity handoff/rendering uses no delay promise');
   assert.ok(!flow.includes('sleep('), 'identity handoff/rendering uses no sleep');
 });
+
+test('the central chat loading slot renders no visible ellipsis', () => {
+  // The body of the chat-body decision for the initial load: from the
+  // `loading ?` branch through the `!valid ?` branch. The message area used
+  // to render a centered "…" (t('loading')) as a flash placeholder while the
+  // first page loaded — that flash must be gone, but the geometry-preserving
+  // empty slot must remain so the layout matches the loaded state.
+  const loadingBody = section(chat, '{loading ? (', ') : !valid ? (');
+
+  assert.ok(
+    !loadingBody.includes("t('loading')"),
+    'the initial-load branch no longer renders the ellipsis text (t(\'loading\'))',
+  );
+  assert.ok(
+    !loadingBody.includes("'…'"),
+    'the initial-load branch renders no ellipsis literal',
+  );
+  assert.ok(
+    !loadingBody.includes('"…"'),
+    'the initial-load branch renders no ellipsis literal (double quotes)',
+  );
+  assert.match(
+    loadingBody,
+    /className="chat-loading"/,
+    'the initial-load branch keeps a geometry-preserving chat-loading slot',
+  );
+});
+
+test('opening a chat shows no ellipsis loading text in the message area', () => {
+  // The chat-body loading slot must not contain a "{t('loading')}" text node.
+  // t('loading') is still used legitimately by the request-banner busy
+  // buttons, so we only forbid it where the message area used to flash the
+  // ellipsis.
+  const loadingSlot = section(chat, '{loading ? (', ') : !valid ? (');
+
+  assert.ok(
+    !loadingSlot.includes(">{t('loading')}<"),
+    'no "{t(\'loading\')}" text node appears in the chat-body loading slot',
+  );
+  assert.ok(
+    !loadingSlot.includes("t('loading')</div>"),
+    'the chat-loading div no longer wraps the ellipsis text',
+  );
+});
+
+test('chat-open loading change introduces no artificial timeout or delay', () => {
+  // The loading-slot fix must not paper over the flash with a delay or a
+  // spinner: the empty geometry-preserving slot is instantaneous.
+  const loadingSlot = section(chat, '{loading ? (', ') : !valid ? (');
+
+  assert.ok(!loadingSlot.includes('setTimeout'), 'loading slot uses no timeout');
+  assert.ok(!loadingSlot.includes('sleep('), 'loading slot uses no sleep');
+  assert.ok(!loadingSlot.includes('animate'), 'loading slot introduces no spinner animation');
+  assert.match(
+    loadingSlot,
+    /className="chat-loading"/,
+    'the loaded geometry-preserving slot is still present',
+  );
+});
+
+test('messages render after a successful load (loading branch intact)', () => {
+  // The loaded branch (loading === false, valid, no loadError) must still
+  // render the messages section and its bubbles; the loading fix must not
+  // have severed that path.
+  const loadedBranch = section(chat, ': loadError ? (', '</main>');
+
+  assert.match(loadedBranch, /<section[^>]*className="messages"/, 'loaded branch renders the messages section');
+  assert.match(loadedBranch, /grouped\.map\(/, 'loaded branch renders message bubbles');
+  assert.match(loadedBranch, /<MessageComposer/, 'loaded branch renders the composer');
+});
