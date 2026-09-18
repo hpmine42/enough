@@ -2329,6 +2329,7 @@ const chatBodyObserver = new dom.window.MutationObserver(() => {
   const screen = dom.window.document.querySelector('.chat-screen');
   if (!screen) return;
   const list = screen.querySelector('.messages');
+  const composerInput = screen.querySelector('.composer-input');
   chatOpenBodyStates.push({
     skeleton: screen.querySelector('[data-testid="chat-loading-skeleton"]') !== null,
     skeletonText: screen.querySelector('.chat-messages-skeleton')?.textContent?.trim() ?? null,
@@ -2340,6 +2341,8 @@ const chatBodyObserver = new dom.window.MutationObserver(() => {
     // realtime/pagination rows — but never during the chat-open reveal.
     pendingBubbles: list ? list.querySelectorAll('.message.pending').length : 0,
     decryptNotice: !!list && /Decrypting|Entschlüsseln/.test(list.textContent ?? ''),
+    composerPresent: screen.querySelector('.composer') !== null,
+    composerDisabled: composerInput ? composerInput.disabled : null,
   });
 });
 chatBodyObserver.observe(dom.window.document.body, { childList: true, subtree: true });
@@ -2400,6 +2403,16 @@ assert(
 assert(
   chatOpenBodyStates.every((state) => state.skeleton || state.messages > 0),
   'every chat-open frame shows either the quiet skeleton or a finished list',
+);
+assert(
+  chatOpenBodyStates.every((state) => state.composerPresent === true),
+  'composer is present from the first frame of chat open (no layout shift)',
+);
+assert(
+  chatOpenBodyStates
+    .filter((state) => state.skeleton)
+    .every((state) => state.composerDisabled === true),
+  'composer is disabled during all skeleton/loading frames',
 );
 assert(
   dom.window.document.querySelector('.composer-input')?.disabled === false,

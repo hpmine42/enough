@@ -13,6 +13,19 @@ verified, and what remains open.
 
 ### Chat
 
+- **Geometry-stable chat opening without composer layout shift (finding F-01).**
+  Previously `<MessageComposer>` was rendered only inside the loaded ternary
+  branch of `Chat.tsx`. During the loading/reveal phase, `.chat-messages-skeleton`
+  occupied `flex: 1` down to the viewport bottom; mounting the composer upon
+  reveal pushed message bubbles upward by ~75px. The composer is now rendered
+  outside the loading ternary as a persistent structural element during chat open
+  (`valid && !loadError`), disabled while `loading || revealPending` (and backed
+  by a defensive early exit in `handleSend`). The skeleton occupies the exact
+  vertical slot (`flex: 1`, `min-height: 0`) that the loaded message list takes
+  over, eliminating layout shifts upon message reveal. Guarded by structural
+  regression tests in `chat-loading-state.test.mjs` and first-frame composer
+  presence/disabled assertions in `smoke-test.mjs`.
+
 - **Opening a chat never shows the transient "Entschlüsseln…" state.** After
   the skeleton fix, the sequence still read *open chat → skeleton → every
   bubble says "Decrypting…"/"Entschlüsseln…" → messages*: the page commit
