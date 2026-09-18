@@ -42,6 +42,13 @@
      buttons and the send disc) instead of a foreign accent surface. */
   --badge-bg: #2b2b25;
   --badge-text: #f7f5f0;
+  /* The thumb of a switch in its ON position (`.toggle.on .toggle-knob`).
+     It sits on the --accent-strong track and is deliberately the same warm
+     near-white in both themes — the knob marks the physical "on" position,
+     it is not a themed surface. Declared once here on purpose: `:root.dark`
+     does not override it, so the shipped appearance of both themes is
+     preserved exactly. */
+  --toggle-knob-on: #fbfaf7;
   --overlay: rgba(35, 34, 30, 0.4);
   --shadow-1: 0 1px 2px rgba(35, 34, 30, 0.06);
   --shadow-2: 0 6px 24px rgba(35, 34, 30, 0.12);
@@ -1766,7 +1773,7 @@ button,
 
 .toggle.on .toggle-knob {
   transform: translateX(18px);
-  background: #fbfaf7;
+  background: var(--toggle-knob-on);
 }
 
 .toggle:disabled {

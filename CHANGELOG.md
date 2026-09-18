@@ -259,6 +259,22 @@ verified, and what remains open.
   holds the own-profile fetch open: it records every committed frame of the
   subpage and fails if any frame shows '…' / '...' as data, a fabricated
   address, or a draft value before the profile row has arrived.
+- **The ON knob of `.toggle` consumes a design token (finding F-08).**
+  `.toggle.on .toggle-knob` painted `background: #fbfaf7` — a literal that
+  could not be retuned from the token block, while every other state of the
+  control already resolved through tokens (`--muted` for the resting knob,
+  `--surface-2` / `--accent-strong` for the track). New semantic token
+  `--toggle-knob-on`, declared once in the `:root` block and deliberately not
+  overridden by `:root.dark` (the knob marks the physical ON position; it is
+  not a themed surface), so light and dark keep exactly the appearance that
+  shipped; the rule keeps its `translateX(18px)` and loses its only literal.
+  No geometry, interaction, disabled or focus change: the track (46×28), the
+  knob (22px, `var(--muted)` when off), the disabled state (opacity 0.55) and
+  the global `:focus-visible` ring are untouched. Guarded by the new
+  `npm run test:toggle`, which pins the token/`var()` pairing, proves the
+  literal now occurs exactly once in the stylesheet (as the token definition)
+  and computes the knob/track contrast from the parsed tokens for both themes
+  (6.27:1 light, 3.02:1 dark).
 
 ---
 

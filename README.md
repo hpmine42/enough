@@ -333,10 +333,13 @@ fallback for auto-confirm setups.
   label contrast in both themes (WCAG ratios computed from the parsed
   tokens, resting and hover) and the Settings chrome box model (header top
   safe area, subpanel bottom safe area, desktop column alignment)
-- `npm run test:profileemail` — the Profile subpage renders its data values
-  verbatim and never a `…` placeholder (the email slot only while the session
-  carries an address, the display-name draft stays empty until the profile row
-  has arrived)
+- `npm run test:profileemail` / `npm run test:toggle` — the remaining v0.5 UI
+  audit fixes: the Profile subpage renders its data values verbatim and never
+  a `…` placeholder (the email slot only while the session carries an address,
+  the display-name draft stays empty until the profile row has arrived), and
+  the ON knob of `.toggle` consumes the `--toggle-knob-on` token instead of
+  the shipped literal, with the knob/track contrast computed from the parsed
+  tokens for both themes
 - `npm run test:nav` — bottom-navigation layering: the bar is a fixed sibling
   of the app stage (never a child of `Home` or the Settings overlay), stacked
   above the overlay and below dialogs, and it animates no geometry (no
