@@ -306,3 +306,34 @@ test('opening a chat never renders the localized decrypting notice for the first
     'exactly the online and offline page commits arm the reveal gate',
   );
 });
+
+/* ---------- 6: MessageComposer is permanently present and disabled during loading ---------- */
+
+test('MessageComposer is rendered outside the loading branch and disabled during loading/reveal', () => {
+  // F-01: The composer must NOT be nested inside the `loading === false` branch.
+  // It must already be mounted in its final position while the skeleton is
+  // active, so that unmasking the messages replaces the skeleton 1:1 without
+  // pushing the messages upward.
+  const loadingBranch = section(chat, '{loading ? (', ') : !valid ? (');
+  assert.ok(
+    !loadingBranch.includes('<MessageComposer'),
+    'the composer is not nested inside the loading branch',
+  );
+
+  // The composer is rendered as a structural sibling of the message area:
+  const composerTag = chat.match(/<MessageComposer[^>]*\/>/s);
+  assert.ok(composerTag, 'the MessageComposer element exists');
+  const disabledExpr = composerTag[0].match(/disabled=\{([^}]*)\}/);
+  assert.ok(disabledExpr, 'the composer declares its disabled expression');
+  const terms = disabledExpr[1].split('||').map((t) => t.trim());
+  assert.ok(terms.includes('loading'), 'composer is disabled while loading');
+  assert.ok(terms.includes('revealPending'), 'composer is disabled while revealPending');
+
+  // Defense-in-depth: handleSend also rejects while loading/revealPending
+  const sendFn = section(chat, 'async function handleSend(text: string): Promise<boolean> {', 'if (offline) return false;');
+  assert.match(sendFn, /if \(loading \|\| revealPending/);
+
+  // Conversation isolation: composer is keyed by connectionId so drafts never leak across chats
+  assert.match(composerTag[0], /key=\{connectionId\}/, 'composer is keyed by connectionId');
+});
+

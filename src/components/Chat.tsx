@@ -1019,6 +1019,7 @@ export default function Chat({
    */
   async function handleSend(text: string): Promise<boolean> {
     if (!conn || blocked || !text) return false;
+    if (loading || revealPending || !valid || !!loadError) return false;
     // Offline sending is deliberately not implemented in this version and
     // nothing is queued: the composer is disabled, and this is the guard
     // behind it.
@@ -1948,12 +1949,22 @@ export default function Chat({
               </div>
             )
           )}
-
-          <MessageComposer
-            onSend={handleSend}
-            disabled={!canChat || blocked || offline || !e2eeReady}
-          />
         </>
+      )}
+
+      {valid && !loadError && (
+        <MessageComposer
+          key={connectionId}
+          onSend={handleSend}
+          disabled={
+            loading ||
+            revealPending ||
+            !canChat ||
+            blocked ||
+            offline ||
+            !e2eeReady
+          }
+        />
       )}
 
       {canChat && !atBottom && (
