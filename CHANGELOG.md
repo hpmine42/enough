@@ -235,6 +235,46 @@ verified, and what remains open.
   `npm run test:settings` source-level tests and by a new frame-recording
   section in `npm run smoke` that fails if any committed frame of a person
   search shows an ellipsis (or any loading text placeholder).
+- **No visible "…" in the Profile subpage (finding F-07).**
+  `ProfileSettings` rendered `<span className="settings-static-value">{email ||
+  '…'}</span>` while its parent passed `email={user?.email ?? ''}` — an auth
+  session without an address therefore printed a bare '…' in the row that is
+  meant to show the address. The same component carried a second instance of
+  the pattern: the display-name draft was seeded from `displayName(profile)`,
+  which answers '…' while the profile row has not arrived yet — a visible
+  placeholder in a text input that even saves on blur. Neither case is a
+  loading state: this screen only renders after the authentication check has
+  resolved, and the address belongs to that resolved session, so an absent
+  value is a legitimate data state rather than "not fetched yet". The email
+  value slot now renders the session address verbatim and only while the
+  session carries one — the row, its label and its change-email action stay
+  exactly where they were, and with no address the label stands alone
+  instead of inventing a value — and an absent profile leaves the draft (and
+  the dirty-check value behind the Save button) empty. No timer, no delay,
+  no fake address, no change to the auth/Supabase data source, no change to
+  the loaded state or to the existing error semantics, and `displayName()`'s
+  shared '…' contract for Home/Chat is untouched. Guarded by the new
+  `npm run test:profileemail` (source-level) and by a new `SMOKE_NO_EMAIL` run
+  of `npm run smoke`, which signs in on a session without an email claim and
+  holds the own-profile fetch open: it records every committed frame of the
+  subpage and fails if any frame shows '…' / '...' as data, a fabricated
+  address, or a draft value before the profile row has arrived.
+- **The ON knob of `.toggle` consumes a design token (finding F-08).**
+  `.toggle.on .toggle-knob` painted `background: #fbfaf7` — a literal that
+  could not be retuned from the token block, while every other state of the
+  control already resolved through tokens (`--muted` for the resting knob,
+  `--surface-2` / `--accent-strong` for the track). New semantic token
+  `--toggle-knob-on`, declared once in the `:root` block and deliberately not
+  overridden by `:root.dark` (the knob marks the physical ON position; it is
+  not a themed surface), so light and dark keep exactly the appearance that
+  shipped; the rule keeps its `translateX(18px)` and loses its only literal.
+  No geometry, interaction, disabled or focus change: the track (46×28), the
+  knob (22px, `var(--muted)` when off), the disabled state (opacity 0.55) and
+  the global `:focus-visible` ring are untouched. Guarded by the new
+  `npm run test:toggle`, which pins the token/`var()` pairing, proves the
+  literal now occurs exactly once in the stylesheet (as the token definition)
+  and computes the knob/track contrast from the parsed tokens for both themes
+  (6.27:1 light, 3.02:1 dark).
 
 ---
 

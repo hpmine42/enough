@@ -233,12 +233,20 @@ function b64url(obj) {
   return Buffer.from(JSON.stringify(obj)).toString('base64url');
 }
 const header = b64url({ alg: 'HS256', typ: 'JWT' });
+/* v0.5 audit F-07: the auth session can be run WITHOUT an email address
+   (`SMOKE_NO_EMAIL`) so the Profile subpage's "no address" state is exercised
+   against the real bundle. The claim is part of the token, of the
+   `/auth/v1/user` answer and of the token response — supabase-js builds the
+   session user from exactly these. */
+const SESSION_EMAIL = process.env.SMOKE_NO_EMAIL ? null : 'anna@example.com';
+const EMAIL_CLAIM = SESSION_EMAIL
+  ? { email: SESSION_EMAIL, email_confirmed_at: new Date().toISOString() }
+  : {};
 const payload = b64url({
   sub: 'user-1',
   aud: 'authenticated',
   role: 'authenticated',
-  email: 'anna@example.com',
-  email_confirmed_at: new Date().toISOString(),
+  ...EMAIL_CLAIM,
   exp: Math.floor(Date.now() / 1000) + 3600,
   user_metadata: { username: 'anna' },
 });
@@ -250,6 +258,12 @@ if (process.env.SMOKE_RECOVERY) {
     `#access_token=${ACCESS_TOKEN}&refresh_token=refresh-1&expires_in=3600` +
     '&token_type=bearer&type=recovery';
 }
+
+/* v0.5 audit F-07: a scenario can hold the own-profile fetch open, so the
+   "profile row has not arrived yet" window of the Profile subpage is
+   deterministic instead of a race. The gate is inactive unless a scenario
+   stores a promise in `profileGate.hold`. */
+const profileGate = { hold: null };
 
 /* A tiny in-memory "database" for the stub API. */
 let ensureMyNotesRpcCalls = 0;
@@ -385,8 +399,7 @@ globalThis.fetch = async (input, init = {}) => {
       id: 'user-1',
       aud: 'authenticated',
       role: 'authenticated',
-      email: 'anna@example.com',
-      email_confirmed_at: new Date().toISOString(),
+      ...EMAIL_CLAIM,
       user_metadata: { username: 'anna' },
     });
   }
@@ -404,8 +417,7 @@ globalThis.fetch = async (input, init = {}) => {
         id: 'user-1',
         aud: 'authenticated',
         role: 'authenticated',
-        email: 'anna@example.com',
-        email_confirmed_at: new Date().toISOString(),
+        ...EMAIL_CLAIM,
         user_metadata: { username: 'anna' },
       },
     });
@@ -471,6 +483,8 @@ globalThis.fetch = async (input, init = {}) => {
           console.log('  STUB profiles:', method, 'accept=', accept.slice(0, 60), 'id=', eq('id'), 'ilike=', filterParam('username','ilike'));
         }
         if (method === 'GET') {
+          // F-07: the own-profile lookup can be held open by a scenario.
+          if (profileGate.hold && eq('id') === 'user-1') await profileGate.hold;
           let rows = [...db.profiles];
           const id = eq('id');
           if (id) rows = rows.filter((r) => r.id === id);
@@ -1003,6 +1017,141 @@ if (process.env.SMOKE_RECOVERY) {
     failures === 0
       ? '\nRecovery smoke test passed.\n'
       : `\n${failures} recovery smoke test(s) FAILED.\n`,
+  );
+  process.exit(failures === 0 ? 0 : 1);
+}
+
+/* ------------------------------------------------------------------ */
+/* v0.5 audit F-07 — the Profile subpage renders no placeholder data    */
+/*                                                                      */
+/* `ProfileSettings` used to render `{email || '…'}` and to be seeded   */
+/* with `displayName(profile)` — which answers '…' — so an account      */
+/* whose session carries no address, and the window before the profile  */
+/* row arrives, could both show a bare '…' where data belongs. This run */
+/* (`SMOKE_NO_EMAIL`) observes exactly those two states on the real     */
+/* bundle: the auth session has no email claim at all, and the          */
+/* own-profile fetch is held open until the scenario releases it, so    */
+/* the incomplete state is deterministic instead of a race. It fails if */
+/* any committed frame shows an ellipsis (or any three-dot literal) as  */
+/* data — the runtime counterpart of `npm run test:profileemail`.       */
+/* ------------------------------------------------------------------ */
+
+if (process.env.SMOKE_NO_EMAIL) {
+  window.localStorage.setItem('enough-lang', 'en');
+  setHash('#/login');
+  await waitFor(() => text('.button') === 'Log in', 'F-07: login screen renders');
+
+  // Hold the own-profile lookup: from here on, the Profile subpage renders
+  // with `profile === null` until the scenario releases the fetch.
+  let releaseProfile;
+  profileGate.hold = new Promise((resolve) => {
+    releaseProfile = resolve;
+  });
+
+  setInputValue(dom.window.document.querySelector('.form input[type="email"]'), 'anna@example.com');
+  setInputValue(dom.window.document.querySelector('.form input[type="password"]'), 'secret123');
+  dom.window.document.querySelector('.form').dispatchEvent(
+    new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+  );
+  await waitFor(
+    () => dom.window.document.querySelector('.home-screen') !== null,
+    'F-07: sign-in without an email claim reaches the app',
+  );
+
+  /* Record every committed frame of the subpage, from the moment it opens
+     until the profile row has landed: no frame may show placeholder data. */
+  const profileFrames = [];
+  const subpanel = () => dom.window.document.querySelector('.settings-subpanel');
+  const emailValue = () =>
+    dom.window.document.querySelector('.settings-email-row .settings-static-value')
+      ?.textContent ?? null;
+  const snapshot = () => ({
+    text: subpanel()?.textContent?.trim() ?? '',
+    draft: dom.window.document.querySelector('#display-name')?.value ?? null,
+    emailValue: emailValue(),
+    emailRowText: dom.window.document.querySelector('.settings-email-row')?.textContent?.trim() ?? '',
+  });
+  const observer = new dom.window.MutationObserver(() => profileFrames.push(snapshot()));
+  observer.observe(dom.window.document.body, { childList: true, subtree: true, characterData: true });
+
+  setHash('#/settings/profile');
+  await waitFor(
+    () =>
+      subpanel()?.classList.contains('open') &&
+      text('.settings-subpanel-title') === 'Profile',
+    'F-07: Profile subpage opens while the profile row is still loading',
+  );
+  const incomplete = snapshot();
+  assert(
+    incomplete.draft === '',
+    'F-07: the display-name input stays empty while the profile is not loaded',
+  );
+  assert(
+    dom.window.document.querySelector('.settings-edit-row .btn-small') === null,
+    'F-07: the incomplete state shows no Save button for an empty draft',
+  );
+  assert(
+    dom.window.document.querySelectorAll('.settings-email-row').length === 1,
+    'F-07: the email row is rendered (never hidden) in the email-less session',
+  );
+  assert(
+    incomplete.emailValue === null && incomplete.emailRowText === 'Email',
+    'F-07: the email row shows its label alone — no value, no placeholder',
+  );
+
+  /* Release the held fetch: the real profile data must replace the empty
+     state without ever passing through a placeholder. */
+  releaseProfile();
+  await waitFor(
+    () => dom.window.document.querySelector('#display-name')?.value === 'Anna Müller',
+    'F-07: the profile row arrives and fills the display name',
+  );
+  assert(
+    text('.settings-static-value') === '@anna',
+    'F-07: the username row shows the real username',
+  );
+  assert(
+    emailValue() === null,
+    'F-07: a session without an address still renders no value at all',
+  );
+  observer.disconnect();
+  assert(
+    profileFrames.length > 0,
+    'F-07: the subpage records at least one rendered frame',
+  );
+  assert(
+    profileFrames.some((frame) => frame.draft === ''),
+    'F-07: the incomplete frame is part of the recording',
+  );
+  assert(
+    profileFrames.every(
+      (frame) =>
+        !frame.text.includes('…') &&
+        !frame.text.includes('...') &&
+        !(frame.draft ?? '').includes('…') &&
+        !(frame.draft ?? '').includes('...') &&
+        !(frame.emailValue ?? '').includes('…'),
+    ),
+    'F-07: no frame of the Profile subpage renders an ellipsis as data',
+  );
+  assert(
+    profileFrames.every((frame) => frame.emailValue === null),
+    'F-07: no frame invents an address for the email-less session',
+  );
+
+  /* The row stays the entry point to the change-email flow even with no
+     address on the session (nothing was hidden, nothing moved). */
+  click('.settings-email-row');
+  await waitFor(
+    () => text('.dialog-title') === 'Change email address?',
+    'F-07: the email row still opens the change-email confirmation',
+  );
+  click('.dialog .btn-plain');
+
+  console.log(
+    failures === 0
+      ? '\nF-07 profile-email smoke test passed.\n'
+      : `\n${failures} F-07 profile-email smoke test(s) FAILED.\n`,
   );
   process.exit(failures === 0 ? 0 : 1);
 }
@@ -1814,6 +1963,19 @@ await waitFor(() => text('.settings-static-value') === '@anna', 'profile usernam
   assert(displayNameInput?.value === 'Anna Müller', 'display name shown');
   const rows = [...dom.window.document.querySelectorAll('.settings-static-row')].map((r) => r.textContent);
   assert(rows.some((r) => r.includes('anna@example.com')), 'email shown');
+  /* v0.5 audit F-07: the Profile subpage carries real values only — the
+     email slot holds the session address verbatim, and no data slot of the
+     subpage renders a placeholder ('…' / '...'). The email-less session and
+     the deferred-profile window are covered by the SMOKE_NO_EMAIL run. */
+  assert(
+    dom.window.document.querySelector('.settings-email-row .settings-static-value')
+      ?.textContent === 'anna@example.com',
+    'the email value slot carries the session address verbatim',
+  );
+  assert(
+    rows.every((row) => !row.includes('…') && !row.includes('...')),
+    'no Profile row renders an ellipsis as data',
+  );
 }
 assert(
   [...dom.window.document.querySelectorAll('.settings-subpanel .settings-section-title')].some(
@@ -4379,6 +4541,14 @@ if (failures === 0) {
   execFileSync(process.execPath, [new URL(import.meta.url).pathname], {
     cwd: root,
     env: { ...process.env, SMOKE_RECOVERY: '1' },
+    stdio: 'inherit',
+  });
+  // v0.5 audit F-07: the same bundle with an auth session that carries no
+  // email address and with the own-profile fetch held open, so the Profile
+  // subpage's incomplete state and its email-less state are both observed.
+  execFileSync(process.execPath, [new URL(import.meta.url).pathname], {
+    cwd: root,
+    env: { ...process.env, SMOKE_NO_EMAIL: '1' },
     stdio: 'inherit',
   });
 }

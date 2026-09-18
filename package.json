@@ -16,6 +16,8 @@
     "test:settings": "node --test --experimental-strip-types src/lib/__tests__/settings-people.test.mjs",
     "test:settingslayout": "node --test --experimental-strip-types src/lib/__tests__/settings-layout.test.mjs",
     "test:danger": "node --test --experimental-strip-types src/lib/__tests__/danger-contrast.test.mjs",
+    "test:profileemail": "node --test --experimental-strip-types src/lib/__tests__/profile-email-placeholder.test.mjs",
+    "test:toggle": "node --test --experimental-strip-types src/lib/__tests__/toggle-knob-token.test.mjs",
     "test:input": "node --test --experimental-strip-types src/lib/__tests__/input-hardening.test.mjs",
     "test:unread": "node --test --experimental-strip-types src/lib/__tests__/unread-counts.test.mjs",
     "test:scroll": "node --test --experimental-strip-types src/lib/__tests__/chat-scroll.test.mjs",
