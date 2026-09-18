@@ -16,12 +16,30 @@
 // skeleton, chat-header identity skeleton): a quiet, decorative bubble
 // skeleton that fills the same `flex: 1` slot with the same padding as
 // `.messages`, anchored at the bottom like the newest messages. No text, no
-// dots, no timer — `loading` still flips the moment the page commits.
+// dots, no timer — `loading` flips exactly when the committed page can be
+// read, never after a delay.
+//
+// The follow-up bug (this file's second half): unmasking the list at the
+// page commit still flashed an intermediate state, because the loaded rows
+// only resolve their display text afterwards (local cache read / engine
+// decrypt run asynchronously). Every bubble rendered as "Decrypting…" /
+// "Entschlüsseln…" until the display path caught up:
+//
+//   open chat → skeleton → "Entschlüsseln…" everywhere → messages
+//
+// The fix keeps the SAME skeleton and the SAME `loading` flag — only the
+// moment of unmasking moves: the page commit now arms a reveal gate, and the
+// gate releases `loading` on the render that carries the LAST display outcome
+// of the first page (resolved plaintext, undecryptable notice, or the
+// settled E2EE failure the bubbles report). Nothing is decrypted
+// differently, and nothing waits for a clock: the app waits exactly as long
+// as the real load/decrypt pass needs — one render tick for a fully cached
+// or empty page, no added frame budget otherwise.
 //
 // These guards are source-level (the rendered counterpart — chat open,
 // skeleton frame, messages after the load — is exercised by `npm run smoke`).
-// They fail if the ellipsis placeholder returns or an artificial delay is
-// introduced.
+// They fail if the ellipsis or the decrypting placeholder becomes visible
+// again during chat open, or if an artificial delay is introduced.
 //
 // Run with:
 //   npm run test:chatloading
@@ -199,8 +217,9 @@ test('the chat loading path contains no artificial timeout or delay', () => {
   assert.ok(chat.includes('INITIAL_ANCHOR_SETTLE_MS'), 'the anchoring timers are the settle passes');
   assert.ok(chat.includes('saveTimerRef.current = window.setTimeout'), 'the third timer debounces the read position');
 
-  // The skeleton is gated by data, not by time: the load effect flips
-  // `loading` in the same commit that hands over the page.
+  // The skeleton is gated by data, not by time: the load effect commits the
+  // page and ARMS the reveal gate in the same synchronous block; the gate
+  // itself is a render-derived check with no time component.
   const loadStart = chat.indexOf('/* ----------------------------- data load');
   const loadEnd = chat.search(/\/\* -+ realtime/);
   assert.ok(loadStart >= 0 && loadEnd > loadStart, 'the load effect is delimited');
@@ -208,6 +227,82 @@ test('the chat loading path contains no artificial timeout or delay', () => {
   assert.ok(!loadEffect.includes('setTimeout'), 'the load effect uses no timer');
   assert.ok(!loadEffect.includes('sleep('), 'the load effect uses no sleep');
   const commit = loadEffect.indexOf('setMessages(committed)');
-  const done = loadEffect.indexOf('setLoading(false)', commit);
-  assert.ok(commit >= 0 && done > commit, 'loading ends with the page commit, not after a delay');
+  const arm = loadEffect.indexOf('setRevealPending(true)', commit);
+  assert.ok(commit >= 0 && arm > commit, 'the page commit arms the reveal gate');
+  assert.ok(
+    !loadEffect.slice(commit).includes('setLoading(false)'),
+    'the online commit never unmasks the list directly',
+  );
+});
+
+/* ---------- 5: the first page reveals only when fully display-ready ------ */
+
+test('the loaded first page stays behind the skeleton until display-ready', () => {
+  // The reveal gate is derived from the SAME per-bubble resolver the render
+  // loop uses — pending means "do not unmask yet" — so the localized
+  // "decrypting" notice can no longer appear for the freshly loaded page.
+  const gate = section(chat, '// Reveal gate for the committed first page', '}, [revealPending');
+  assert.ok(gate.includes('isChatPageDisplayReady(visibleMessages'), 'the gate checks the rendered list');
+  assert.match(gate, /resolveBubbleText\(\{/, 'the gate reuses the per-bubble display resolver');
+  assert.ok(gate.includes("kind !== 'pending'"), 'only a FINAL bubble outcome releases the gate');
+  // Releasing must also disarm, so realtime rows can never re-hide the list.
+  const disarm = gate.indexOf('setRevealPending(false);');
+  const release = gate.indexOf('setLoading(false);', disarm);
+  assert.ok(disarm >= 0 && release > disarm, 'reveal flips loading exactly as it disarms');
+  // The gate can never strand the skeleton: the explanation branches release
+  // it, and both success commits (online page, offline snapshot) arm it.
+  assert.ok(gate.includes('!valid || loadError'), 'explanation branches release the gate');
+  assert.ok(!gate.includes('setTimeout'), 'the reveal gate uses no timer');
+  assert.ok(!gate.includes('await new Promise'), 'the reveal gate awaits no delay promise');
+  assert.ok(!gate.includes('sleep('), 'the reveal gate uses no sleep');
+
+  const offlineCommit = section(chat, 'if (shouldSkipNetwork()) {', 'const found = await getConnection');
+  assert.ok(
+    offlineCommit.includes('setMessages(snapshot.messages)') && offlineCommit.includes('setRevealPending(true)'),
+    'the offline snapshot commit also goes through the reveal gate',
+  );
+  // A chat without a cached snapshot has nothing to decrypt: the explanation
+  // branch must still be reached immediately, never gated behind the gate.
+  assert.ok(
+    offlineCommit.includes('setLoading(false)'),
+    'the not-cached offline path still flips loading for its explanation',
+  );
+
+  // Conversation switching clears both the display state and the gate, so a
+  // previous conversation's unresolved page can neither reveal nor block the
+  // next one.
+  const reset = section(chat, '// Reset display state when switching conversations', '}, [connectionId]);');
+  assert.ok(reset.includes('setPlain({})') && reset.includes('setUndecryptable(new Set())'), 'display state clears on switch');
+  assert.ok(reset.includes('setRevealPending(false)'), 'the gate is disarmed on switch');
+  const loadStart = chat.indexOf('/* ----------------------------- data load');
+  const loadEnd = chat.search(/\/\* -+ realtime/);
+  const loadEffect = chat.slice(loadStart, loadEnd);
+  assert.ok(
+    loadEffect.indexOf('setRevealPending(false)') < loadEffect.indexOf('(async () => {'),
+    'a superseded or retried load starts with the gate disarmed',
+  );
+});
+
+test('opening a chat never renders the localized decrypting notice for the first page', () => {
+  // The per-bubble notice itself stays (it is the audit C1 contract for
+  // realtime and pagination rows: never an empty bubble) — what must not
+  // exist is a render path that UNMASKS the list while a first-page row is
+  // still pending. That is guaranteed structurally: the only setLoading(false)
+  // after a page commit lives inside the reveal gate, and the gate is the
+  // render condition of the whole message area (`loading` still owns the
+  // skeleton branch).
+  const renderGate = section(chat, '{loading ? (', ') : !valid ? (');
+  assert.ok(
+    chat.includes("t('chat.decrypting')"),
+    'the pending bubble state itself is unchanged (realtime / pagination)',
+  );
+  assert.match(renderGate, /^\{loading \? \(/, 'the skeleton branch is still gated by `loading` alone');
+  // `loading` is the single switch for the message area, so while the gate
+  // is armed the list cannot be in the DOM at all. Only the two successful
+  // commits arm it; every other unmask path stays direct.
+  assert.equal(
+    [...chat.matchAll(/setRevealPending\(true\);/g)].length,
+    2,
+    'exactly the online and offline page commits arm the reveal gate',
+  );
 });

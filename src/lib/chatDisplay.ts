@@ -3,7 +3,8 @@
 // WHAT THIS IS
 //   Decides what a message bubble shows while its display plaintext is being
 //   resolved, so that an unresolved message can NEVER render as an empty
-//   bubble (audit C1 / F-01).
+//   bubble (audit C1 / F-01). It also decides when a freshly loaded chat
+//   page is ready to replace the loading state (see isChatPageDisplayReady).
 //
 // WHY IT EXISTS
 //   Peer message bodies are E2EE envelopes. The plaintext arrives
@@ -79,6 +80,42 @@ export function resolveBubbleText(opts: ResolveBubbleTextOptions): BubbleText {
   if (opts.undecryptable) return { kind: 'undecryptable' };
   if (opts.e2eeFailed) return { kind: 'undecryptable' };
   return { kind: 'pending' };
+}
+
+/**
+ * Whether a loaded page is fully READY TO SHOW — the render gate for opening
+ * a chat.
+ *
+ * A committed first page resolves asynchronously row by row (cache read /
+ * engine decrypt via Chat's display effect). Until the whole page has a
+ * final bubble outcome, the message area stays behind its quiet loading
+ * skeleton: opening a chat never renders a page whose bubbles briefly read
+ * "decrypting", and never renders partially resolved content.
+ *
+ * The rule is deliberately narrower than "every row": tombstones and system
+ * events render as system lines, not bubbles, and are exactly the rows the
+ * display path skips (`m.deleted_at || (m.kind && m.kind !== 'text')`).
+ * Requiring an outcome for a row the display path will never resolve would
+ * pin the loading state forever, so such rows never block the reveal. A row
+ * counts as ready when `isResolved` says so — the caller wires it to
+ * `resolveBubbleText` outcomes (plaintext, undecryptable, or the settled
+ * E2EE failure fallback), i.e. to the FINAL display state, whatever it is.
+ * An empty page is ready immediately.
+ *
+ * Pure display policy: it performs no decryption, awaits nothing, and adds
+ * no time component. The page reveals on the render that carries the last
+ * outcome the existing load/decrypt process produces — never earlier, never
+ * later.
+ */
+export function isChatPageDisplayReady(
+  messages: readonly { id: string; deleted_at?: string | null; kind?: string | null }[],
+  isResolved: (messageId: string) => boolean,
+): boolean {
+  return messages.every((m) => {
+    if (m.deleted_at) return true;
+    if (m.kind && m.kind !== 'text') return true;
+    return isResolved(m.id);
+  });
 }
 
 /**
