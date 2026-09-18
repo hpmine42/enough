@@ -2296,6 +2296,59 @@ button,
   font-size: 12.5px;
 }
 
+/* Message-area loading skeleton. `.chat-loading` above stays for the
+   explanatory states ("not available" / "not available offline"), which are
+   real content. The pure loading state renders no text at all: it mirrors the
+   message list geometry — same horizontal padding as `.messages`, anchored at
+   the bottom like the newest messages — with the same quiet skeleton
+   vocabulary as the overview and the chat header (neutral `--surface-2`, the
+   shared `skeleton-breathe` pulse, decorative and stilled by the global
+   reduced-motion block). Filling the same `flex: 1` slot keeps the chat
+   geometry stable, so the real messages replace it without a layout shift. */
+.chat-messages-skeleton {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.chat-skeleton-bubbles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* Same box as `.messages` — the skeleton occupies exactly the space the
+     conversation will occupy. */
+  padding: 18px 16px 10px;
+  animation: skeleton-breathe 1.5s ease-in-out infinite;
+}
+
+.chat-skeleton-bubble {
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.chat-skeleton-bubble.them {
+  align-self: flex-start;
+}
+
+.chat-skeleton-bubble.me {
+  align-self: flex-end;
+}
+
+.chat-skeleton-bubble.w58 {
+  width: 58%;
+}
+
+.chat-skeleton-bubble.w34 {
+  width: 34%;
+}
+
+.chat-skeleton-bubble.w46 {
+  width: 46%;
+}
+
 /* request banner */
 
 .request-banner {

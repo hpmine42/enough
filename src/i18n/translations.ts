@@ -398,6 +398,10 @@ export const translations = {
       deletedAccountMessage: '@{username} deleted their account.',
       deletedAccountNote: 'This account was deleted. You can no longer message this person.',
       noMessages: 'No messages yet.',
+      // Accessible name of the quiet message-area loading state. It is never
+      // rendered as visible text — the bare '…' that used to sit centred in
+      // the chat read like missing content instead of a loading state.
+      loadingMessages: 'Loading messages…',
       loadingOlder: 'Loading…',
       you: 'You',
       encryptedPreview: 'Encrypted message',
@@ -881,6 +885,7 @@ export const translations = {
       deletedAccountNote:
         'Dieses Konto wurde gelöscht. Du kannst dieser Person nicht mehr schreiben.',
       noMessages: 'Noch keine Nachrichten.',
+      loadingMessages: 'Nachrichten werden geladen…',
       loadingOlder: 'Laden…',
       you: 'Du',
       encryptedPreview: 'Verschlüsselte Nachricht',

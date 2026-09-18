@@ -11,6 +11,28 @@ verified, and what remains open.
 
 ## Unreleased
 
+### Chat
+
+- **Opening a chat no longer shows a centred "…" while the messages load.** The
+  chat body rendered `t('loading')` — the global placeholder string, a bare
+  '…' — inside `.chat-loading` for the whole initial load (connection →
+  profiles → block state → deletions → first message page), so the sequence read
+  as *open chat → "…" in the middle → messages*. That is the same string the
+  overview and header guards treat as *missing identity data*, and it was the
+  only loading state in the app that showed placeholder text instead of the
+  established skeleton vocabulary. `src/components/Chat.tsx` now renders a
+  quiet, decorative message skeleton (`.chat-messages-skeleton`: neutral
+  `--surface-2`, the shared `skeleton-breathe` pulse, bottom-anchored like the
+  newest messages) which fills the same `flex: 1` slot with the same padding as
+  `.messages`, so the chat geometry stays stable and the real messages replace
+  it without a layout shift. The state is carried by a labelled `role="status"`
+  region (new `chat.loadingMessages`, EN + DE) rather than by visible text, and
+  `.chat-loading` stays for the explanatory states ("not available" / "not
+  available offline"). No timer was introduced: `loading` still flips in the
+  commit that hands over the page. Guarded by `npm run test:chatloading`
+  (`src/lib/__tests__/chat-loading-state.test.mjs`) and by new chat-open frame
+  assertions in `npm run smoke`.
+
 ### PWA chrome
 
 - **Pale band in the installed app after #124 — root cause pinned, note and
