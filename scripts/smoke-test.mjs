@@ -2527,23 +2527,30 @@ const chatOpenObserver = new dom.window.MutationObserver(() => {
 chatOpenObserver.observe(dom.window.document.body, { childList: true, subtree: true });
 // The message area is recorded in parallel. Opening a chat used to render the
 // global loading string ('…') centred in the chat for as long as the first page
-// was fetched, so every committed frame of this open must show either the quiet
-// skeleton or real messages — never a text placeholder. The frame list also
-// guards the follow-up state: unmasking at the page commit used to leave every
-// row rendering the localized "decrypting…" bubble notice until the display
-// path resolved it (and a partially decrypted list whenever only some rows had
-// resolved). The reveal gate keeps the skeleton up until the whole committed
-// page has final bubble content, so no open frame may show a pending bubble,
-// the decrypting notice, or a message list that is still resolving.
+// was fetched, then decorative skeleton bubbles — both must now be gone: every
+// committed frame of this open must show either the quiet EMPTY loading
+// container (no visible shapes, no text, no pulse) or real messages — never a
+// text placeholder or skeleton shapes. The frame list also guards the
+// follow-up state: unmasking at the page commit used to leave every row
+// rendering the localized "decrypting…" bubble notice until the display path
+// resolved it (and a partially decrypted list whenever only some rows had
+// resolved). The reveal gate keeps the empty loading slot up until the whole
+// committed page has final bubble content, so no open frame may show a
+// pending bubble, the decrypting notice, or a message list that is still
+// resolving.
 const chatOpenBodyStates = [];
 const chatBodyObserver = new dom.window.MutationObserver(() => {
   const screen = dom.window.document.querySelector('.chat-screen');
   if (!screen) return;
   const list = screen.querySelector('.messages');
   const composerInput = screen.querySelector('.composer-input');
+  const skeletonEl = screen.querySelector('[data-testid="chat-loading-skeleton"]');
   chatOpenBodyStates.push({
-    skeleton: screen.querySelector('[data-testid="chat-loading-skeleton"]') !== null,
-    skeletonText: screen.querySelector('.chat-messages-skeleton')?.textContent?.trim() ?? null,
+    skeleton: skeletonEl !== null,
+    // The loading container must be completely empty (no child shapes, no
+    // text, no pulse), and must not contain any "…" / "..." as content.
+    skeletonText: skeletonEl?.textContent?.trim() ?? null,
+    skeletonHasChildren: skeletonEl ? skeletonEl.children.length : 0,
     // `.chat-loading` is the explanatory text state ("not available" / "not
     // available offline"): it must not exist at all while the chat is loading.
     loadingText: screen.querySelector('.chat-loading')?.textContent?.trim() ?? null,
@@ -2595,17 +2602,27 @@ assert(
 );
 assert(
   chatOpenBodyStates.some((state) => state.skeleton),
-  'the loading frame of a chat open shows the quiet message skeleton',
+  'the loading frame of a chat open shows the quiet empty loading container',
 );
 assert(
   chatOpenBodyStates.every(
-    (state) => state.loadingText === null && (state.skeletonText ?? '') === '',
+    (state) =>
+      state.loadingText === null &&
+      (state.skeletonText ?? '') === '' &&
+      !state.skeletonText?.includes('…') &&
+      !state.skeletonText?.includes('...'),
   ),
   'no chat-open frame renders an ellipsis (or any text) loading placeholder',
 );
 assert(
+  chatOpenBodyStates.every(
+    (state) => !state.skeleton || state.skeletonHasChildren === 0,
+  ),
+  'loading frames render no skeleton bubbles/shapes/children — empty quiet area only',
+);
+assert(
   chatOpenBodyStates.some((state) => !state.skeleton && state.messages > 0),
-  'the messages replace the skeleton once the page has loaded',
+  'the messages replace the empty loading slot once the page has loaded',
 );
 assert(
   chatOpenBodyStates.every((state) => state.pendingBubbles === 0 && state.decryptNotice === false),
@@ -2613,7 +2630,7 @@ assert(
 );
 assert(
   chatOpenBodyStates.every((state) => state.skeleton || state.messages > 0),
-  'every chat-open frame shows either the quiet skeleton or a finished list',
+  'every chat-open frame shows either the quiet empty container or a finished list',
 );
 assert(
   chatOpenBodyStates.every((state) => state.composerPresent === true),
@@ -2623,7 +2640,7 @@ assert(
   chatOpenBodyStates
     .filter((state) => state.skeleton)
     .every((state) => state.composerDisabled === true),
-  'composer is disabled during all skeleton/loading frames',
+  'composer is disabled during all empty/loading frames',
 );
 assert(
   dom.window.document.querySelector('.composer-input')?.disabled === false,

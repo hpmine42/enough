@@ -13,6 +13,27 @@ verified, and what remains open.
 
 ### Chat
 
+- **Opening a chat shows a quiet empty message area instead of skeleton bubbles.**
+  After the ellipsis ("…") and the per-bubble "Entschlüsseln…" flash were
+  eliminated, the chat-open sequence still showed decorative skeleton bubbles
+  pulsing in the message area while the first page loaded and decrypted:
+  *open chat → skeleton bubbles → messages*. The visual simulation is now
+  removed entirely: while `loading || revealPending` the message container is
+  simply empty — same `flex: 1` geometry, composer stays anchored at the
+  bottom (F-01 layout stability preserved), no pulse, no shapes, no text,
+  no timer, no artificial delay — so the sequence reads as *open chat →
+  calm empty area → finished messages*. The labelled `role="status"` region
+  (`chat.loadingMessages`, EN + DE) is retained for assistive technology on
+  the otherwise empty container; the CSS rules for `.chat-skeleton-bubbles`
+  and `.chat-skeleton-bubble*` (which became unused) were removed. The
+  reveal gate (`isChatPageDisplayReady`), E2EE decryption, realtime,
+  pagination, the composer disabled-state, Offline Read Mode and every
+  explanatory state (`!valid` / load error / offline unavailable) are
+  unchanged. Guarded by updated `npm run test:chatloading` /
+  `npm run test:chatopen` and by extended frame-recording assertions in
+  `npm run smoke` that fail if any committed chat-open frame renders
+  skeleton bubbles, an ellipsis, or the decrypting notice.
+
 - **Geometry-stable chat opening without composer layout shift (finding F-01).**
   Previously `<MessageComposer>` was rendered only inside the loaded ternary
   branch of `Chat.tsx`. During the loading/reveal phase, `.chat-messages-skeleton`
