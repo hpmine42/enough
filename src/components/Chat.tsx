@@ -1697,13 +1697,30 @@ export default function Chat({
       <OfflineBanner status={connectivity} />
 
       {loading ? (
-        // Quiet loading slot: the central message area stays empty while the
-        // first page loads. The previous centered ellipsis flash text had no
-        // meaning; an empty geometry-preserving slot avoids that flash while
-        // keeping the layout identical to the loaded state (both the empty
-        // slot and the messages section occupy the same flex:1 area), so
-        // there is no layout shift and no artificial delay.
-        <div className="chat-loading" aria-hidden="true" />
+        /* Quiet first-paint state for the message area. This slot used to
+           render the global loading string — a bare ellipsis centred in the
+           chat — which is exactly the placeholder the overview and header
+           guards treat as *missing* data, so it read like unfinished content
+           rather than like a loading state. The skeleton mirrors the message
+           list with the established vocabulary (neutral `--surface-2`, the
+           shared `skeleton-breathe` pulse, bottom-anchored like the newest
+           messages) and keeps the container `flex: 1`, so the screen neither
+           collapses nor shifts when the page arrives. The bubble shapes are
+           decorative; the state itself is carried by the labelled status
+           region. Nothing here is time-gated — `loading` flips in the commit
+           that hands over the page. */
+        <div
+          className="chat-messages-skeleton"
+          role="status"
+          aria-label={t('chat.loadingMessages')}
+          data-testid="chat-loading-skeleton"
+        >
+          <div className="chat-skeleton-bubbles" aria-hidden="true">
+            <span className="chat-skeleton-bubble them w58" />
+            <span className="chat-skeleton-bubble them w34" />
+            <span className="chat-skeleton-bubble me w46" />
+          </div>
+        </div>
       ) : !valid ? (
         <div className="chat-loading">
           {offline ? t('offline.noCachedChat') : t('chat.unavailable')}

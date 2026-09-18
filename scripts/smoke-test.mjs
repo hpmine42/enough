@@ -2314,6 +2314,24 @@ const chatOpenObserver = new dom.window.MutationObserver(() => {
   });
 });
 chatOpenObserver.observe(dom.window.document.body, { childList: true, subtree: true });
+// The message area is recorded in parallel. Opening a chat used to render the
+// global loading string ('…') centred in the chat for as long as the first page
+// was fetched, so every committed frame of this open must show either the quiet
+// skeleton or real messages — never a text placeholder.
+const chatOpenBodyStates = [];
+const chatBodyObserver = new dom.window.MutationObserver(() => {
+  const screen = dom.window.document.querySelector('.chat-screen');
+  if (!screen) return;
+  chatOpenBodyStates.push({
+    skeleton: screen.querySelector('[data-testid="chat-loading-skeleton"]') !== null,
+    skeletonText: screen.querySelector('.chat-messages-skeleton')?.textContent?.trim() ?? null,
+    // `.chat-loading` is the explanatory text state ("not available" / "not
+    // available offline"): it must not exist at all while the chat is loading.
+    loadingText: screen.querySelector('.chat-loading')?.textContent?.trim() ?? null,
+    messages: screen.querySelectorAll('.messages .message').length,
+  });
+});
+chatBodyObserver.observe(dom.window.document.body, { childList: true, subtree: true });
 click('.chat-row .chat');
 await waitFor(() => text('.chat-peer-name') === 'Benno Schmidt', 'chat opens after accept');
 await Promise.resolve(); // allow MutationObserver to deliver the final commit record
@@ -2343,6 +2361,26 @@ assert(
 await waitFor(
   () => text('.message')?.startsWith('Hallo Anna!'),
   'message bubble renders',
+);
+await Promise.resolve(); // allow MutationObserver to deliver the final commit record
+chatBodyObserver.disconnect();
+assert(
+  chatOpenBodyStates.length > 0,
+  'chat-open path records at least one rendered message-area state',
+);
+assert(
+  chatOpenBodyStates.some((state) => state.skeleton),
+  'the loading frame of a chat open shows the quiet message skeleton',
+);
+assert(
+  chatOpenBodyStates.every(
+    (state) => state.loadingText === null && (state.skeletonText ?? '') === '',
+  ),
+  'no chat-open frame renders an ellipsis (or any text) loading placeholder',
+);
+assert(
+  chatOpenBodyStates.some((state) => !state.skeleton && state.messages > 0),
+  'the messages replace the skeleton once the page has loaded',
 );
 assert(
   dom.window.document.querySelector('.composer-input')?.disabled === false,

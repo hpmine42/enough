@@ -127,9 +127,11 @@ test('chat-open identity flow contains no artificial timeout or delay', () => {
 test('the central chat loading slot renders no visible ellipsis', () => {
   // The body of the chat-body decision for the initial load: from the
   // `loading ?` branch through the `!valid ?` branch. The message area used
-  // to render a centered "…" (t('loading')) as a flash placeholder while the
-  // first page loaded — that flash must be gone, but the geometry-preserving
-  // empty slot must remain so the layout matches the loaded state.
+  // to render a centered ellipsis (t('loading')) as a flash placeholder while
+  // the first page loaded — that flash must be gone, but a geometry-preserving
+  // slot must remain so the layout matches the loaded state. That slot is the
+  // quiet message skeleton (same `flex: 1` area, same padding as `.messages`);
+  // see chat-loading-state.test.mjs for its dedicated guards.
   const loadingBody = section(chat, '{loading ? (', ') : !valid ? (');
 
   assert.ok(
@@ -146,8 +148,8 @@ test('the central chat loading slot renders no visible ellipsis', () => {
   );
   assert.match(
     loadingBody,
-    /className="chat-loading"/,
-    'the initial-load branch keeps a geometry-preserving chat-loading slot',
+    /className="chat-messages-skeleton"/,
+    'the initial-load branch keeps a geometry-preserving loading slot',
   );
 });
 
@@ -155,7 +157,7 @@ test('opening a chat shows no ellipsis loading text in the message area', () => 
   // The chat-body loading slot must not contain a "{t('loading')}" text node.
   // t('loading') is still used legitimately by the request-banner busy
   // buttons, so we only forbid it where the message area used to flash the
-  // ellipsis.
+  // ellipsis. The slot renders shapes plus an accessible name instead.
   const loadingSlot = section(chat, '{loading ? (', ') : !valid ? (');
 
   assert.ok(
@@ -170,7 +172,7 @@ test('opening a chat shows no ellipsis loading text in the message area', () => 
 
 test('chat-open loading change introduces no artificial timeout or delay', () => {
   // The loading-slot fix must not paper over the flash with a delay or a
-  // spinner: the empty geometry-preserving slot is instantaneous.
+  // spinner: the geometry-preserving skeleton slot is instantaneous.
   const loadingSlot = section(chat, '{loading ? (', ') : !valid ? (');
 
   assert.ok(!loadingSlot.includes('setTimeout'), 'loading slot uses no timeout');
@@ -178,8 +180,8 @@ test('chat-open loading change introduces no artificial timeout or delay', () =>
   assert.ok(!loadingSlot.includes('animate'), 'loading slot introduces no spinner animation');
   assert.match(
     loadingSlot,
-    /className="chat-loading"/,
-    'the loaded geometry-preserving slot is still present',
+    /className="chat-messages-skeleton"/,
+    'the geometry-preserving loading slot is still present',
   );
 });
 
