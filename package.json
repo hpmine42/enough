@@ -14,6 +14,7 @@
     "test:i18n": "node --test --experimental-strip-types src/i18n/__tests__/i18n.test.mjs",
     "test:license": "node --test src/lib/__tests__/license.test.mjs",
     "test:settings": "node --test --experimental-strip-types src/lib/__tests__/settings-people.test.mjs",
+    "test:danger": "node --test --experimental-strip-types src/lib/__tests__/danger-contrast.test.mjs",
     "test:input": "node --test --experimental-strip-types src/lib/__tests__/input-hardening.test.mjs",
     "test:unread": "node --test --experimental-strip-types src/lib/__tests__/unread-counts.test.mjs",
     "test:scroll": "node --test --experimental-strip-types src/lib/__tests__/chat-scroll.test.mjs",

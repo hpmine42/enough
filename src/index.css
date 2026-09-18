@@ -31,6 +31,11 @@
   --sent-text: #f7f5f0;
   --danger: #a44a35;
   --danger-soft: rgba(164, 74, 53, 0.1);
+  /* Text painted ON a --danger surface (the danger button, the scroll-down
+     unread counter), paired with --danger like --button-text is with
+     --button. Light keeps the white that always shipped here — 5.82 to 1
+     on #a44a35. */
+  --danger-text: #ffffff;
   --ok: #4f6b52;
   /* Unread count: the app's own ink, identical in both themes, so the
      counter reads as part of the chrome (same family as the primary
@@ -100,6 +105,12 @@
   --sent-text: #171614;
   --danger: #d9907e;
   --danger-soft: rgba(217, 144, 126, 0.14);
+  /* Dark keeps --danger the warm muted salmon — everything placed on a
+     coloured chip in this theme reads in the same dark warm ink as
+     --button-text / --sent-text / --badge-text. White on #d9907e was
+     barely 2.55 to 1; this ink is 7.10 to 1, and it also holds up on the
+     --button-press surface the shared primary hover repaints to. */
+  --danger-text: #171614;
   --ok: #a3bd8d;
   --badge-bg: #e5e2d8;
   --badge-text: #171614;
@@ -373,9 +384,14 @@ button,
   background: var(--button-press);
 }
 
+/* The label colour is the theme-paired token, not a hardcoded white. In
+   dark mode --danger is a light warm salmon, where white read at roughly
+   2.55 to 1 — and almost 1 to 1 over the light --button-press hover
+   surface. --danger-text resolves to the ink each theme pairs with its
+   chips, and it holds up on --button-press as well. */
 .btn-primary.danger {
   background: var(--danger);
-  color: #fff;
+  color: var(--danger-text);
 }
 
 .btn-primary:disabled {
@@ -2563,7 +2579,9 @@ button,
   padding: 0 5px;
   border-radius: 10px;
   background: var(--danger);
-  color: #fff;
+  /* Same theme-paired label as the danger button (see .btn-primary.danger) —
+     white was barely 2.55 to 1 on the dark-mode salmon at this 11px size. */
+  color: var(--danger-text);
   font-size: 11px;
   font-weight: 600;
   line-height: 19px;
