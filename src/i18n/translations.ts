@@ -296,10 +296,15 @@ export const translations = {
       people: 'People',
       activeConnections: 'Active connections',
       activeConnectionsEmpty: 'No active connections yet.',
+      // Accessible names of the People loading skeletons: status-region
+      // labels, never visible text (the surfaces show quiet shapes while
+      // loading, like everywhere else in the app).
+      activeConnectionsLoading: 'Loading connections…',
       searchPeople: 'Search people',
       searchPlaceholder: 'Search by @username',
       searchEmpty: 'Type a username to find people.',
       searchNoResults: 'No one found.',
+      searchLoading: 'Searching…',
       language: 'Language',
       appearance: 'Appearance',
       light: 'Light',
@@ -783,10 +788,14 @@ export const translations = {
       people: 'Personen',
       activeConnections: 'Aktive Verbindungen',
       activeConnectionsEmpty: 'Noch keine aktiven Verbindungen.',
+      // Accessible names of the People loading skeletons: status-region
+      // labels, never visible text (mirrors the English block above).
+      activeConnectionsLoading: 'Verbindungen werden geladen…',
       searchPeople: 'Personen suchen',
       searchPlaceholder: 'Nach @benutzername suchen',
       searchEmpty: 'Gib einen Benutzernamen ein, um Personen zu finden.',
       searchNoResults: 'Keine Person gefunden.',
+      searchLoading: 'Personen werden gesucht…',
       language: 'Sprache',
       appearance: 'Darstellung',
       light: 'Hell',

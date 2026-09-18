@@ -327,7 +327,12 @@ fallback for auto-confirm setups.
 - `npm run test:settings` / `npm run test:blocked` — the dedicated
   people-search screen (its `#/new-chat` entry point, focus, absence from
   Settings) and People settings (active connections, blocked hierarchy), plus
-  the blocked-composer lock
+  the blocked-composer lock. `test:settings` also guards the People loading
+  states: labelled decorative skeletons, never the global `…` placeholder
+- `npm run test:danger` / `npm run test:settingslayout` — danger-control
+  label contrast in both themes (WCAG ratios computed from the parsed
+  tokens, resting and hover) and the Settings chrome box model (header top
+  safe area, subpanel bottom safe area, desktop column alignment)
 - `npm run test:nav` — bottom-navigation layering: the bar is a fixed sibling
   of the app stage (never a child of `Home` or the Settings overlay), stacked
   above the overlay and below dialogs, and it animates no geometry (no

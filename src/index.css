@@ -31,6 +31,11 @@
   --sent-text: #f7f5f0;
   --danger: #a44a35;
   --danger-soft: rgba(164, 74, 53, 0.1);
+  /* Text painted ON a --danger surface (the danger button, the scroll-down
+     unread counter), paired with --danger like --button-text is with
+     --button. Light keeps the white that always shipped here — 5.82 to 1
+     on #a44a35. */
+  --danger-text: #ffffff;
   --ok: #4f6b52;
   /* Unread count: the app's own ink, identical in both themes, so the
      counter reads as part of the chrome (same family as the primary
@@ -100,6 +105,12 @@
   --sent-text: #171614;
   --danger: #d9907e;
   --danger-soft: rgba(217, 144, 126, 0.14);
+  /* Dark keeps --danger the warm muted salmon — everything placed on a
+     coloured chip in this theme reads in the same dark warm ink as
+     --button-text / --sent-text / --badge-text. White on #d9907e was
+     barely 2.55 to 1; this ink is 7.10 to 1, and it also holds up on the
+     --button-press surface the shared primary hover repaints to. */
+  --danger-text: #171614;
   --ok: #a3bd8d;
   --badge-bg: #e5e2d8;
   --badge-text: #171614;
@@ -373,9 +384,14 @@ button,
   background: var(--button-press);
 }
 
+/* The label colour is the theme-paired token, not a hardcoded white. In
+   dark mode --danger is a light warm salmon, where white read at roughly
+   2.55 to 1 — and almost 1 to 1 over the light --button-press hover
+   surface. --danger-text resolves to the ink each theme pairs with its
+   chips, and it holds up on --button-press as well. */
 .btn-primary.danger {
   background: var(--danger);
-  color: #fff;
+  color: var(--danger-text);
 }
 
 .btn-primary:disabled {
@@ -1234,8 +1250,16 @@ button,
   }
 }
 
+/* The header is safe-area aware WITHOUT giving up its height. With a fixed
+   `height` the top safe-area padding ate into the border-box (padding-top
+   could exceed 56px on notched devices), squeezing the 40px controls and
+   the title out of the frame. `min-height` keeps the pre-safe-area geometry
+   (56px box, 53px content line) on devices without an inset and grows the
+   box additively on devices with one — the same model `.legal-header`
+   already uses. Global box-sizing is border-box, so min-height wraps the
+   padding + border instead of adding to them beyond the inset. */
 .settings-header {
-  height: 56px;
+  min-height: calc(env(safe-area-inset-top) + 56px);
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -1550,8 +1574,15 @@ button,
   z-index: 3;
 }
 
+/* Subpanels cover the bottom navigation, so instead of the overview's
+   --nav-clearance they only need their own end spacing — plus the bottom
+   inset on devices with a home indicator, additively (32px stay 32px where
+   there is no inset). The panel itself carries no bottom padding, so this
+   single declaration is the whole safe-area chain for every subpage
+   (Profile/People/Language/Appearance/Chat/Account, incl. the account
+   deletion area at the bottom of Account, and the nested blocked list). */
 .settings-subpanel .settings-scroll {
-  padding: 8px 22px 32px;
+  padding: 8px 22px calc(32px + env(safe-area-inset-bottom));
 }
 
 .settings-subpanel .settings-section:first-child {
@@ -1560,6 +1591,38 @@ button,
 
 .settings-blocked-empty {
   padding: 18px 0;
+}
+
+/* Loading placeholders of the People surfaces: the dedicated search screen
+   (while the debounced lookup runs) and Settings → People (while the active
+   connections load). The same quiet skeleton vocabulary the chat overview
+   and the chat itself already use — neutral `--surface-2` shapes with the
+   shared `skeleton-breathe` pulse, decorative (`aria-hidden`), stilled by
+   the global reduced-motion block. The state itself is carried by the
+   labelled `role="status"` wrapper, never by a placeholder text. The rows
+   mirror the geometry of what they precede: two text lines for an
+   avatar-less search result row, avatar + two lines for an active-connection
+   row (44px like the loaded `Avatar`). */
+.settings-people-skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  animation: skeleton-breathe 1.5s ease-in-out infinite;
+}
+
+.settings-people-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 8px;
+}
+
+.settings-people-skeleton-avatar {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
 }
 
 /* settings category overview — rows open the matching subpage */
@@ -2563,7 +2626,9 @@ button,
   padding: 0 5px;
   border-radius: 10px;
   background: var(--danger);
-  color: #fff;
+  /* Same theme-paired label as the danger button (see .btn-primary.danger) —
+     white was barely 2.55 to 1 on the dark-mode salmon at this 11px size. */
+  color: var(--danger-text);
   font-size: 11px;
   font-weight: 600;
   line-height: 19px;
@@ -3052,8 +3117,15 @@ button,
     max-width: 480px;
   }
 
+  /* Same 480px column as the scroll body — and now the same centering.
+     `.settings-scroll` centers itself via `margin: 0 auto` in the base
+     rule; the header had the width but no auto margins, so as a flex item
+     of the full-width pane/subpanel it hung on the left while the content
+     centered. `margin: 0 auto` aligns header and content on one column
+     (mobile is untouched: full width, auto margins resolve to 0). */
   .settings-header {
     width: 100%;
+    margin: 0 auto;
   }
 
   .sheet {

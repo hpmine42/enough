@@ -167,6 +167,75 @@ verified, and what remains open.
   Android device was available in the change session, so no device result is
   claimed.
 
+### Accessibility and Settings chrome
+
+- **Dark-mode danger controls are readable again (finding F-02).**
+  `.btn-primary.danger` (the destructive dialog confirm) and
+  `.scroll-down-count` (the unread counter on the scroll-down disc) painted
+  their labels in hardcoded `#fff` on `background: var(--danger)`. Light mode
+  was fine (white on `#a44a35`, 5.82:1), but the dark `--danger` is the warm
+  light salmon `#d9907e`: white read at 2.55:1, and because the shared
+  `.btn-primary:hover` rule repaints every primary button to `--button-press`
+  (a near-white in dark mode), the hover label reached ~1.15:1. The fix is a
+  semantic token pair, exactly like the existing `--button-text` /
+  `--sent-text` / `--badge-text` chip pairings: new `--danger-text` stays
+  `#ffffff` in light (unchanged appearance) and resolves to the same dark
+  warm ink every dark-theme chip label already uses (`#171614`) — 7.10:1 on
+  the salmon and 15.7:1 on the hover surface, while the shared hover
+  mechanics, the global `:focus-visible` ring, the `--danger` surface colour
+  itself (so text/border/tint consumers are untouched) and all geometry stay
+  as they were. Guarded by the new `npm run test:danger`
+  (`src/lib/__tests__/danger-contrast.test.mjs`), which computes the WCAG
+  ratios from the parsed tokens for both themes, resting and hover.
+- **The Settings header survives a top safe area (finding F-03).**
+  `.settings-header` combined a fixed `height: 56px` with
+  `padding-top: calc(env(safe-area-inset-top) + 2px)` under the global
+  border-box model, so on devices with a notch the inset padding ate the
+  56px box and squeezed the 40px back/theme controls and the title out of
+  the frame. The header now uses the `.legal-header` model:
+  `min-height: calc(env(safe-area-inset-top) + 56px)` — the pre-inset
+  geometry (56px box, the same centred 53px content line) is preserved
+  exactly where there is no inset, and the box grows additively with the
+  inset where there is one. No transition, colour or child of the header was
+  touched. Guarded by the new `npm run test:settingslayout`
+  (`src/lib/__tests__/settings-layout.test.mjs`).
+- **Settings subpages respect the bottom safe area (finding F-04).**
+  `.settings-subpanel .settings-scroll` ended in a flat `32px` bottom
+  padding, so on devices with a home indicator the last rows of a subpage —
+  including Sign out / Delete account at the bottom of Account — could slide
+  under the system gesture area. The bottom inset is now added to the same
+  32px (`calc(32px + env(safe-area-inset-bottom))`): subpages keep their own
+  end spacing where there is no inset, the chain stays single (the panel
+  itself carries no bottom padding), the overview's `--nav-clearance` and
+  the bottom navigation are untouched, and the nested blocked-users layer
+  inherits the same rule. Guarded by `npm run test:settingslayout`.
+- **The Settings header centers on the content column on desktop
+  (finding F-05).** At `@media (min-width: 760px)` the header had
+  `max-width: 480px` + `width: 100%` but no auto margins, so as a flex item
+  of the full-width pane/subpanel it stayed left-aligned while the scroll
+  body centered itself on the same column via its base `margin: 0 auto`.
+  The header now centers identically (`margin: 0 auto` inside the existing
+  breakpoint rule) — same 480px column, no width change, no animation
+  change, mobile presentation untouched. Guarded by
+  `npm run test:settingslayout`.
+- **No visible "…" while People surfaces load (finding F-06).**
+  `PeopleSearch` (while the debounced lookup runs) and `PeopleSettings`
+  (while the active connections load) rendered `{t('loading')}` — the global
+  placeholder string, a bare '…' — as their visible state, contradicting the
+  loading UX the chat and the overview established. Both now show the app's
+  quiet skeleton vocabulary (`settings-people-skeleton-*`: neutral
+  `--surface-2` shapes, the shared `skeleton-breathe` pulse, `aria-hidden`,
+  mirroring the avatar-less search-result rows and the 44px-avatar
+  connection rows), with the state carried by a labelled `role="status"`
+  region (new `settingsScreen.searchLoading` /
+  `settingsScreen.activeConnectionsLoading`, EN + DE) instead of visible
+  text. The skeletons are gated by the same `searching` / `loading` flags as
+  the paragraphs they replaced: no timer, no delay, and the
+  data/error/empty branches are unchanged. Guarded by extended
+  `npm run test:settings` source-level tests and by a new frame-recording
+  section in `npm run smoke` that fails if any committed frame of a person
+  search shows an ellipsis (or any loading text placeholder).
+
 ---
 
 ## 0.5.0
