@@ -616,7 +616,12 @@ export default function Settings() {
 
   useEffect(() => {
     if (!open) return;
-    setNameDraft(displayName(profile));
+    // `displayName()` answers with '…' while the profile row has not arrived
+    // yet. That placeholder must never become an input value: it would be
+    // visible as data, and this input saves on blur. An absent profile
+    // therefore leaves the draft empty — the same "no value" state the
+    // subpage's other fields render.
+    setNameDraft(profile ? displayName(profile) : '');
     setNameError(null);
     setNameSaved(false);
   }, [open, profile]);
@@ -1088,9 +1093,9 @@ export default function Settings() {
               setNameDraft={setNameDraft}
               setNameSaved={setNameSaved}
               saveDisplayName={saveDisplayName}
-              displayNameValue={displayName(profile)}
+              displayNameValue={profile ? displayName(profile) : ''}
               username={profile?.username ?? ''}
-              email={user?.email ?? ''}
+              email={user?.email}
               onEmailClick={openEmailChange}
             />
           )}

@@ -235,6 +235,30 @@ verified, and what remains open.
   `npm run test:settings` source-level tests and by a new frame-recording
   section in `npm run smoke` that fails if any committed frame of a person
   search shows an ellipsis (or any loading text placeholder).
+- **No visible "…" in the Profile subpage (finding F-07).**
+  `ProfileSettings` rendered `<span className="settings-static-value">{email ||
+  '…'}</span>` while its parent passed `email={user?.email ?? ''}` — an auth
+  session without an address therefore printed a bare '…' in the row that is
+  meant to show the address. The same component carried a second instance of
+  the pattern: the display-name draft was seeded from `displayName(profile)`,
+  which answers '…' while the profile row has not arrived yet — a visible
+  placeholder in a text input that even saves on blur. Neither case is a
+  loading state: this screen only renders after the authentication check has
+  resolved, and the address belongs to that resolved session, so an absent
+  value is a legitimate data state rather than "not fetched yet". The email
+  value slot now renders the session address verbatim and only while the
+  session carries one — the row, its label and its change-email action stay
+  exactly where they were, and with no address the label stands alone
+  instead of inventing a value — and an absent profile leaves the draft (and
+  the dirty-check value behind the Save button) empty. No timer, no delay,
+  no fake address, no change to the auth/Supabase data source, no change to
+  the loaded state or to the existing error semantics, and `displayName()`'s
+  shared '…' contract for Home/Chat is untouched. Guarded by the new
+  `npm run test:profileemail` (source-level) and by a new `SMOKE_NO_EMAIL` run
+  of `npm run smoke`, which signs in on a session without an email claim and
+  holds the own-profile fetch open: it records every committed frame of the
+  subpage and fails if any frame shows '…' / '...' as data, a fabricated
+  address, or a draft value before the profile row has arrived.
 
 ---
 

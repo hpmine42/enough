@@ -12,7 +12,13 @@ interface ProfileSettingsProps {
   saveDisplayName: () => void;
   displayNameValue: string;
   username: string;
-  email: string;
+  /**
+   * The address the auth session carries. `undefined` is a real data state
+   * (a session without an email address), not a loading state: this screen
+   * only renders after the authentication check has resolved, so the value
+   * is either present or genuinely absent — it is never "still fetching".
+   */
+  email: string | undefined;
   onEmailClick: () => void;
 }
 
@@ -79,7 +85,12 @@ export default function ProfileSettings({
           onClick={onEmailClick}
         >
           <span className="settings-static-label">{t('settingsScreen.email')}</span>
-          <span className="settings-static-value">{email || '…'}</span>
+          {/* The value slot carries the session's own address, verbatim — no
+              fallback literal, so no placeholder can ever render. A session
+              without an email address renders the label alone: the empty
+              value is a legitimate state and the row (the entry point to the
+              change-email flow) stays exactly where it is. */}
+          {email && <span className="settings-static-value">{email}</span>}
         </button>
       </div>
     </Section>

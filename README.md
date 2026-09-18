@@ -333,6 +333,10 @@ fallback for auto-confirm setups.
   label contrast in both themes (WCAG ratios computed from the parsed
   tokens, resting and hover) and the Settings chrome box model (header top
   safe area, subpanel bottom safe area, desktop column alignment)
+- `npm run test:profileemail` — the Profile subpage renders its data values
+  verbatim and never a `…` placeholder (the email slot only while the session
+  carries an address, the display-name draft stays empty until the profile row
+  has arrived)
 - `npm run test:nav` — bottom-navigation layering: the bar is a fixed sibling
   of the app stage (never a child of `Home` or the Settings overlay), stacked
   above the overlay and below dialogs, and it animates no geometry (no
@@ -367,7 +371,10 @@ fallback for auto-confirm setups.
   with the field focused — plus the bar's layering (one persistent element
   that is a sibling of the app stage, never a descendant of an animated layer)
   and its covered state on a Settings subpage. It asserts the peer chat
-  carries a labelled, icon-only E2EE marker while My Notes carries none
+  carries a labelled, icon-only E2EE marker while My Notes carries none.
+  A separate run signs in on a session without an email address while the
+  own-profile fetch is held open and asserts that no committed frame of the
+  Profile subpage shows a `…` placeholder or an invented value
 - `npm run verify:signal-wasm` — byte-exact SHA-256 check of the installed
   `@getmaapp/signal-wasm@0.6.6` artifacts against the audited manifest
 - `supabase/rls-tests.sql` — authorization checks against the real database
