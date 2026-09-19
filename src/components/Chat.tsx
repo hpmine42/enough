@@ -1674,7 +1674,7 @@ export default function Chat({
                     disabled={busyId === conn?.id}
                     onClick={handleAccept}
                   >
-                    {busyId === conn?.id ? t('loading') : t('connection.accept')}
+                    {t('connection.accept')}
                   </button>
                   <button
                     type="button"
@@ -1698,7 +1698,7 @@ export default function Chat({
                 disabled={busyId === conn?.id}
                 onClick={handleCancelRequest}
               >
-                {busyId === conn?.id ? t('loading') : t('connection.cancelRequest')}
+                {t('connection.cancelRequest')}
               </button>
             </div>
           )}
@@ -1722,7 +1722,7 @@ export default function Chat({
                   disabled={busyId === conn?.id}
                   onClick={handleRequestAgain}
                 >
-                  {busyId === conn?.id ? t('loading') : t('connection.requestAgain')}
+                  {t('connection.requestAgain')}
                 </button>
               )}
             </div>
@@ -1741,7 +1741,7 @@ export default function Chat({
                   disabled={busyId === conn?.id}
                   onClick={handleRequestAgain}
                 >
-                  {busyId === conn?.id ? t('loading') : t('connection.requestAgain')}
+                  {t('connection.requestAgain')}
                 </button>
               )}
             </div>
@@ -1794,6 +1794,11 @@ export default function Chat({
         </section>
       ) : (
         <>
+          {/* Positioning context for the message viewport and the scroll-down
+              disc: the disc anchors to the bottom of this wrapper, so it
+              always floats above the composer and notice bars at a constant
+              gap — at any composer height, with no screen-anchored offset. */}
+          <div className="messages-wrap">
           <section
             className="messages"
             ref={scrollRef}
@@ -1851,6 +1856,19 @@ export default function Chat({
               );
             })}
           </section>
+
+          {canChat && !atBottom && (
+            <button
+              type="button"
+              className="scroll-down"
+              onClick={() => scrollToBottom(true)}
+              aria-label={t('unread.down')}
+            >
+              <DownIcon size={18} />
+              {newSinceUp > 0 && <span className="scroll-down-count">{newSinceUp}</span>}
+            </button>
+          )}
+          </div>
 
           {error && (
             <p className="error chat-error" role="alert">
@@ -1957,18 +1975,6 @@ export default function Chat({
             !e2eeReady
           }
         />
-      )}
-
-      {canChat && !atBottom && (
-        <button
-          type="button"
-          className="scroll-down"
-          onClick={() => scrollToBottom(true)}
-          aria-label={t('unread.down')}
-        >
-          <DownIcon size={18} />
-          {newSinceUp > 0 && <span className="scroll-down-count">{newSinceUp}</span>}
-        </button>
       )}
 
       {chatMenuOpen && self && (

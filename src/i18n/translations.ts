@@ -23,6 +23,9 @@ export const translations = {
     brand: 'enough.',
     tagline: 'Less, but enough.',
     loading: '…',
+    // Accessible name of the quiet boot state (src/App.tsx). Carried by a
+    // labelled role="status" region only — never rendered as visible text.
+    appLoading: 'Loading…',
     cancel: 'Cancel',
     confirm: 'Confirm',
     save: 'Save',
@@ -519,6 +522,9 @@ export const translations = {
     brand: 'enough.',
     tagline: 'Weniger, aber genug.',
     loading: '…',
+    // Accessible name of the quiet boot state (src/App.tsx). Carried by a
+    // labelled role="status" region only — never rendered as visible text.
+    appLoading: 'Wird geladen…',
     cancel: 'Abbrechen',
     confirm: 'Bestätigen',
     save: 'Speichern',

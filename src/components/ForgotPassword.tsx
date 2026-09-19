@@ -54,7 +54,7 @@ export default function ForgotPassword() {
             </p>
           )}
           <button className="button" type="submit" disabled={busy}>
-            {busy ? t('loading') : t('auth.sendResetLink')}
+            {t('auth.sendResetLink')}
           </button>
         </form>
       )}

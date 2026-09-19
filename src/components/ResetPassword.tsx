@@ -96,7 +96,7 @@ export default function ResetPassword() {
           </p>
         )}
         <button className="button" type="submit" disabled={busy}>
-          {busy ? t('loading') : t('auth.setNewPassword')}
+          {t('auth.setNewPassword')}
         </button>
       </form>
 

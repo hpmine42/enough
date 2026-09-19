@@ -57,9 +57,12 @@ export default function App() {
   }
 
   if (loading) {
+    // Quiet boot state: a calm empty viewport with no visible text, no
+    // ellipsis and no animation. Assistive technology gets the labelled
+    // status region; sighted users see nothing until the first real screen.
     return (
       <>
-        <main className="loading">{t('loading')}</main>
+        <main className="loading" role="status" aria-label={t('appLoading')} />
         <ThemeButton className="floating" />
       </>
     );

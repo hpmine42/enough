@@ -83,7 +83,7 @@ export default function Dialog({
             disabled={busy || confirmDisabled}
             type="button"
           >
-            {busy ? t('loading') : confirmLabel}
+            {confirmLabel}
           </button>
           {extraAction && (
             <button

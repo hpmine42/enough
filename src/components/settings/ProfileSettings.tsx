@@ -65,7 +65,7 @@ export default function ProfileSettings({
               disabled={nameBusy}
               onClick={saveDisplayName}
             >
-              {nameBusy ? t('loading') : t('save')}
+              {t('save')}
             </button>
           )}
         </div>

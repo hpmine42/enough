@@ -167,18 +167,22 @@ test('no value slot of the Profile subpage renders literal text', () => {
 test('ProfileSettings contains no ellipsis literal at all', () => {
   assert.ok(!profileJsx.includes('…'), 'no ellipsis character anywhere in the component');
   assert.ok(!profileJsx.includes('...'), 'no three-dot literal anywhere in the component');
-  // The one remaining placeholder-looking render is the shared busy-button
-  // label of the save action (`{nameBusy ? t('loading') : t('save')}`) — an
-  // action-in-progress label used across the app (e.g. the Account forms),
-  // not a data slot. It is intentionally out of F-07's scope and is pinned
-  // here so the difference stays explicit.
-  const busyUsages = [...profileJsx.matchAll(/t\('loading'\)/g)].length;
-  assert.equal(busyUsages, 1, 'the only loading usage is the save button label');
+  // The save action keeps its label while busy (P3-02): the old
+  // `{nameBusy ? t('loading') : t('save')}` swap collapsed the button to a
+  // bare '…' and shifted its width. The busy state is now carried by
+  // `disabled` (plus the shared `:disabled` dimming) alone, so no loading
+  // placeholder remains anywhere in this component.
+  assert.equal(
+    [...profileJsx.matchAll(/t\('loading'\)/g)].length,
+    0,
+    'no loading placeholder usage remains in the component',
+  );
   assert.match(
     profileJsx,
-    /\{nameBusy \? t\('loading'\) : t\('save'\)\}/,
-    'the busy label belongs to the save action, not to a data slot',
+    /disabled=\{nameBusy\}/,
+    'the save button stays disabled while its request runs',
   );
+  assert.match(profileJsx, /\{t\('save'\)\}/, 'the save button keeps its label while busy');
 });
 
 /* ------------------------------------------------------------------ */

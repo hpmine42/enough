@@ -241,7 +241,7 @@ export default function Register() {
             usernameState === 'invalid'
           }
         >
-          {busy ? t('loading') : t('auth.register')}
+          {t('auth.register')}
         </button>
       </form>
 
@@ -305,7 +305,7 @@ function ConfirmEmail({ email }: { email: string }) {
           onClick={handleResend}
           disabled={resendBusy}
         >
-          {resendBusy ? t('loading') : t('auth.confirmResend')}
+          {t('auth.confirmResend')}
         </button>
       </div>
       <div className="register">

@@ -27,6 +27,7 @@
     "test:home": "node --test --experimental-strip-types src/lib/__tests__/home-realtime.test.mjs src/lib/__tests__/home-load-lifecycle.test.mjs src/lib/__tests__/home-long-press.test.mjs src/lib/__tests__/home-overview-ui.test.mjs src/lib/__tests__/chat-overview-loading.test.mjs",
     "test:chatopen": "node --test --experimental-strip-types src/lib/__tests__/chat-open-identity.test.mjs",
     "test:chatloading": "node --test --experimental-strip-types src/lib/__tests__/chat-loading-state.test.mjs",
+    "test:loadingpolish": "node --test --experimental-strip-types src/lib/__tests__/loading-polish.test.mjs",
     "test:lists": "node --test --experimental-strip-types src/lib/__tests__/list-separators.test.mjs",
     "test:preview": "node --test --experimental-strip-types src/lib/__tests__/home-preview.test.mjs",
     "test:offline": "node --test --experimental-strip-types src/lib/__tests__/offline.test.mjs",

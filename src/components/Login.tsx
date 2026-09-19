@@ -56,7 +56,7 @@ export default function Login() {
           </p>
         )}
         <button className="button" type="submit" disabled={busy}>
-          {busy ? t('loading') : t('auth.login')}
+          {t('auth.login')}
         </button>
       </form>
 
