@@ -94,6 +94,52 @@ verified, and what remains open.
   and by new chat-open frame assertions in `npm run smoke`. See the next entry
   for the follow-up that also removed the per-bubble decrypting state.
 
+### Loading polish
+
+- **The boot state no longer shows a bare "…" (finding P3-01).**
+  `src/App.tsx` rendered `<main className="loading">{t('loading')}</main>`
+  while the authentication check resolved — the global placeholder string, a
+  bare '…', centred on an otherwise empty viewport on every cold start. The
+  boot branch is now a quiet empty viewport: no text, no ellipsis, no
+  animation, no timer. The state is carried by a labelled `role="status"`
+  region (new `appLoading`, EN + DE) for assistive technology only. The
+  `t('loading')` key itself is retained for its remaining non-visible use
+  (the `MessageBubble` accessible-name fallback). Guarded by the new
+  `npm run test:loadingpolish`
+  (`src/lib/__tests__/loading-polish.test.mjs`).
+- **Busy buttons keep their width while a request runs (finding P3-02).**
+  Thirteen actions (Dialog confirm, Login, Register, resend, Forgot/Reset
+  password, the Account email/password submits, the Profile save action and
+  the four chat request-banner actions) swapped their label for
+  `t('loading')` ('…') while busy, collapsing the button to a bare glyph and
+  shifting its width on every normal → busy transition. Every one of them
+  was already `disabled` while busy, so the buttons now simply keep their
+  label and the busy state is carried by `disabled` (plus the existing
+  `:disabled` dimming) alone — no content swap, no width change, no
+  animation, and a stable accessible name throughout. The resend action is a
+  link-styled button, the one button class without a disabled rule, so it
+  gains a scoped `.link:disabled` dim (no other control is affected). The
+  contact form is untouched: its busy label (`contact.sending`) is real
+  wording on a full-width button and never shifted. Guarded by
+  `npm run test:loadingpolish` and by the updated busy-label contract in
+  `npm run test:profileemail`.
+- **The scroll-down disc clears the composer at any composer height
+  (finding P3-03).** The disc was anchored to the screen bottom with a fixed
+  `safe-area + 100px` offset that only fit one composer height: a maximised
+  composer (the 110px input cap plus chrome ≈ 139px + safe area) could reach
+  into the disc. The loaded message list now owns a `.messages-wrap`
+  positioning context (`flex: 1`, `min-height: 0`) and the disc anchors to
+  the wrapper's bottom edge at a constant 25px gap — the exact gap the old
+  offset produced above a normal-height composer, so the resting appearance
+  is unchanged while tall composers and notice stacks can no longer collide
+  with it. No JS measurement, no magic per-state offset; the bottom safe
+  area stays owned by the composer. As a side effect the disc also stops
+  hovering over the loading skeleton and the explanatory states (it renders
+  in the loaded viewport only). The R6 knockout ring, the entrance
+  animation, the unread counter and the reduced-motion handling are
+  untouched. Guarded by `npm run test:loadingpolish` and the updated
+  geometry pin in `npm run test:contrast`.
+
 ### PWA chrome
 
 - **Pale band in the installed app after #124 — root cause pinned, note and

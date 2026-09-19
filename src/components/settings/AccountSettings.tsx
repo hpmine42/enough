@@ -89,7 +89,7 @@ export default function AccountSettings({
             aria-label={t('settingsScreen.newEmail')}
           />
           <button className="btn-small" type="submit" disabled={emailBusy}>
-            {emailBusy ? t('loading') : t('settingsScreen.changeEmailSubmit')}
+            {t('settingsScreen.changeEmailSubmit')}
           </button>
           {emailError && (
             <p className="error" role="alert">
@@ -156,7 +156,7 @@ export default function AccountSettings({
             </p>
           )}
           <button className="btn-small" type="submit" disabled={pwBusy}>
-            {pwBusy ? t('loading') : t('settingsScreen.changePasswordSubmit')}
+            {t('settingsScreen.changePasswordSubmit')}
           </button>
         </form>
       )}

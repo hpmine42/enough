@@ -427,6 +427,14 @@ button,
   opacity: 0.6;
 }
 
+/* Disabled link-buttons (e.g. the resend action while its request runs) keep
+   their label and dim like the other disabled buttons instead of swapping
+   the text. Scoped to .link so no other control is affected. */
+.link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .muted {
   color: var(--muted);
   font-size: 14px;
@@ -2187,6 +2195,21 @@ button,
   color: var(--accent-text);
 }
 
+/* Positioning context for the message viewport and the scroll-down disc.
+   The wrapper owns the flex slot the list used to own directly; the disc
+   anchors to the wrapper's bottom edge, so it keeps a constant gap above
+   the composer and notice bars at any composer height (single line or the
+   110px maximum) instead of relying on a screen-anchored offset that only
+   fits one composer height. `min-height: 0` lets the flex slot shrink; the
+   list itself is a scroll container and keeps shrinking as before. */
+.messages-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
 .messages {
   position: relative;
   flex: 1;
@@ -2541,10 +2564,15 @@ button,
 
 /* unread / scroll-to-bottom button */
 
+/* Wrapper-relative anchor: 25px above whatever sits below the message
+   viewport (composer, notice bars). That is the exact gap the previous
+   screen-anchored offset produced above a normal-height composer, now
+   constant at any composer height — including the 110px maximum. The
+   bottom safe area stays owned by the composer below. */
 .scroll-down {
   position: absolute;
   right: 18px;
-  bottom: calc(env(safe-area-inset-bottom) + 100px);
+  bottom: 25px;
   width: 42px;
   height: 42px;
   border: 0;

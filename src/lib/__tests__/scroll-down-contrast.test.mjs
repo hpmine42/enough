@@ -149,7 +149,11 @@ test('the fix leaves geometry, animation and focus visibility untouched', () => 
   assert.equal(baseDecls.width, '42px');
   assert.equal(baseDecls.height, '42px');
   assert.equal(baseDecls.right, '18px');
-  assert.equal(baseDecls.bottom, 'calc(env(safe-area-inset-bottom) + 100px)');
+  // Wrapper-relative anchor (P3-03): the disc floats 25px above whatever sits
+  // below the message viewport instead of a screen-anchored safe-area offset
+  // that only fit one composer height. See loading-polish.test.mjs for the
+  // structural guards (`.messages-wrap` slot + anchoring).
+  assert.equal(baseDecls.bottom, '25px');
   assert.equal(baseDecls['border-radius'], '50%');
   assert.equal(baseDecls.background, 'var(--button)');
   assert.equal(baseDecls.animation, 'scroll-down-in 0.2s ease-out');
