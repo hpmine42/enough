@@ -260,6 +260,11 @@ export default function Chat({
     lifecycleRef.current.advance();
   }
 
+  // The route key unmounts this instance before the next chat can commit.
+  // Invalidate captured send/page/realtime work during that same commit,
+  // including callbacks already queued before subscription cleanup.
+  useLayoutEffect(() => () => { lifecycleRef.current.advance(); }, []);
+
   const me = user?.id ?? '';
 
   /* ----------------------------- data load ----------------------------- */
@@ -275,6 +280,7 @@ export default function Chat({
     // This load owns the realtime gate from now on (see `loadingRef`).
     loadingRef.current = true;
     setLoading(true);
+    setLoadError(null);
     setValid(true);
     // A superseded load must not leave its reveal gate armed behind this one.
     setRevealPending(false);
@@ -439,8 +445,8 @@ export default function Chat({
     if (shouldSkipNetwork()) return;
     const client = supabase;
     // F-05: bind this subscription to the conversation generation it was
-    // created for. The lifecycle advances synchronously in the render body on
-    // a conversation switch, so a callback delivered by an old subscription
+    // created for. Reuse advances the lifecycle in render; the route-key
+    // remount advances it in layout cleanup. An old subscription callback
     // (in flight during a switch/reconnect) fails the token check and is
     // dropped before it can mutate the NEW conversation's state. Reusing the
     // F-01 lifecycle avoids a second lifecycle mechanism.
@@ -1028,10 +1034,10 @@ export default function Chat({
     // never written to unless the engine is READY. `prepareSend` below would
     // throw NOT_AVAILABLE anyway; this refuses earlier and keeps the draft.
     if (!canSendEncrypted({ e2eeStatus, isSelf: self })) return false;
-    // F-01: bind this send to the conversation it started in. The send itself
-    // (encrypt + server insert) is for the captured conversation and is not
-    // cancelled by a switch — the row belongs there — but its result and any
-    // error must never be written into a conversation the user switched to.
+    // F-01: bind this send to the conversation it started in. A server insert
+    // already issued belongs to that captured conversation. A switch during
+    // preparation must not start an insert; late results/errors must never
+    // enter the new conversation's state.
     const token = lifecycleRef.current.current();
     setError(null);
     const peerId = self ? me : otherUserId(conn, me);

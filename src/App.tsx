@@ -8,6 +8,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
+import { inertWhen } from './components/useScreenFocus';
 import Settings, { settingsCategoryFromRoute } from './components/Settings';
 import BottomNav from './components/BottomNav';
 import Imprint from './components/Imprint';
@@ -107,9 +108,15 @@ export default function App() {
     <>
       {/* Application content: free to animate (screens slide in, the stage
           dims behind an overlay) — the navigation is NOT inside it. */}
-      <div className={`app-stage${overlayOpen ? ' shifted' : ''}`}>
+      <div className={`app-stage${overlayOpen ? ' shifted' : ''}`}
+        data-focus-region="stage"
+        aria-hidden={overlayOpen || undefined}
+        {...inertWhen(overlayOpen)}
+      >
         {chatConnectionId ? (
-          <Chat connectionId={chatConnectionId} initialIdentity={openingIdentity} />
+          // One account/connection owns the entire Chat instance, including the
+          // first committed frame. Passive resets cannot isolate that frame.
+          <Chat key={`${user.id}:${chatConnectionId}`} connectionId={chatConnectionId} initialIdentity={openingIdentity} />
         ) : (
           <Home onOpenChat={setChatOpenIdentity} />
         )}

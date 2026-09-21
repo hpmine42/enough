@@ -20,6 +20,8 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { JSDOM } from 'jsdom';
+import { observeChatCommits, observeRealtime } from './smoke-chat-commits.mjs';
+import { runReleaseBlockers } from './smoke-release-blockers.mjs';
 import 'fake-indexeddb/auto';
 import {
   initEngineSyncForTests,
@@ -49,7 +51,7 @@ const ANON_KEY = 'dummy-anon-key';
 // the production artifact.
 const SMOKE_OUT_DIR = '.smoke-dist';
 
-execFileSync('npx', ['vite', 'build', '--outDir', SMOKE_OUT_DIR], {
+execFileSync('npx', ['vite', 'build', '--config', 'scripts/smoke-vite.config.mjs', '--outDir', SMOKE_OUT_DIR], {
   cwd: root,
   env: {
     ...process.env,
@@ -264,6 +266,9 @@ if (process.env.SMOKE_RECOVERY) {
    deterministic instead of a race. The gate is inactive unless a scenario
    stores a promise in `profileGate.hold`. */
 const profileGate = { hold: null };
+// One-shot first-page gates: a test explicitly releases each response, so a
+// late success/error is deterministic, never dependent on network timing.
+const messageGates = new Map();
 
 /* A tiny in-memory "database" for the stub API. */
 let ensureMyNotesRpcCalls = 0;
@@ -552,6 +557,14 @@ globalThis.fetch = async (input, init = {}) => {
       case 'messages': {
         if (method === 'GET' || method === 'HEAD') {
           const cid = eq('connection_id');
+          const gate = messageGates.get(cid);
+          if (gate && method === 'GET' && !countExact) {
+            messageGates.delete(cid);
+            gate.started = true;
+            await gate.promise;
+            gate.completed = true;
+            if (gate.error) return jsonResponse({ message: 'Smoke load failure' }, 500);
+          }
           // Support PostgREST `in` filter: connection_id=in.(val1,val2,...)
           const inParam = params.get('connection_id');
           let rows;
@@ -979,10 +992,19 @@ window.__enoughE2EEManagerFactory = (userId) =>
     kyberThreshold: 1,
   });
 
+const chatCommits = process.env.SMOKE_RELEASE_BLOCKERS ? observeChatCommits(window) : [];
 await import(`${smokeDist}/assets/${asset}`).catch((e) => {
   console.error('bundle import failed:', e);
   process.exit(1);
 });
+
+if (process.env.SMOKE_RELEASE_BLOCKERS) {
+  const subscriptions = observeRealtime(globalThis.__enoughSmokeSupabase);
+  await runReleaseBlockers({ window, db, messageGates, chatCommits, subscriptions,
+    setHash, setInputValue, text, click, waitFor, assert, sleep });
+  console.log(failures === 0 ? '\nRelease-blocker smoke passed.\n' : `\n${failures} blocker checks FAILED.\n`);
+  process.exit(failures === 0 ? 0 : 1);
+}
 
 if (process.env.SMOKE_RECOVERY) {
   await waitFor(
@@ -4553,6 +4575,13 @@ assert(
 );
 
 if (failures === 0) {
+  // A-01–A-03: fresh deterministic fixtures plus a per-commit observer and
+  // captured real realtime callbacks; no production instrumentation.
+  execFileSync(process.execPath, [new URL(import.meta.url).pathname], {
+    cwd: root,
+    env: { ...process.env, SMOKE_RELEASE_BLOCKERS: '1' },
+    stdio: 'inherit',
+  });
   // A fresh client instance is required because callback flow selection occurs
   // when Supabase is initialized.
   execFileSync(process.execPath, [new URL(import.meta.url).pathname], {

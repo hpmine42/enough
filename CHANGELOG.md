@@ -11,6 +11,36 @@ verified, and what remains open.
 
 ## Unreleased
 
+All changes in this Unreleased section, including the redesign foundation,
+target **v0.5.0**.
+This milestone is in preparation, not yet tagged or published; **v0.4.0**
+remains the latest published release. Deployment from `main` is not a release.
+
+### Release-audit blockers (A-01–A-04)
+
+- **A-01 / A-02 — isolate the complete chat lifecycle.** App keys Chat by the
+  authenticated account and decoded connection ID, after checking the identity
+  handoff belongs to both. Direct A → B navigation mounts fresh error, identity,
+  message, reveal and composer state before the first B commit. The composer
+  keeps its own connection key. Unmount invalidates captured async work, and
+  each load clears its previous error. The quiet blank loading state and
+  final-outcome reveal gate remain unchanged. Rendered production-bundle smoke
+  tests cover error/success, drafts, A → B → A, delayed loads/retries and queued
+  realtime callbacks, including every committed Chat frame.
+- **A-03 — hidden Settings layers are inert.** Covered overview/People panes,
+  leaving destinations, closed subpanels and the covered application stage
+  leave both keyboard navigation and the accessibility tree immediately,
+  without removing their outgoing visual animations. Focus follows the visible
+  level and returns to its remembered control on Back. Reduced-motion Settings
+  transitions no longer delay inherited visibility and reject entry focus;
+  normal-motion slides remain unchanged. Smoke regressions cover
+  rendered layer state and restoration; a browser check exercises native Tab,
+  Shift+Tab and the accessibility tree (jsdom does not implement native inert).
+- **A-04 — reconcile release metadata.** Both lockfile root versions now match
+  package version 0.5.0, without dependency changes. README marks the milestone
+  as pending, the redesign notes stay under Unreleased, and the Home description
+  now matches the fixed sibling BottomNav. No release date or tag is implied.
+
 ### Chat
 
 - **Opening a chat shows a quiet empty message area instead of skeleton bubbles.**
@@ -343,9 +373,7 @@ verified, and what remains open.
   and computes the knob/track contrast from the parsed tokens for both themes
   (6.27:1 light, 3.02:1 dark).
 
----
-
-## 0.5.0
+### Redesign foundation
 
 The UX/UI redesign milestone — **"Quiet Modern"**: warm, minimal, calm,
 mobile-first. This is a presentation-layer release — no schema, protocol,
@@ -436,8 +464,9 @@ authorization or cryptographic behavior changed.
   rhythm (row padding + 4px list gap) instead of card-like blocks or inset
   dividers, subtler unread state (small tinted count, slightly stronger
   name), and an empty state that offers the real "Search people" action. The
-  overview scrolls with the page and the bar sits in flow at the bottom
-  (`position: sticky`), so it never covers a row.
+  overview scrolls with the page; reserved bottom clearance keeps its final
+  row above the fixed BottomNav, a sibling of the animated application stage
+  and Settings overlay.
 - **Chat**: refined bubbles, grouping and composer; a quiet, icon-only
   end-to-end encryption marker in the header for peer conversations (a small
   lock with `role="img"` + `chat.e2eeLabel` as accessible name, EN/DE) that

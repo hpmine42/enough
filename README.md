@@ -5,9 +5,10 @@ find another `@username`, send a connection request, and chat.
 
 > **Less, but enough.**
 
-Current release: **v0.5.0** — the UX/UI redesign milestone ("Quiet Modern").
-Every v0.4.0 feature remains functional; the release before it was the
+In preparation: **v0.5.0** — the UX/UI redesign milestone ("Quiet Modern");
+not yet tagged or published. The latest published release is **v0.4.0**, the
 privacy, reliability, security/recovery and release-foundation milestone.
+Every v0.4.0 feature remains functional.
 Release history lives in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Stack

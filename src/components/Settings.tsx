@@ -35,6 +35,7 @@ import {
   ThemeMode,
 } from '../lib/theme';
 import { Connection, Profile } from '../lib/types';
+import { inertWhen, useScreenFocus } from './useScreenFocus';
 import BottomSheet from './BottomSheet';
 import Dialog from './Dialog';
 import ThemeButton from './ThemeButton';
@@ -226,6 +227,7 @@ function CategoryRow({
 function OverlayPane({
   destination,
   state,
+  covered,
   title,
   bodyClassName,
   onExitEnd,
@@ -233,6 +235,7 @@ function OverlayPane({
 }: {
   destination: OverlayDestination;
   state: PaneState;
+  covered: boolean;
   title: string;
   bodyClassName: string;
   onExitEnd: () => void;
@@ -243,7 +246,9 @@ function OverlayPane({
       className={`settings-pane settings-pane-${destination} ${state}`}
       data-pane={destination}
       data-pane-state={state}
-      aria-hidden={state === 'leaving' || undefined}
+      data-focus-region={destination}
+      aria-hidden={state === 'leaving' || covered || undefined}
+      {...inertWhen(state === 'leaving' || covered)}
       onAnimationEnd={state === 'leaving' ? onExitEnd : undefined}
     >
       <header className="settings-header">
@@ -358,6 +363,8 @@ export default function Settings() {
   const subpageOpen = open && category !== null;
   const blockedSubpageOpen =
     subpageOpen && category === 'blocked' && blockedFromPeople;
+  useScreenFocus(!open ? 'stage' : blockedSubpageOpen ? 'blocked'
+    : subpageOpen ? `settings-${category}` : activeDestination);
   const subpanelBackTarget = blockedFromPeople
     ? '#/settings/people'
     : '#/settings';
@@ -1029,6 +1036,7 @@ export default function Settings() {
     <aside
       className={`settings-overlay${open ? ' open' : ''}`}
       aria-hidden={!open}
+      {...inertWhen(!open)}
     >
       {/* TOP-LEVEL DESTINATIONS — the two equal areas of this overlay, each
           one a full-size surface with its own header and content. The
@@ -1040,6 +1048,7 @@ export default function Settings() {
       {paneState('new-chat') !== null && (
         <OverlayPane
           destination="new-chat"
+          covered={!open || subpageOpen}
           state={paneState('new-chat')!}
           title={t('nav.newChat')}
           bodyClassName="newchat-screen"
@@ -1051,6 +1060,7 @@ export default function Settings() {
       {paneState('settings') !== null && (
         <OverlayPane
           destination="settings"
+          covered={!open || subpageOpen}
           state={paneState('settings')!}
           title={t('settingsScreen.title')}
           bodyClassName="settings-overview"
@@ -1067,7 +1077,9 @@ export default function Settings() {
       {/* CATEGORY SUBPAGE — slides in like the settings overlay */}
       <div
         className={`settings-subpanel${subpageOpen ? ' open' : ''}`}
+        data-focus-region={`settings-${blockedFromPeople ? 'people' : category}`}
         aria-hidden={!subpageOpen || blockedSubpageOpen}
+        {...inertWhen(!subpageOpen || blockedSubpageOpen)}
       >
         <header className="settings-header">
           <button
@@ -1185,7 +1197,9 @@ export default function Settings() {
           Settings subpanels, but it sits on top of People. */}
       <div
         className={`settings-subpanel settings-subpanel-nested${blockedSubpageOpen ? ' open' : ''}`}
+        data-focus-region="blocked"
         aria-hidden={!blockedSubpageOpen}
+        {...inertWhen(!blockedSubpageOpen)}
       >
         <header className="settings-header">
           <button

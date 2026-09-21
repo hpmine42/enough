@@ -438,3 +438,33 @@ test('prefersReducedMotion is exported from lib/theme', () => {
     'the shared reduced-motion helper lives in lib/theme.ts',
   );
 });
+
+test('covered Settings layers and the app stage pair accessibility hiding with native inert', () => {
+  const settings = componentSource['Settings.tsx'];
+  for (const condition of ["state === 'leaving' || covered", '!open',
+    '!subpageOpen || blockedSubpageOpen', '!blockedSubpageOpen']) {
+    assert.ok(settings.includes(`{...inertWhen(${condition})}`), `inert follows ${condition}`);
+  }
+  assert.equal((settings.match(/covered=\{!open \|\| subpageOpen\}/g) ?? []).length, 2,
+    'both overview/search panes become inert under a subpage or closed overlay');
+  const app = readRel('src/App.tsx');
+  assert.ok(app.includes('{...inertWhen(overlayOpen)}'));
+  assert.ok(app.includes('aria-hidden={overlayOpen || undefined}'));
+  const helper = readRel('src/components/useScreenFocus.ts');
+  assert.ok(helper.includes("inert: hidden ? '' : undefined"), 'React 18 receives the native empty-string attribute');
+  assert.ok(helper.includes(`!element.closest('[inert], [aria-hidden="true"]')`), 'restoration refuses hidden controls');
+});
+
+test('Settings focus follows visible levels without waiting for an animation', () => {
+  const helper = readRel('src/components/useScreenFocus.ts');
+  assert.ok(helper.includes('useLayoutEffect'));
+  assert.ok(helper.includes("document.addEventListener('focusin', remember)"));
+  assert.ok(helper.includes("document.removeEventListener('focusin', remember)"));
+  assert.ok(helper.includes('remembered.current.get(region)'));
+  assert.ok(helper.includes('target?.focus({ preventScroll: true })'));
+  assert.doesNotMatch(helper, /setTimeout|setInterval|requestAnimationFrame/);
+  const css = readRel('src/index.css');
+  const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
+  assert.match(reduced, /\.settings-overlay,\s*\.settings-overlay \*\s*\{\s*transition-duration: 0s !important;/,
+    'inherited visibility cannot reject the entering page focus in reduced motion');
+});
