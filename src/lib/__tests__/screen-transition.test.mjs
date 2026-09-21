@@ -685,7 +685,8 @@ test('the leaving destination keeps its own content for exactly its exit', () =>
     'only the exit animation ends the swap',
   );
   assert.ok(
-    settings.includes("aria-hidden={state === 'leaving' || undefined}"),
+    settings.includes("aria-hidden={state === 'leaving' || covered || undefined}") &&
+      settings.includes("{...inertWhen(state === 'leaving' || covered)}"),
     'the leaving pane leaves the accessibility tree while it slides away',
   );
 

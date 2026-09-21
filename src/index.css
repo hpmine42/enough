@@ -3319,6 +3319,15 @@ button,
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+
+  /* The blanket duration above also transitions inherited visibility on
+     descendants. Keep Settings visibility/focus synchronous in reduced
+     motion, rather than rejecting focus while an entering header is hidden.
+     Normal-motion slides and all exit visibility delays stay unchanged. */
+  .settings-overlay,
+  .settings-overlay * {
+    transition-duration: 0s !important;
+  }
 }
 
 /* ---------- installed PWA (standalone) ---------- */

@@ -44,7 +44,7 @@ test('App preserves only the selected connection identity across the Home -> Cha
   assert.match(app, /<Home onOpenChat=\{setChatOpenIdentity\} \/>/);
   assert.match(
     app,
-    /<Chat connectionId=\{chatConnectionId\} initialIdentity=\{openingIdentity\} \/>/,
+    /<Chat key=\{`\$\{user.id\}:\$\{chatConnectionId\}`\} connectionId=\{chatConnectionId\} initialIdentity=\{openingIdentity\} \/>/,
   );
 });
 
@@ -204,4 +204,11 @@ test('messages render after a successful load (loading branch intact)', () => {
   assert.match(loadedBranch, /<section[^>]*className="messages"/, 'loaded branch renders the messages section');
   assert.match(loadedBranch, /grouped\.map\(/, 'loaded branch renders message bubbles');
   assert.match(loadedBranch, /<MessageComposer/, 'loaded branch renders the composer');
+});
+
+test('unmount invalidates captured chat work and a new load clears a prior error', () => {
+  assert.match(chat, /useLayoutEffect\(\(\) => \(\) => \{ lifecycleRef\.current\.advance\(\); \}, \[\]\)/);
+  const load = section(chat, '/* ----------------------------- data load', '/* Reconnection:');
+  assert.match(load, /setLoading\(true\);\s*setLoadError\(null\);/);
+  assert.match(chat, /<MessageComposer\s+key=\{connectionId\}/, 'composer keeps its independent draft key');
 });
