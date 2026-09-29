@@ -69,7 +69,8 @@ export default function App() {
     );
   }
 
-  // Password-reset flow: the user followed a recovery link.
+  // Password-reset flow: a recovery session exists — either the user
+  // verified the one-time recovery code or followed a legacy reset link.
   if (recovery) {
     return <ResetPassword />;
   }

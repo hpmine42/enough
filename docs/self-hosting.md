@@ -151,22 +151,40 @@ migration.
 
 ## 7. Configure Supabase Auth
 
-enough. uses Supabase Auth with email and password. Configure the following
-in the Supabase Auth settings:
+enough. uses Supabase Auth with email and password. Email confirmation and
+password recovery deliver a **one-time code** that the user types into the
+app (see [`auth-otp.md`](auth-otp.md) for the architecture and security
+notes). Configure the following in the Supabase Auth settings:
 
 - **Email provider:** enable email auth.
 - **Email confirmation:** enable or disable depending on your preference.
   The app handles both confirmed and auto-confirmed flows. With confirmation
-  enabled, users receive a confirmation email before they can log in. With
+  enabled, users receive a confirmation code before they can log in. With
   auto-confirm enabled (e.g. for development), the `handle_new_user` trigger
   creates the profile row during sign-up and the authenticated upsert in
   the app acts as a fallback.
-- **Password reset:** enable the "Forgot password" flow and configure the
-  redirect URL to point to your deployed app (the app uses the hash-based
-  route `#/reset-password`).
+- **Email templates (required for the code flows):** in *Confirm signup* and
+  *Reset password*, replace the link (`{{ .ConfirmationURL }}`) with the code
+  variable `{{ .Token }}` in the body. The app never receives an
+  authentication link for these two flows; leaving the link in place would
+  break the code screens. *Change email address* keeps its link — that flow
+  is unchanged.
+- **OTP settings (required):** under *Sign In / Providers → Email*, set the
+  OTP length to at least 8 digits (10 preferred) and the OTP expiry to at
+  most 3600 seconds (600–900 s recommended). These values bound the online
+  guessing attempt against the code; the defaults (6–8 digits, 24 h) are
+  not sufficient for that.
+- **Rate limits:** keep the defaults (or tighten them) under
+  *Authentication → Rate Limits*; do not raise the verify limit for these
+  flows.
+- **Password reset:** the app requests codes via
+  `resetPasswordForEmail`; configure the redirect URL to point to your
+  deployed app (kept for compatibility; the hash-based route `#/reset` is
+  where a legacy link lands).
 - **Email change:** enable if you want users to change their email from
-  Settings → Account.
-- **Site URL:** set to your deployed app URL (used for email redirect links).
+  Settings → Account (this flow stays link-based).
+- **Site URL:** set to your deployed app URL (used for the email-change
+  redirect link).
 
 ## 8. Configure environment variables
 

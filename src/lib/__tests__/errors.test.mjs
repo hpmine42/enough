@@ -134,14 +134,15 @@ test('existing auth, mail and network mappings are unaffected', () => {
     'Please confirm your email address before logging in.',
   );
   assert.equal(errorMessage({ message: 'Failed to fetch' }), 'No connection to the server.');
-  // Rate limiting has no dedicated mapping in errors.ts; it must keep falling
-  // through to the generic text instead of being read as a password problem.
+  // Rate limits carry a dedicated NEUTRAL mapping since the email-OTP flows
+  // shipped (wrong code / rate limit / unknown address must never read like
+  // a password problem nor depend on the account state).
   assert.equal(
     errorMessage({
       code: 'over_request_rate_limit',
       message: 'For security purposes, you can only request this once every minute.',
     }),
-    'Something went wrong. Please try again.',
+    'Too many attempts. Please wait a moment and try again.',
   );
 });
 
@@ -246,4 +247,58 @@ test('diagnostics do not expose error content', () => {
     name: 'PostgrestError',
   });
   assert.doesNotMatch(JSON.stringify(diagnostics), /secret message contents|sensitive row data|private implementation hint/);
+});
+
+/* ------------------------------------------------------------------ */
+/* Email OTP verification errors (code-based auth flows)               */
+/* ------------------------------------------------------------------ */
+
+const OTP_TEXT = 'This code is invalid or has expired.';
+const RATE_TEXT = 'Too many attempts. Please wait a moment and try again.';
+
+test('otp_expired maps to the single neutral otpInvalid sentence', () => {
+  // GoTrue answers a wrong code, an expired code, an already-consumed code
+  // and an unknown address with the same ambiguous error (403 otp_expired,
+  // "Token has expired or is invalid"). All shapes must render the SAME
+  // localized sentence — a more specific one would leak which case occurred.
+  for (const error of [
+    { code: 'otp_expired', message: 'Token has expired or is invalid', status: 403 },
+    { message: 'Token has expired or is invalid', status: 403 },
+    { message: 'Email link is invalid or has expired.' },
+    { message: 'Token has expired' },
+  ]) {
+    assert.equal(errorMessage(error, 'auth verify signup code'), OTP_TEXT, JSON.stringify(error));
+    assert.equal(errorMessage(error, 'auth verify recovery code'), OTP_TEXT, JSON.stringify(error));
+  }
+});
+
+test('otp errors are never logged with their message content', () => {
+  diagnostics.length = 0;
+  errorMessage(
+    { code: 'otp_expired', message: 'Token 123456 has expired or is invalid', status: 403 },
+    'auth verify recovery code',
+  );
+  assert.doesNotMatch(JSON.stringify(diagnostics), /123456/);
+});
+
+test('verify rate limits map to the neutral tooManyAttempts sentence', () => {
+  for (const error of [
+    { code: 'over_request_rate_limit', message: 'Request rate limit reached', status: 429 },
+    { code: 'over_email_send_rate_limit', message: 'Over email send rate limit', status: 429 },
+    { message: 'For security purposes, you can only request this after 60 seconds.' },
+    { message: 'rate limit exceeded', status: 429 },
+  ]) {
+    assert.equal(errorMessage(error, 'auth verify signup code'), RATE_TEXT, JSON.stringify(error));
+    assert.equal(errorMessage(error, 'auth resetPasswordForEmail'), RATE_TEXT, JSON.stringify(error));
+  }
+});
+
+test('a successful-path password error is unaffected by the OTP mappings', () => {
+  // Regression: the new branches above must not swallow password-update
+  // errors on the recovery screen (same_password / weak_password).
+  assert.equal(
+    errorMessage({ code: 'same_password', message: REUSE_MESSAGE, status: 422 }),
+    REUSE_TEXT,
+  );
+  assert.equal(errorMessage({ code: 'weak_password' }), 'The password is too weak.');
 });

@@ -261,6 +261,11 @@ if (process.env.SMOKE_RECOVERY) {
     '&token_type=bearer&type=recovery';
 }
 
+/* Server-side state for the email-OTP stub endpoints (see the fetch
+   router below): the currently issued code and every verify attempt. */
+const otpState = { email: null, token: null, type: null, used: false };
+const otpVerifyCalls = [];
+
 /* v0.5 audit F-07: a scenario can hold the own-profile fetch open, so the
    "profile row has not arrived yet" window of the Profile subpage is
    deterministic instead of a race. The gate is inactive unless a scenario
@@ -415,6 +420,78 @@ globalThis.fetch = async (input, init = {}) => {
     return jsonResponse({
       access_token: ACCESS_TOKEN,
       refresh_token: 'refresh-1',
+      expires_in: 3600,
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      token_type: 'bearer',
+      user: {
+        id: 'user-1',
+        aud: 'authenticated',
+        role: 'authenticated',
+        ...EMAIL_CLAIM,
+        user_metadata: { username: 'anna' },
+      },
+    });
+  }
+
+  /* Email OTP verification (code-based auth flows): codes are issued by
+     /signup and /recover and consumed ONCE by /verify — a small stand-in
+     for Supabase Auth's server-side single-use codes. Wrong code, used
+     code, unknown address, wrong purpose and wrong email all get the same
+     403 `otp_expired` answer the real API gives; `999999` deterministically
+     answers 429 so the rate-limit copy can be exercised. */
+  if (path.includes('/auth/v1/signup')) {
+    otpState.email = body?.email ?? null;
+    otpState.token = '123456';
+    otpState.type = 'signup';
+    otpState.used = false;
+    // Confirmation enabled: no session — the user must enter the code.
+    return jsonResponse({
+      id: 'user-1',
+      aud: 'authenticated',
+      role: 'authenticated',
+      email: body?.email ?? null,
+      user_metadata: body?.data ?? {},
+      created_at: new Date().toISOString(),
+    });
+  }
+  if (path.includes('/auth/v1/recover')) {
+    otpState.email = body?.email ?? null;
+    otpState.token = '654321';
+    otpState.type = 'recovery';
+    otpState.used = false;
+    return jsonResponse({});
+  }
+  if (path.includes('/auth/v1/resend')) {
+    return jsonResponse({});
+  }
+  if (path.includes('/auth/v1/verify')) {
+    otpVerifyCalls.push({
+      email: body?.email ?? null,
+      token: body?.token ?? null,
+      type: body?.type ?? null,
+    });
+    if (body?.token === '999999') {
+      return jsonResponse(
+        { error_code: 'over_request_rate_limit', msg: 'Request rate limit reached' },
+        429,
+      );
+    }
+    const valid =
+      !otpState.used &&
+      otpState.token !== null &&
+      body?.token === otpState.token &&
+      body?.type === otpState.type &&
+      body?.email === otpState.email;
+    if (!valid) {
+      return jsonResponse(
+        { error_code: 'otp_expired', msg: 'Token has expired or is invalid' },
+        403,
+      );
+    }
+    otpState.used = true;
+    return jsonResponse({
+      access_token: ACCESS_TOKEN,
+      refresh_token: 'refresh-otp',
       expires_in: 3600,
       expires_at: Math.floor(Date.now() / 1000) + 3600,
       token_type: 'bearer',
@@ -1043,6 +1120,139 @@ if (process.env.SMOKE_RECOVERY) {
   process.exit(failures === 0 ? 0 : 1);
 }
 
+if (process.env.SMOKE_OTP) {
+  /* Full email-OTP walkthroughs on the production bundle: register →
+     emailed code → signed in, then sign out, then forgot password →
+     emailed code → new password → signed in. The stub server models
+     single-use codes; every acceptance decision comes from the server. */
+  window.localStorage.setItem('enough-lang', 'en');
+
+  /* 1 — register and verify with the code (never a link click) */
+  setHash('#/register');
+  await waitFor(() => text('.button') === 'Register', 'OTP: register screen renders');
+  {
+    const regInputs = dom.window.document.querySelectorAll('.form input');
+    setInputValue(regInputs[0], 'otp@example.com');
+    setInputValue(regInputs[1], 'newuser123');
+    await waitFor(
+      () => text('.field-hint') === 'This username is available.',
+      'OTP: username available',
+    );
+    setInputValue(regInputs[2], 'Otto Beispiel');
+    setInputValue(regInputs[3], 'secret123');
+    setInputValue(regInputs[4], 'secret123');
+  }
+  dom.window.document.querySelector('.form').dispatchEvent(
+    new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+  );
+  await waitFor(
+    () =>
+      text('.notice-card')?.includes('We sent a one-time code to otp@example.com') === true,
+    'OTP: sign-up shows the code screen',
+  );
+  const otpCodeInput = () =>
+    dom.window.document.querySelector('.form input[inputmode="numeric"]');
+  setInputValue(otpCodeInput(), '000000');
+  dom.window.document.querySelector('.form').dispatchEvent(
+    new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+  );
+  await waitFor(
+    () => text('.error') === 'This code is invalid or has expired.',
+    'OTP: wrong confirmation code is rejected with the neutral sentence',
+  );
+  setInputValue(otpCodeInput(), '123456');
+  dom.window.document.querySelector('.form').dispatchEvent(
+    new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+  );
+  await waitFor(
+    () => dom.window.document.querySelector('.home-screen') !== null,
+    'OTP: correct confirmation code signs the user in',
+  );
+  {
+    const calls = otpVerifyCalls.filter((c) => c.token === '123456');
+    assert(
+      calls.length === 1 && calls[0].type === 'signup' && calls[0].email === 'otp@example.com',
+      'OTP: the typed code was verified exactly once with type signup for that address',
+    );
+  }
+
+  /* 2 — sign out again (Settings → Account → Sign out) */
+  setHash('#/settings/account');
+  await waitFor(
+    () => text('.settings-subpanel-title') === 'Account',
+    'OTP: account subpage open for sign out',
+  );
+  {
+    const signOutBtn = [...dom.window.document.querySelectorAll('.settings-subpanel .settings-row')]
+      .find((r) => r.textContent.includes('Sign out'));
+    signOutBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  }
+  await waitFor(() => text('.dialog-title') === 'Sign out?', 'OTP: sign out confirmation dialog');
+  click('.dialog .btn-primary');
+  await waitFor(() => text('.button') === 'Log in', 'OTP: sign out returns to login');
+
+  /* 3 — password recovery with the code */
+  setHash('#/forgot');
+  await waitFor(() => text('.button') === 'Send code', 'OTP: forgot screen renders');
+  setInputValue(
+    dom.window.document.querySelector('.form input[type="email"]'),
+    'otp@example.com',
+  );
+  dom.window.document.querySelector('.form').dispatchEvent(
+    new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+  );
+  await waitFor(
+    () => text('.notice-card')?.includes('Enter the one-time code from the email sent to otp@example.com') === true,
+    'OTP: recovery request shows the neutral code screen',
+  );
+  setInputValue(otpCodeInput(), '654321');
+  dom.window.document.querySelector('.form').dispatchEvent(
+    new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+  );
+  await waitFor(
+    () => text('.button') === 'Set new password',
+    'OTP: correct recovery code opens the password form',
+  );
+  {
+    const calls = otpVerifyCalls.filter((c) => c.type === 'recovery');
+    assert(
+      calls.length === 1 && calls[0].token === '654321' && calls[0].email === 'otp@example.com',
+      'OTP: the recovery code was verified exactly once with type recovery for that address',
+    );
+    assert(
+      otpVerifyCalls.length === 3,
+      'OTP: exactly three verify requests in the whole scenario (the deliberate wrong code plus the two successes — no double submits)',
+    );
+  }
+  const otpRecoveryInputs = dom.window.document.querySelectorAll(
+    '.form input[type="password"]',
+  );
+  setInputValue(otpRecoveryInputs[0], 'changed123');
+  setInputValue(otpRecoveryInputs[1], 'different123');
+  dom.window.document.querySelector('.form').dispatchEvent(
+    new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+  );
+  await waitFor(
+    () => text('.error') === 'The passwords do not match.',
+    'OTP: recovery rejects mismatching passwords',
+  );
+  setInputValue(otpRecoveryInputs[1], 'changed123');
+  dom.window.document.querySelector('.form').dispatchEvent(
+    new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+  );
+  await waitFor(
+    () => dom.window.document.querySelector('.home-screen') !== null,
+    'OTP: recovery sets the new password and lands on the home screen',
+  );
+
+  console.log(
+    failures === 0
+      ? '\nOTP smoke test passed.\n'
+      : `\n${failures} OTP smoke test(s) FAILED.\n`,
+  );
+  process.exit(failures === 0 ? 0 : 1);
+}
+
 /* ------------------------------------------------------------------ */
 /* v0.5 audit F-07 — the Profile subpage renders no placeholder data    */
 /*                                                                      */
@@ -1481,7 +1691,71 @@ await waitFor(() => window.localStorage.getItem('enough-theme') === 'light', 'cy
 
 /* forgot password */
 setHash('#/forgot');
-await waitFor(() => text('.button') === 'Send reset link', 'forgot screen renders');
+await waitFor(() => text('.button') === 'Send code', 'forgot screen renders');
+/* email-OTP recovery: neutral notice, code entry, resend cooldown — never a link */
+setInputValue(
+  dom.window.document.querySelector('.form input[type="email"]'),
+  'nobody@example.com',
+);
+dom.window.document.querySelector('.form').dispatchEvent(
+  new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+);
+await waitFor(
+  () => text('.notice-card')?.includes('a one-time reset code is on its way') === true,
+  'recovery request shows the neutral "if an account exists" notice',
+);
+assert(
+  dom.window.document.querySelector('.form input[inputmode="numeric"]') !== null,
+  'recovery code screen renders a numeric code input (one-time-code)',
+);
+assert(text('.button') === 'Verify code', 'recovery code screen verifies server-side');
+{
+  const resendBtn = [...dom.window.document.querySelectorAll('.auth-links .link')].find(
+    (b) => b.textContent === 'Resend code',
+  );
+  assert(resendBtn?.disabled === true, 'resend starts inside the 60 s cooldown');
+}
+const recoverCodeInput = () =>
+  dom.window.document.querySelector('.form input[inputmode="numeric"]');
+setInputValue(recoverCodeInput(), '000000');
+dom.window.document.querySelector('.form').dispatchEvent(
+  new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+);
+await waitFor(
+  () => text('.error') === 'This code is invalid or has expired.',
+  'wrong recovery code → one neutral error sentence',
+);
+setInputValue(recoverCodeInput(), '999999');
+dom.window.document.querySelector('.form').dispatchEvent(
+  new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+);
+await waitFor(
+  () => text('.error') === 'Too many attempts. Please wait a moment and try again.',
+  'verify rate limit → neutral rate-limit sentence',
+);
+/* a reset without a recovery permission fails closed — the server rejects
+   the password change and no session appears */
+setHash('#/reset');
+await waitFor(
+  () => text('.button') === 'Set new password',
+  'reset screen renders without a recovery session',
+);
+{
+  const resetInputs = dom.window.document.querySelectorAll('.form input[type="password"]');
+  setInputValue(resetInputs[0], 'secret123');
+  setInputValue(resetInputs[1], 'secret123');
+  dom.window.document.querySelector('.form').dispatchEvent(
+    new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+  );
+}
+await waitFor(
+  () => text('.error') === 'Something went wrong. Please try again.',
+  'password change without a recovery permission is rejected server-side',
+);
+assert(
+  dom.window.document.querySelector('.home-screen') === null,
+  'no sign-in without a recovery session',
+);
 setHash('#/login');
 await waitFor(() => text('.button') === 'Log in', 'back to login');
 
@@ -1531,6 +1805,50 @@ await waitFor(
   () => text('.field-hint.muted')?.startsWith('Choose your username'),
   'permanent username hint switches back to English',
 );
+
+/* registration submits to a CODE-ENTRY screen (no confirmation link) */
+setInputValue(dom.window.document.querySelector('.form input[type="email"]'), 'otp-reg@example.com');
+setInputValue(dom.window.document.querySelector('.at-input'), 'newuser123');
+await waitFor(
+  () => text('.field-hint') === 'This username is available.',
+  'username available before code-flow sign-up',
+);
+{
+  // [0] email, [1] @username, [2] display name, [3] password, [4] confirm
+  const regInputs = dom.window.document.querySelectorAll('.form input');
+  setInputValue(regInputs[2], 'Otto Beispiel');
+  setInputValue(regInputs[3], 'secret123');
+  setInputValue(regInputs[4], 'secret123');
+}
+dom.window.document.querySelector('.form').dispatchEvent(
+  new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+);
+await waitFor(
+  () =>
+    text('.notice-card')?.includes('We sent a one-time code to otp-reg@example.com') === true,
+  'sign-up → code-entry screen names the address the code was sent to',
+);
+assert(
+  dom.window.document.querySelector('.form input[inputmode="numeric"]') !== null,
+  'confirmation screen renders a numeric code input (one-time-code)',
+);
+assert(text('.button') === 'Verify code', 'confirmation screen verifies server-side');
+assert(
+  text('.notice-card') !== null && !text('.notice-card')?.includes('http'),
+  'confirmation screen carries no link into a URL',
+);
+setInputValue(
+  dom.window.document.querySelector('.form input[inputmode="numeric"]'),
+  '000000',
+);
+dom.window.document.querySelector('.form').dispatchEvent(
+  new dom.window.Event('submit', { bubbles: true, cancelable: true }),
+);
+await waitFor(
+  () => text('.error') === 'This code is invalid or has expired.',
+  'wrong confirmation code → one neutral error sentence',
+);
+setHash('#/login');
 
 /* --- authenticated: real sign-in through the UI --- */
 window.localStorage.setItem('enough-lang', 'en');
@@ -4595,6 +4913,13 @@ if (failures === 0) {
   execFileSync(process.execPath, [new URL(import.meta.url).pathname], {
     cwd: root,
     env: { ...process.env, SMOKE_NO_EMAIL: '1' },
+    stdio: 'inherit',
+  });
+  // Email-OTP walkthroughs: register-by-code and recovery-by-code end to end
+  // against the single-use code stub (see the fetch router).
+  execFileSync(process.execPath, [new URL(import.meta.url).pathname], {
+    cwd: root,
+    env: { ...process.env, SMOKE_OTP: '1' },
     stdio: 'inherit',
   });
 }

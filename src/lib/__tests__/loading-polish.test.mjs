@@ -157,7 +157,16 @@ test('every busy button stays disabled while its request runs', () => {
   }
   const register = readRel('components/Register.tsx');
   assert.match(register, /disabled=\{\s*busy \|\|/);
-  assert.match(register, /disabled=\{resendBusy\}/);
+  // The resend link still disables while its request runs; since the
+  // email-OTP flows it additionally stays disabled inside the resend
+  // cooldown window (same attribute, wider condition).
+  assert.match(register, /disabled=\{resendBusy(\s*\|\|\s*remaining > 0)?\}/);
+  const forgot = readRel('components/ForgotPassword.tsx');
+  assert.match(
+    forgot,
+    /disabled=\{resendBusy(\s*\|\|\s*remaining > 0)?\}/,
+    'ForgotPassword resend disables while busy and during the cooldown',
+  );
   const account = readRel('components/settings/AccountSettings.tsx');
   assert.match(account, /disabled=\{emailBusy\}/);
   assert.match(account, /disabled=\{pwBusy\}/);

@@ -4,7 +4,8 @@ import { t } from '../i18n';
 import AuthChrome from './AuthChrome';
 import LegalFooter from './LegalFooter';
 
-/** Shown after the user follows a password-reset link (recovery session). */
+/** Shown once a recovery session exists: the user verified the one-time
+ * recovery code (current flow) or followed a legacy reset link. */
 export default function ResetPassword() {
   const { updatePassword, clearRecovery, signOut } = useAuth();
   const [password, setPassword] = useState('');

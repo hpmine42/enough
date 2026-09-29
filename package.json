@@ -40,6 +40,7 @@
     "test:errors": "node --test --experimental-strip-types src/lib/__tests__/errors.test.mjs",
     "test:privacy": "node --test --experimental-strip-types src/lib/__tests__/privacy-routing.test.mjs src/lib/__tests__/privacy-contact.test.mjs src/lib/__tests__/edge-function-runtime.test.mjs",
     "test:a11y": "node --test --experimental-strip-types src/lib/__tests__/accessibility.test.mjs",
+    "test:authotp": "node --test --experimental-strip-types src/lib/__tests__/auth-otp.test.mjs",
     "test:nav": "node --test src/lib/__tests__/bottom-nav.test.mjs",
     "test:pwachrome": "node --test --experimental-strip-types src/lib/__tests__/pwa-chrome-color.test.mjs",
     "test:transition": "node --test src/lib/__tests__/screen-transition.test.mjs",
