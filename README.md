@@ -75,8 +75,10 @@ existing flow are unchanged.
   All categories, subpages, routes and actions are unchanged except that the
   user-search field no longer lives here
 - **Authentication screens**: clearer hierarchy with the brand tagline, larger
-  input surfaces, accent focus rings and tinted error surfaces. Validation,
-  email confirmation, recovery and routing are unchanged
+  input surfaces, accent focus rings and tinted error surfaces. Validation and
+  routing are unchanged; email confirmation and password recovery now use a
+  **one-time code entered in the app** instead of clicking an emailed link
+  (Supabase Auth email OTP — see Setup and [`docs/auth-otp.md`](docs/auth-otp.md))
 
 ## Features (v0.4.0)
 
@@ -118,9 +120,10 @@ New in v0.4.0 (v0.3.0 features below remain):
 ### Features carried over from v0.3.0
 
 - Auth: login, registration (email, `@username`, display name, password × 2),
-  email confirmation, forgot/reset password, email change, persistent sessions,
-  self-service account deletion (frees the username; other participants keep the
-  chat and are told the account was deleted)
+  email confirmation and forgot/reset password by one-time code, email change
+  (link-based), persistent sessions, self-service account deletion (frees the
+  username; other participants keep the chat and are told the account was
+  deleted)
 - Localization: English (default) and German; auth screens have an EN/DE switch,
   Settings has the full language control; no page reload on switch
 - Theme: Light / Dark / System (default), persisted, no flash of the wrong theme
@@ -230,7 +233,24 @@ Documented exceptions and limits:
    only uses the public client; security comes from Supabase Auth + Row Level
    Security.
 
-3. **Apply every database migration in numeric order** — see
+3. **Configure Supabase Auth for the one-time-code flows** (Dashboard →
+   Authentication) — required, application code cannot set these:
+
+   - **Emails → Confirm signup** and **Emails → Reset password**: replace the
+     link (`{{ .ConfirmationURL }}`) with the code variable `{{ .Token }}` in
+     the body. Email confirmation and password recovery then deliver a
+     one-time code that is entered in the app; no auth link reaches the
+     browser. (*Change email address* keeps its link — that flow is unchanged.)
+   - **Sign In / Providers → Email → OTP settings**: set the OTP length to at
+     least 8 digits (10 preferred) and the OTP expiry to at most 3600 seconds
+     (600–900 s recommended).
+   - **Rate Limits**: keep the defaults or tighten them; do not raise the
+     verify limit for these flows.
+
+   These values are part of the flows' security requirement — see
+   [`docs/auth-otp.md`](docs/auth-otp.md) §8 for the reasoning.
+
+4. **Apply every database migration in numeric order** — see
    [`docs/MIGRATIONS.md`](docs/MIGRATIONS.md). In the Supabase SQL editor, run
    `0001` through `0014`; do not stop after `0001`. The scripts are idempotent,
    so they are safe to run again after an update.
@@ -240,7 +260,7 @@ Documented exceptions and limits:
    decline/expiry, account deletion, My Notes, blocking, and E2EE prekeys are
    unavailable or degrade.
 
-4. Run the app:
+5. Run the app:
 
    ```sh
    npm run dev
@@ -318,6 +338,11 @@ fallback for auto-confirm setups.
 - `npm run test:i18n` / `npm run test:input` / `npm run test:a11y` /
   `npm run test:api` / `npm run test:errors` / `npm run test:helpers` —
   localization, input hardening, accessibility, API, error mapping, helpers
+- `npm run test:authotp` — email-OTP auth flows: code input normalization and
+  the (UX-only) format guard, resend-cooldown math, delegation to
+  `verifyOtp` with the correct purpose (`signup` / `recovery`), busy-guard
+  before every verify, enumeration-safe recovery replies, no code material in
+  console output, and EN/DE parity of every rendered string
 - `npm run test:license` — license declaration guards (audit C4): `LICENSE` is
   the pinned canonical AGPL-3.0-only text, the copy served by the deployed app
   is identical to it, `package.json` and `package-lock.json` declare that same
@@ -378,7 +403,10 @@ fallback for auto-confirm setups.
   carries a labelled, icon-only E2EE marker while My Notes carries none.
   A separate run signs in on a session without an email address while the
   own-profile fetch is held open and asserts that no committed frame of the
-  Profile subpage shows a `…` placeholder or an invented value
+  Profile subpage shows a `…` placeholder or an invented value. Dedicated
+  scenarios also walk the email-OTP flows end to end against a single-use
+  code stub — register → code → signed in, and forgot password → code →
+  new password → signed in — plus the legacy link-based recovery callback
 - `npm run verify:signal-wasm` — byte-exact SHA-256 check of the installed
   `@getmaapp/signal-wasm@0.6.6` artifacts against the audited manifest
 - `supabase/rls-tests.sql` — authorization checks against the real database

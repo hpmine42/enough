@@ -2,6 +2,8 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isValidUsername, normalizeUsername } from '../lib/helpers';
 import { MAX_DISPLAY_NAME_LENGTH, sanitizeDisplayName } from '../lib/input';
+import { isPlausibleOtpCode, normalizeOtpCode } from '../lib/authOtp';
+import { useResendCooldown } from './useResendCooldown';
 import { usernameExists } from '../lib/api';
 import { t } from '../i18n';
 import AuthChrome from './AuthChrome';
@@ -257,24 +259,84 @@ export default function Register() {
   );
 }
 
+/**
+ * Code-entry screen after registration: the confirmation email carries a
+ * one-time code (Supabase Auth email OTP), which is verified SERVER-side —
+ * this screen only collects it, mirrors the 60 s resend window and maps
+ * errors. A successful verify signs the user in (same outcome as the old
+ * confirmation link), so the success panel only stays visible when the
+ * server issued no session.
+ */
 function ConfirmEmail({ email }: { email: string }) {
-  const { resendConfirmation } = useAuth();
-  const [resendBusy, setResendBusy] = useState(false);
+  const { resendConfirmation, verifySignupCode } = useAuth();
+  const [code, setCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [resendNotice, setResendNotice] = useState<string | null>(null);
-  const [resendError, setResendError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [resendBusy, setResendBusy] = useState(false);
+  const [verified, setVerified] = useState(false);
+  // The confirmation email was sent with the sign-up — start the cooldown
+  // immediately so the first resend cannot walk into the server window.
+  const { remaining, markSent } = useResendCooldown(true);
+
+  async function onVerify(e: FormEvent) {
+    e.preventDefault();
+    if (busy) return;
+    setError(null);
+    const normalized = normalizeOtpCode(code);
+    // Formatting guard only — the server decides whether the code is valid,
+    // expired or already used.
+    if (!normalized || !isPlausibleOtpCode(normalized)) {
+      setError(t('auth.codeRequired'));
+      return;
+    }
+    setBusy(true);
+    const err = await verifySignupCode(email, normalized);
+    setBusy(false);
+    if (err) {
+      setError(err);
+      return;
+    }
+    // With a session the auth listener has already switched the app to the
+    // signed-in view; without one this panel confirms the verification.
+    setVerified(true);
+  }
 
   async function handleResend() {
-    if (resendBusy || !email) return;
+    if (resendBusy || remaining > 0 || !email) return;
     setResendBusy(true);
     setResendNotice(null);
-    setResendError(null);
+    setError(null);
     const err = await resendConfirmation(email);
     setResendBusy(false);
     if (err) {
-      setResendError(err);
+      setError(err);
     } else {
       setResendNotice(t('auth.confirmResent'));
+      markSent();
     }
+  }
+
+  if (verified) {
+    return (
+      <main className="auth-screen">
+        <AuthChrome />
+        <section className="brand">
+          <h1>enough.</h1>
+          <p className="brand-tagline">{t('tagline')}</p>
+        </section>
+        <section className="notice-card">
+          <h2>{t('auth.verifySuccessTitle')}</h2>
+          <p>{t('auth.verifySuccessText')}</p>
+        </section>
+        <div className="register">
+          <a className="link" href="#/login">
+            {t('auth.backToLogin')}
+          </a>
+        </div>
+        <LegalFooter className="auth-legal-footer" />
+      </main>
+    );
   }
 
   return (
@@ -286,16 +348,38 @@ function ConfirmEmail({ email }: { email: string }) {
       </section>
       <section className="notice-card">
         <h2>{t('auth.confirmTitle')}</h2>
-        <p>{t('auth.confirmText')}</p>
+        <p>{t('auth.confirmText', { email })}</p>
       </section>
+      <form className="form" onSubmit={onVerify}>
+        <input
+          className="input"
+          type="text"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          placeholder={t('auth.codeLabel')}
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          maxLength={12}
+          required
+          aria-label={t('auth.codeLabel')}
+        />
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <button className="button" type="submit" disabled={busy}>
+          {t('auth.verifyCode')}
+        </button>
+      </form>
       {resendNotice && (
         <p className="field-hint ok" style={{ marginTop: 12 }}>
           {resendNotice}
         </p>
       )}
-      {resendError && (
-        <p className="error" style={{ marginTop: 12 }} role="alert">
-          {resendError}
+      {remaining > 0 && (
+        <p className="field-hint muted" style={{ marginTop: 12 }} role="status">
+          {t('auth.resendWait', { seconds: Math.ceil(remaining / 1000) })}
         </p>
       )}
       <div className="auth-links" style={{ marginTop: 16 }}>
@@ -303,7 +387,7 @@ function ConfirmEmail({ email }: { email: string }) {
           type="button"
           className="link"
           onClick={handleResend}
-          disabled={resendBusy}
+          disabled={resendBusy || remaining > 0}
         >
           {t('auth.confirmResend')}
         </button>

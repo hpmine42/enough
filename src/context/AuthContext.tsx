@@ -49,6 +49,8 @@ interface AuthContextValue {
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<string | null>;
   resendConfirmation: (email: string) => Promise<string | null>;
+  verifySignupCode: (email: string, code: string) => Promise<string | null>;
+  verifyRecoveryCode: (email: string, code: string) => Promise<string | null>;
   updatePassword: (password: string) => Promise<string | null>;
   updateEmail: (email: string) => Promise<string | null>;
   updateDisplayName: (name: string) => Promise<string | null>;
@@ -85,8 +87,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const sessionUser = session?.user ?? null;
       setUser(sessionUser);
       if (event === 'PASSWORD_RECOVERY') {
-        // The user followed a password-reset link; the session is scoped for
-        // updating the password only.
+        // A recovery session exists — either the user verified the
+        // one-time recovery code (verifyOtp type 'recovery' emits this
+        // event) or followed a legacy password-reset link. The app then
+        // only offers the password form until the password is changed or
+        // the session ends.
         setRecovery(true);
       }
       if (sessionUser) {
@@ -199,7 +204,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: window.location.origin + window.location.pathname,
     });
-    if (error) return errorMessage(error, 'auth resetPasswordForEmail');
+    if (error) {
+      // The per-address frequency limit can depend on whether the account
+      // exists (the check runs where the address is known), so surfacing it
+      // would turn the reply into an enumeration oracle. Treat it as
+      // success: the neutral notice stays identical for every address, and
+      // the screen's own 60 s cooldown keeps honest users inside the
+      // server's window. The diagnostic still goes to the console.
+      if (error.code === 'over_email_send_rate_limit') {
+        errorMessage(error, 'auth resetPasswordForEmail (suppressed)');
+        return null;
+      }
+      return errorMessage(error, 'auth resetPasswordForEmail');
+    }
     return null;
   }, []);
 
@@ -215,6 +232,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) return errorMessage(error, 'auth resendConfirmation');
     return null;
   }, []);
+
+  // Code-based email verification (Supabase Auth email OTP): the entered
+  // code is validated SERVER-side by POST /verify — expiry, single use,
+  // purpose ('signup' vs 'recovery') and address binding are all decided
+  // there. The client only forwards the code and maps the error.
+  const verifySignupCode = useCallback(
+    async (email: string, code: string): Promise<string | null> => {
+      if (!supabase) return t('errors.network');
+      const { error } = await supabase.auth.verifyOtp({
+        email,
+        token: code,
+        type: 'signup',
+      });
+      if (error) return errorMessage(error, 'auth verify signup code');
+      return null;
+    },
+    [],
+  );
+
+  const verifyRecoveryCode = useCallback(
+    async (email: string, code: string): Promise<string | null> => {
+      if (!supabase) return t('errors.network');
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token: code,
+        type: 'recovery',
+      });
+      if (error) return errorMessage(error, 'auth verify recovery code');
+      // Fail closed: a verified recovery code must come back as a
+      // server-issued recovery session — that session IS the reset
+      // permission. Without one there is no permission and no recovery
+      // state, no matter what the response said.
+      if (!data.session) return t('errors.generic');
+      // verifyOtp emits PASSWORD_RECOVERY for type 'recovery' before it
+      // resolves (the listener above sets the flag); set it here as well so
+      // the reset screen appears even if that event ordering ever changes.
+      setRecovery(true);
+      return null;
+    },
+    [],
+  );
 
   const updatePassword = useCallback(async (password: string): Promise<string | null> => {
     if (!supabase) return t('errors.network');
@@ -297,6 +355,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signOut,
         resetPassword,
         resendConfirmation,
+        verifySignupCode,
+        verifyRecoveryCode,
         updatePassword,
         updateEmail,
         updateDisplayName,

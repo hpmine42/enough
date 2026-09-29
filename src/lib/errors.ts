@@ -36,7 +36,9 @@ type ErrorKey =
   | 'errors.emailNotConfirmed'
   | 'errors.emailNotFound'
   | 'errors.wrongPassword'
-  | 'errors.blockedRequest';
+  | 'errors.blockedRequest'
+  | 'errors.otpInvalid'
+  | 'errors.tooManyAttempts';
 
 const keyOf = (k: ErrorKey): TranslationKey => k as unknown as TranslationKey;
 
@@ -62,6 +64,31 @@ export function errorMessage(error: unknown, context?: string): string {
     msg.includes('email_not_confirmed')
   ) {
     return t(keyOf('errors.emailNotConfirmed'));
+  }
+  // One-time-code verification (email OTP). Wrong code, expired code, an
+  // already-consumed code and an unknown address must all collapse into the
+  // SAME neutral sentence: Supabase Auth answers them with one ambiguous
+  // error (`otp_expired`, "Token has expired or is invalid"), and echoing
+  // anything more specific would both confuse users and feed enumeration.
+  if (
+    code === 'otp_expired' ||
+    msg.includes('token has expired') ||
+    msg.includes('invalid or expired') ||
+    msg.includes('email link is invalid')
+  ) {
+    return t(keyOf('errors.otpInvalid'));
+  }
+  // Auth rate limits (per-IP on /verify, per-address send windows). The
+  // wording never depends on the account state, so it cannot be used as an
+  // enumeration oracle either.
+  if (
+    e.status === 429 ||
+    code === 'over_request_rate_limit' ||
+    code === 'over_email_send_rate_limit' ||
+    msg.includes('rate limit') ||
+    msg.includes('for security purposes, you can only request this after')
+  ) {
+    return t(keyOf('errors.tooManyAttempts'));
   }
   if (
     code === 'user_already_exists' ||

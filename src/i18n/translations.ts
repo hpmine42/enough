@@ -61,15 +61,25 @@ export const translations = {
       emailInvalid: 'Please enter a valid email address.',
       confirmTitle: 'Check your email',
       confirmText:
-        'We sent a confirmation link to your email address. Please confirm it, then log in.',
-      confirmResend: 'Resend confirmation email',
-      confirmResent: 'A new confirmation email has been sent.',
+        'We sent a one-time code to {email}. Enter it below to verify your address.',
+      confirmResend: 'Resend code',
+      confirmResent: 'A new code has been sent.',
+      codeLabel: 'Verification code',
+      codeRequired: 'Please enter the code from the email.',
+      verifyCode: 'Verify code',
+      resendWait: 'You can request a new code in {seconds} seconds.',
+      verifySuccessTitle: 'Email verified',
+      verifySuccessText:
+        'Your email address has been verified. You can now log in.',
       backToLogin: 'Back to log in',
       forgotTitle: 'Reset password',
-      forgotText: 'Enter your email address and we will send you a reset link.',
-      sendResetLink: 'Send reset link',
+      forgotText:
+        'Enter your email address and we will send you a one-time code.',
+      sendResetLink: 'Send code',
       resetSent:
-        'If an account exists for this address, a reset link is on its way.',
+        'If an account exists for this address, a one-time reset code is on its way.',
+      codeEntryTitle: 'Enter the reset code',
+      codeEntryText: 'Enter the one-time code from the email sent to {email}.',
       resetTitle: 'New password',
       resetText: 'Choose a new password for your account.',
       setNewPassword: 'Set new password',
@@ -150,7 +160,7 @@ export const translations = {
       title: 'Privacy Policy',
       intro:
         'How the enough. messenger processes personal data — described against what this application actually does.',
-      lastUpdated: 'Last updated: 6 September 2026',
+      lastUpdated: 'Last updated: 29 September 2026',
       tocTitle: 'Contents',
       sectionOverviewTitle: '1. What enough. is — and what it is not',
       sectionOverviewText:
@@ -178,7 +188,7 @@ export const translations = {
         'We do not rely on consent (Article 6(1)(a) GDPR) for any feature of enough. — there is no consent-managed analytics, no advertising and no optional tracking that could be switched on — so there is no consent to withdraw. Automated decision-making, including profiling within the meaning of Article 22 GDPR, does not take place.',
       sectionAccountTitle: '5. Registration, profile and authentication',
       sectionAccountText:
-        'Registration requires an email address, a password, an @username and a display name. The email address is used for login, for the confirmation email, for an optional email change and for password-reset links; these emails are sent by Supabase Auth through the email service configured for the project, so that service also learns the address. The password itself is handed to Supabase Auth and stored only as a one-way hash — it never reaches the application tables. The display name (at most 60 characters) and the @username are handed to Supabase Auth as sign-up metadata, and a database trigger writes them into your profile row.',
+        'Registration requires an email address, a password, an @username and a display name. The email address is used for login, for the confirmation email, for an optional email change and for password recovery. The confirmation and password-reset emails contain a one-time code that is entered in the app; the email-change confirmation still works through a link. These emails are sent by Supabase Auth through the email service configured for the project, so that service also learns the address. The password itself is handed to Supabase Auth and stored only as a one-way hash — it never reaches the application tables. The display name (at most 60 characters) and the @username are handed to Supabase Auth as sign-up metadata, and a database trigger writes them into your profile row.',
       sectionAccountText2:
         'Visibility towards other users: on this instance every signed-in user can read every profile row (@username, display name, internal user ID), because the people search and the rendering of names in chats depend on it. Anyone who types the beginning of your @username will find you. The registration form additionally uses a public availability check, so even a person without an account can technically test whether a specific @username is taken. There are no profile pages, avatars, bios, follower lists or public message boards.',
       sectionAccountText3:
@@ -482,6 +492,9 @@ export const translations = {
       emailNotConfirmed: 'Please confirm your email address before logging in.',
       emailNotFound: 'No account found with this email address.',
       wrongPassword: 'The password is incorrect.',
+      otpInvalid: 'This code is invalid or has expired.',
+      tooManyAttempts:
+        'Too many attempts. Please wait a moment and try again.',
       emailTaken: 'This email address is already registered.',
       weakPassword: 'The password is too weak.',
       samePassword:
@@ -558,15 +571,26 @@ export const translations = {
       emailInvalid: 'Bitte gib eine gültige E-Mail-Adresse ein.',
       confirmTitle: 'Prüfe deine E-Mail',
       confirmText:
-        'Wir haben einen Bestätigungslink an deine E-Mail-Adresse geschickt. Bitte bestätige ihn und melde dich dann an.',
-      confirmResend: 'Bestätigungsmail erneut senden',
-      confirmResent: 'Eine neue Bestätigungsmail wurde gesendet.',
+        'Wir haben einen Einmal-Code an {email} gesendet. Gib ihn unten ein, um deine Adresse zu bestätigen.',
+      confirmResend: 'Code erneut senden',
+      confirmResent: 'Ein neuer Code wurde gesendet.',
+      codeLabel: 'Bestätigungscode',
+      codeRequired: 'Bitte gib den Code aus der E-Mail ein.',
+      verifyCode: 'Code prüfen',
+      resendWait: 'Du kannst einen neuen Code in {seconds} Sekunden anfordern.',
+      verifySuccessTitle: 'E-Mail bestätigt',
+      verifySuccessText:
+        'Deine E-Mail-Adresse wurde bestätigt. Du kannst dich jetzt anmelden.',
       backToLogin: 'Zurück zur Anmeldung',
       forgotTitle: 'Passwort zurücksetzen',
-      forgotText: 'Gib deine E-Mail-Adresse ein und wir senden dir einen Link.',
-      sendResetLink: 'Link senden',
+      forgotText:
+        'Gib deine E-Mail-Adresse ein und wir senden dir einen Einmal-Code.',
+      sendResetLink: 'Code senden',
       resetSent:
-        'Wenn zu dieser Adresse ein Konto existiert, ist ein Link unterwegs.',
+        'Wenn zu dieser Adresse ein Konto existiert, ist ein Einmal-Reset-Code unterwegs.',
+      codeEntryTitle: 'Reset-Code eingeben',
+      codeEntryText:
+        'Gib den Einmal-Code aus der E-Mail an {email} ein.',
       resetTitle: 'Neues Passwort',
       resetText: 'Wähle ein neues Passwort für dein Konto.',
       setNewPassword: 'Passwort setzen',
@@ -646,7 +670,7 @@ export const translations = {
       title: 'Datenschutzerklärung',
       intro:
         'Wie der enough. Messenger personenbezogene Daten verarbeitet — beschrieben am tatsächlichen Verhalten dieser Anwendung.',
-      lastUpdated: 'Stand: 6. September 2026',
+      lastUpdated: 'Stand: 29. September 2026',
       tocTitle: 'Inhalt',
       sectionOverviewTitle: '1. Was enough. ist — und was nicht',
       sectionOverviewText:
@@ -674,7 +698,7 @@ export const translations = {
         'Eine Einwilligung (Art. 6 Abs. 1 lit. a DSGVO) nutzen wir für keine Funktion von enough. — es gibt kein zustimmungspflichtes Tracking, keine Werbung und keine optionale Analyse, die man einschalten könnte — es gibt also auch nichts zu widerrufen. Automatisierte Entscheidungen einschließlich Profiling im Sinne von Art. 22 DSGVO finden nicht statt.',
       sectionAccountTitle: '5. Registrierung, Profil und Anmeldung',
       sectionAccountText:
-        'Für die Registrierung brauchst du eine E-Mail-Adresse, ein Passwort, einen @benutzernamen und einen Anzeigenamen. Die E-Mail-Adresse verwenden wir zum Anmelden, für die Bestätigungs-Mail, für eine optionale Adressänderung und für Reset-Links; diese Mails versendet Supabase Auth über den für das Projekt konfigurierten E-Mail-Dienst, der dadurch die Adresse ebenfalls erfährt. Das Passwort selbst geht an Supabase Auth und wird nur als Hash gespeichert — niemals in den Anwendungstabellen. Anzeigename (maximal 60 Zeichen) und @benutzername werden beim Sign-up als Metadaten an Supabase Auth übergeben; ein Trigger in der Datenbank schreibt sie in deine Profilzeile.',
+        'Für die Registrierung brauchst du eine E-Mail-Adresse, ein Passwort, einen @benutzernamen und einen Anzeigenamen. Die E-Mail-Adresse verwenden wir zum Anmelden, für die Bestätigungs-Mail, für eine optionale Adressänderung und zur Passwort-Wiederherstellung. Die Bestätigungs- und die Reset-Mail enthalten einen Einmal-Code, der in der App eingegeben wird; die Adressänderung bestätigst du weiterhin über einen Link. Diese Mails versendet Supabase Auth über den für das Projekt konfigurierten E-Mail-Dienst, der dadurch die Adresse ebenfalls erfährt. Das Passwort selbst geht an Supabase Auth und wird nur als Hash gespeichert — niemals in den Anwendungstabellen. Anzeigename (maximal 60 Zeichen) und @benutzername werden beim Sign-up als Metadaten an Supabase Auth übergeben; ein Trigger in der Datenbank schreibt sie in deine Profilzeile.',
       sectionAccountText2:
         'Sichtbarkeit gegenüber anderen Nutzern: In dieser Instanz kann jede angemeldete Person jede Profilzeile lesen (@benutzername, Anzeigename, interne Benutzer-ID), weil die Personensuche und die Namensanzeige in Chats darauf angewiesen sind. Wer den Anfang deines @benutzernamens tippt, findet dich. Das Registrierungsformular nutzt außerdem eine öffentliche Verfügbarkeitsprüfung, sodass technisch auch ohne Konto testbar ist, ob ein bestimmter @benutzername bereits vergeben ist. Es gibt keine Profilseiten, keine Avatare, keine Biografien, keine Follower-Listen und keine öffentlichen Pinnwände.',
       sectionAccountText3:
@@ -968,6 +992,9 @@ export const translations = {
       emailNotConfirmed: 'Bitte bestätige zuerst deine E-Mail-Adresse.',
       emailNotFound: 'Kein Konto mit dieser E-Mail-Adresse gefunden.',
       wrongPassword: 'Das Passwort ist falsch.',
+      otpInvalid: 'Dieser Code ist ungültig oder abgelaufen.',
+      tooManyAttempts:
+        'Zu viele Versuche. Bitte warte einen Moment und versuche es erneut.',
       emailTaken: 'Diese E-Mail-Adresse ist bereits registriert.',
       weakPassword: 'Das Passwort ist zu schwach.',
       samePassword:

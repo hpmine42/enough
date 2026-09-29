@@ -41,6 +41,34 @@ remains the latest published release. Deployment from `main` is not a release.
   as pending, the redesign notes stay under Unreleased, and the Home description
   now matches the fixed sibling BottomNav. No release date or tag is implied.
 
+### Authentication (email OTP)
+
+- **Email confirmation and password recovery use one-time codes instead of
+  emailed links.** After registration, the confirmation screen now collects a
+  code ("Check your email" → code entry, resend with a 60 s cooldown) and
+  verifies it through `supabase.auth.verifyOtp({ type: 'signup' })`; a correct
+  code confirms the address and signs the user in, exactly as clicking the
+  link did. "Forgot password" now goes request → neutral notice → code entry
+  (`verifyOtp({ type: 'recovery' })`) → password form: the recovery code is
+  exchanged server-side for the short-lived recovery session that already
+  gates `updateUser({ password })`, so the code itself is never a reset
+  credential. Generation, hashing at rest, expiry, single use, purpose
+  binding and rate limiting stay Supabase Auth's server-side job (no new
+  Edge Function, table, migration or email infrastructure); analysis and
+  deployment requirements — notably the required `{{ .Token }}` email
+  templates, OTP length ≥ 8 and OTP expiry ≤ 3600 s — are documented in
+  `docs/auth-otp.md`, `README.md` and `docs/self-hosting.md`. The public
+  flows no longer put auth tokens into URLs (no history/referrer leakage,
+  no email-prefetch consumption); Supabase's link callback handling remains
+  in place for in-flight emails and for the unchanged link-based email
+  change. Wrong/expired/used codes render one shared localized sentence,
+  rate limits render a neutral one, and the recovery request reply is
+  identical whether or not the address has an account. Guarded by the new
+  `npm run test:authotp`, extended `test:errors` cases, and smoke
+  walkthroughs (code screens in the main run plus a `SMOKE_OTP` scenario:
+  register-by-code → home, recovery-by-code → new password → home) that run
+  alongside the unchanged legacy-recovery scenario.
+
 ### Chat
 
 - **Opening a chat shows a quiet empty message area instead of skeleton bubbles.**
