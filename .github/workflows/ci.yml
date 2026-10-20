@@ -70,7 +70,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       # Fail the gate on known high/critical vulnerabilities in the installed
       # dependency tree. We use --omit=dev because jsdom and other test-only
