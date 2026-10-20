@@ -1,0 +1,169 @@
+/* ---------- shared controls ---------- */
+
+.icon-button {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.icon-button:hover {
+  background: var(--surface-2);
+  color: var(--text-soft);
+}
+
+.icon-button:active {
+  transform: scale(0.95);
+}
+
+.icon-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.icon-button:disabled:hover {
+  background: transparent;
+}
+
+.floating {
+  position: fixed;
+  right: 20px;
+  bottom: calc(env(safe-area-inset-bottom) + 20px);
+}
+
+.btn-small {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--button);
+  color: var(--button-text);
+  font-size: 13.5px;
+  font-weight: 550;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.15s ease;
+}
+
+.btn-small:active:not(:disabled) {
+  transform: scale(0.97);
+  background: var(--button-press);
+}
+
+.btn-small.ghost {
+  background: transparent;
+  color: var(--text-soft);
+  border-color: var(--border-strong);
+}
+
+.btn-small.ghost:active:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.btn-small:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-plain {
+  height: 42px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+
+.btn-plain:hover {
+  color: var(--text);
+}
+
+.btn-primary {
+  height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--button);
+  color: var(--button-text);
+  font-size: 15px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.15s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--button-press);
+}
+
+/* The label colour is the theme-paired token, not a hardcoded white. In
+   dark mode --danger is a light warm salmon, where white read at roughly
+   2.55 to 1 — and almost 1 to 1 over the light --button-press hover
+   surface. --danger-text resolves to the ink each theme pairs with its
+   chips, and it holds up on --button-press as well. */
+.btn-primary.danger {
+  background: var(--danger);
+  color: var(--danger-text);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.link {
+  color: var(--text);
+  font-weight: 500;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+  transition:
+    opacity 0.2s ease,
+    color 0.2s ease;
+}
+
+.link:hover {
+  color: var(--accent-text);
+}
+
+.link:active {
+  opacity: 0.6;
+}
+
+/* Disabled link-buttons (e.g. the resend action while its request runs) keep
+   their label and dim like the other disabled buttons instead of swapping
+   the text. Scoped to .link so no other control is affected. */
+.link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 14px;
+}

@@ -1,5 +1,5 @@
 import { t, useLang } from '../../i18n';
-import { Lang } from '../../i18n/translations';
+import { type Lang } from '../../i18n/translations';
 import { CheckIcon } from '../icons';
 import { Section } from './settings-ui';
 

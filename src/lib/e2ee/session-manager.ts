@@ -57,7 +57,7 @@ import {
 import {
   saveIdentity, loadIdentity,
   saveRegistrationId, loadRegistrationId,
-  saveSignedPreKey, loadSignedPreKey, removeSignedPreKey,
+  loadSignedPreKey, removeSignedPreKey,
   saveSignedPreKeyRecord, loadSignedPreKeyRecord, removeSignedPreKeyRecord, listSignedPreKeyRecords,
   saveSignedPreKeyMeta, loadSignedPreKeyMeta,
   saveOneTimePreKey, listOneTimePreKeys, removeOneTimePreKey, countOneTimePreKeys,
@@ -74,6 +74,8 @@ import {
   ENVELOPE_VERSION,
   ENVELOPE_ENGINE,
   DEVICE_ID,
+  MESSAGE_TYPE_PREKEY,
+  MESSAGE_TYPE_WHISPER,
   type MessageEnvelope,
   type PublicDeviceMaterial,
   type PublicSignedPreKey,
@@ -83,6 +85,7 @@ import {
   type PeerTrustState,
   type SignalMessageType,
 } from './types.ts';
+import { nextOutboundSeq, checkInboundSeq, resetInboundFor } from './seq-counter.ts';
 
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder();
@@ -422,6 +425,10 @@ export class E2EESessionManager {
     return this.acquireLock(this.lockName(), () =>
       withUserMutex(this.userId, async () => {
         await this.ensureEstablished(peerUserId, connectionId, local, peer);
+        // Allocate and persist the next outbound C-1 sequence number BEFORE
+        // encrypting so the counter advance is durable even if the transport
+        // write fails — a gap is acceptable, a reuse is not.
+        const seq = await nextOutboundSeq(this.userId, DEVICE_ID, peerUserId);
         let wire: Uint8Array | null = null;
         await encryptCommitSend({
           userId: this.userId,
@@ -433,7 +440,9 @@ export class E2EESessionManager {
           },
         });
         if (!wire) throw new CryptoError('CRYPTO_ERROR', 'encrypt produced no ciphertext');
-        return envelopeToJSON(wireToEnvelope(wire));
+        const env = wireToEnvelope(wire);
+        env.c = seq;
+        return envelopeToJSON(env);
       }),
     );
   }
@@ -461,21 +470,65 @@ export class E2EESessionManager {
     const wire = envelopeToWire(envelope);
     return this.acquireLock(this.lockName(), () =>
       withUserMutex(this.userId, async () => {
+        // C-1 rollback defence: check the inbound counter BEFORE we decrypt
+        // for a valid existing session; for a PREKEY on a missing session we
+        // reset the high-water mark AFTER successful establishment. Counters
+        // are checked and committed under the same user-mutex that guards
+        // session state, so two concurrent decrypts can never race past the
+        // hwm check.
         const session = await inspectSession(this.userId, connectionId);
-        if (session.status !== 'VALID') {
-          if (envelope.t === 3 /* PREKEY */) {
-            return { plaintext: await this.receiveEstablish(senderUserId, connectionId, sender, local, wire), legacy: false };
+        if (session.status === 'VALID' && envelope.t === MESSAGE_TYPE_WHISPER) {
+          const seq = await checkInboundSeq(
+            this.userId,
+            DEVICE_ID,
+            senderUserId,
+            DEVICE_ID,
+            false,
+            envelope.c,
+          );
+          if (!seq.accept) {
+            throw new CryptoError(
+              'ROLLBACK_DETECTED',
+              `Replayed or rolled-back message (seq ${seq.got} <= ${seq.seen}).`,
+            );
           }
-          // MISSING + Whisper: a session must not be invented. Fail closed.
-          throw new CryptoError('NEEDS_ESTABLISH', 'No session for a Whisper message; refusing to invent one.');
         }
-        const result = await decryptAndCommit({
-          userId: this.userId,
-          connectionId,
-          ciphertext: wire,
-          createEngine: createSessionEngineFactory(this.device!, local, sender),
-        });
-        return { plaintext: TEXT_DECODER.decode(result.plaintext), legacy: false };
+        let plaintextBytes: Uint8Array;
+        if (session.status !== 'VALID') {
+          if (envelope.t === MESSAGE_TYPE_PREKEY) {
+            plaintextBytes = await this.receiveEstablishBytes(senderUserId, connectionId, sender, local, wire);
+          } else {
+            // MISSING + Whisper: a session must not be invented. Fail closed.
+            throw new CryptoError('NEEDS_ESTABLISH', 'No session for a Whisper message; refusing to invent one.');
+          }
+        } else {
+          const result = await decryptAndCommit({
+            userId: this.userId,
+            connectionId,
+            ciphertext: wire,
+            createEngine: createSessionEngineFactory(this.device!, local, sender),
+          });
+          plaintextBytes = result.plaintext;
+        }
+        // For PREKEY messages (whether establishing or not), record c as the
+        // new high-water mark — a PREKEY resets the chain.
+        if (envelope.t === MESSAGE_TYPE_PREKEY && envelope.c != null) {
+          const seq = await checkInboundSeq(
+            this.userId,
+            DEVICE_ID,
+            senderUserId,
+            DEVICE_ID,
+            true,
+            envelope.c,
+          );
+          if (!seq.accept) {
+            throw new CryptoError(
+              'ROLLBACK_DETECTED',
+              `Replayed or rolled-back PreKey message (seq ${seq.got} <= ${seq.seen}).`,
+            );
+          }
+        }
+        return { plaintext: TEXT_DECODER.decode(plaintextBytes), legacy: false };
       }),
     );
   }
@@ -543,6 +596,10 @@ export class E2EESessionManager {
           await deleteRatchetSession(this.userId, connectionId);
         }
         await removePeerTrust(this.userId, peerUserId);
+        // Wipe the C-1 inbound high-water mark for this peer: after a
+        // trust/session reset the next PreKey message legitimately starts a
+        // new counter chain.
+        await resetInboundFor(this.userId, DEVICE_ID, peerUserId);
         const fresh = await this.hydrateFromStore();
         const superseded = this.device;
         this.device = fresh;
@@ -611,6 +668,26 @@ export class E2EESessionManager {
         await deleteUserRatchetState(this.userId);
         resetInMemoryCaches(this.userId);
         await this.initializeLocked();
+      }),
+    );
+  }
+
+  /**
+   * Read the stored TOFU identity public key (base64) for a peer.
+   * UI-only (used by the safety-number display): never used as a security
+   * decision — the establishment path still fails closed on mismatch.
+   */
+  async peerIdentityKey(peerUserId: string): Promise<string | null> {
+    if (!peerUserId) return null;
+    return this.acquireLock(this.lockName(), () =>
+      withUserMutex(this.userId, async () => {
+        let stored: Uint8Array | null;
+        try { stored = await loadPeerTrust(this.userId, peerUserId); } catch { return null; }
+        if (!stored) return null;
+        try {
+          const parsed = JSON.parse(TEXT_DECODER.decode(stored)) as { identityKey?: unknown };
+          return typeof parsed.identityKey === 'string' ? parsed.identityKey : null;
+        } catch { return null; }
       }),
     );
   }
@@ -922,13 +999,13 @@ export class E2EESessionManager {
     await adoptSessionFromEstablishment(this.userId, connectionId, initial);
   }
 
-  private async receiveEstablish(
+  private async receiveEstablishBytes(
     senderUserId: string,
     connectionId: string,
     sender: PartyAddress,
     local: PartyAddress,
     wire: Uint8Array,
-  ): Promise<string> {
+  ): Promise<Uint8Array> {
     const { type, body } = decodeWireCiphertext(wire);
     const established = await decryptEstablishingMessage(this.device!, local, sender, body, type);
     await adoptSessionFromEstablishment(this.userId, connectionId, established.nextState);
@@ -948,7 +1025,17 @@ export class E2EESessionManager {
       await removeOneTimePreKey(this.userId, consumed.oneTimePreKeyId);
     }
     void senderUserId;
-    return TEXT_DECODER.decode(established.plaintext);
+    return established.plaintext;
+  }
+
+  private async receiveEstablish(
+    senderUserId: string,
+    connectionId: string,
+    sender: PartyAddress,
+    local: PartyAddress,
+    wire: Uint8Array,
+  ): Promise<string> {
+    return TEXT_DECODER.decode(await this.receiveEstablishBytes(senderUserId, connectionId, sender, local, wire));
   }
 
   /**
@@ -1177,10 +1264,13 @@ export function parseEnvelope(value: string): MessageEnvelope | null {
   }
   if (!parsed || typeof parsed !== 'object') return null;
   const e = parsed as Partial<MessageEnvelope>;
-  if (e.v !== ENVELOPE_VERSION || e.e !== ENVELOPE_ENGINE) return null;
+  // Accept v1 (pre-counter) and v2 (with C-1 monotonic counter) envelopes.
+  if ((e.v !== 1 && e.v !== ENVELOPE_VERSION) || e.e !== ENVELOPE_ENGINE) return null;
   if (e.t !== 2 && e.t !== 3) return null;
   if (typeof e.b !== 'string') return null;
-  return { v: ENVELOPE_VERSION, e: ENVELOPE_ENGINE, t: e.t as SignalMessageType, b: e.b };
+  const out: MessageEnvelope = { v: e.v as 1 | typeof ENVELOPE_VERSION, e: ENVELOPE_ENGINE, t: e.t as SignalMessageType, b: e.b };
+  if (typeof e.c === 'number' && Number.isInteger(e.c) && e.c >= 1) out.c = e.c;
+  return out;
 }
 
 function wireToEnvelope(wire: Uint8Array): MessageEnvelope {

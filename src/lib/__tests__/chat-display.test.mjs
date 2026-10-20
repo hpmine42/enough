@@ -208,7 +208,8 @@ test('CD11: the pending state is actually rendered and styled', async () => {
     new URL('../../components/MessageBubble.tsx', import.meta.url),
     'utf8',
   );
-  const css = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
+  // Resolve @import shards so CSS-split doesn't break source-level assertions.
+  const css = (await import('./read-styles.mjs')).readStyles();
 
   assert.ok(bubble.includes("pending ? ' pending' : ''"), 'MessageBubble applies the pending class');
   assert.ok(bubble.includes("pending = false"), 'pending defaults to false');

@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { type FormEvent, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { t } from '../i18n';
 import AuthChrome from './AuthChrome';

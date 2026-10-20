@@ -1,0 +1,8 @@
+{
+  "*.{ts,tsx,mjs,js}": [
+    "eslint --max-warnings 0"
+  ],
+  "*.{ts,tsx}": [
+    "bash -c './node_modules/.bin/tsc --noEmit'"
+  ]
+}

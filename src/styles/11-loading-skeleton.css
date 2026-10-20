@@ -1,0 +1,59 @@
+/* ---------- loading skeleton ---------- */
+
+/* Mirrors the real list exactly: same row rhythm, same spacing, and — like
+   the loaded rows — no separator line between the placeholders. */
+.chat-list-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.skeleton-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 8px;
+  animation: skeleton-breathe 1.5s ease-in-out infinite;
+}
+
+.skeleton-avatar {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
+}
+
+.skeleton-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 3px 0;
+}
+
+.skeleton-line {
+  height: 11px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+}
+
+.skeleton-line.w62 {
+  width: 62%;
+}
+
+.skeleton-line.w40 {
+  width: 40%;
+}
+
+@keyframes skeleton-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}

@@ -26,6 +26,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readStyles } from './read-styles.mjs';
 
 /* ------------------------------------------------------------------ */
 /* Browser surface stubs (set before module import)                     */
@@ -48,6 +49,7 @@ const { t, setLang } = await import('../../i18n/index.ts');
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 function readRel(rel) {
+  if (rel === 'src/index.css') return readStyles();
   return readFileSync(join(root, rel), 'utf8');
 }
 const components = readdirSync(join(root, 'src', 'components')).filter(

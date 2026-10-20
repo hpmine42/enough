@@ -255,6 +255,14 @@ Documented exceptions and limits:
    `0001` through `0014`; do not stop after `0001`. The scripts are idempotent,
    so they are safe to run again after an update.
 
+   > **Minimum supported migration level: `0011` (crypto prekeys).**
+   > The client retains compatibility fallbacks for pre-0005/0008/0013
+   > deployments so upgraded browsers do not immediately break against older
+   > backends, but E2EE simply cannot work without `0011`, and several UX
+   > paths (blocking, My Notes, accurate unread counts) degrade without the
+   > others. Plan to run all migrations whenever you update. New deployments
+   > should always start from the tip.
+
    Without the migrations the app still opens, but database-backed features
    such as display names, unread badges, per-user deletion, request
    decline/expiry, account deletion, My Notes, blocking, and E2EE prekeys are

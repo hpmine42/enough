@@ -14,7 +14,6 @@ import {
   getProfiles,
   getReadState,
   getUnreadCounts,
-  CHAT_HIDDEN_EVENT,
   isHiddenByChatDeletion,
   loadDeletionsForUser,
   removeMyNotes,
@@ -31,7 +30,7 @@ import {
 } from '../lib/helpers';
 import { supabase } from '../lib/supabase';
 import { getLang, t } from '../i18n';
-import { BlockState, ChatOpenIdentity, Connection, Message, Profile } from '../lib/types';
+import { type BlockState, type ChatOpenIdentity, type Connection, type Message, type Profile } from '../lib/types';
 import {
   computeReconcileState,
   createConversationEventGate,
@@ -62,6 +61,7 @@ import { getCachedPlaintextSync, warmMessageCache } from '../lib/e2ee/message-ca
 import { isEnvelope } from '../lib/e2ee/message-flow';
 import Avatar from './Avatar';
 import OfflineBanner from './OfflineBanner';
+import { MultiDeviceBanner } from './MultiDeviceBanner';
 import ThemeButton from './ThemeButton';
 // The bottom navigation itself is NOT rendered here: as a child of this
 // screen it would inherit the `screen-in` slide animation. It is a fixed
@@ -498,10 +498,10 @@ export default function Home({
               revealed: deletions.revealed.has(id),
             };
           },
-          fetchUnread: async (id) => {
+          fetchUnread: async (id): Promise<number | null> => {
             const readState = await getReadState(me);
             const counts = await getUnreadCounts(me, [id], readState);
-            return id in counts ? counts[id] : null;
+            return counts[id] ?? null;
           },
           fetchPeerProfile: async (peerId) => {
             const res = await getProfiles([peerId]);
@@ -905,6 +905,7 @@ export default function Home({
       </header>
 
       <OfflineBanner status={connectivity} />
+      <MultiDeviceBanner />
 
       {error && (
         <p className="error" role="alert">

@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { t, getLang } from '../i18n';
 import { formatRelative } from '../lib/helpers';
-import { Message } from '../lib/types';
+import { type Message } from '../lib/types';
 import MarkdownText from '../lib/markdown';
 
 interface MessageBubbleProps {

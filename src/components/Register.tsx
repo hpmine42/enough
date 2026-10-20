@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isValidUsername, normalizeUsername } from '../lib/helpers';
 import { MAX_DISPLAY_NAME_LENGTH, sanitizeDisplayName } from '../lib/input';

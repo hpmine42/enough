@@ -1,0 +1,203 @@
+/* ---------- chat rows ----------
+   A quiet modern list, not a stack of cards and not a dated settings list:
+   rows sit directly on the canvas and are kept apart by their own rhythm —
+   the row padding, the list gap and the two-line hierarchy do the
+   separating, so no hairline runs between them. Surfaces appear only as
+   interaction states (hover/pressed), softly rounded. One left axis
+   (avatar + name + preview) and one right axis (time above unread count)
+   give each row a clear two-line hierarchy. */
+
+.chat-row {
+  position: relative;
+  /* New rows fade in place; existing rows only reorder (React keeps their
+     DOM nodes, so the animation never replays on a re-sort). */
+  animation: row-in 0.24s var(--ease) both;
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.chat {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.chat:hover {
+  background: var(--surface);
+}
+
+.chat:active {
+  background: var(--surface-2);
+}
+
+.chat-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-topline {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.chat-identity {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.011em;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-username {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  letter-spacing: -0.005em;
+  color: var(--muted);
+}
+
+.chat-time {
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+
+.chat-subline {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.chat-preview {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Overview rows only: the trailing column is stretched over the full row
+   height, so the time optically sits on the name line and the unread count
+   below it on the preview line — a single calm right edge. */
+.chat-overview-row .chat-trailing {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+/* My Notes rows: a quiet typographic tag in the identity line — small caps,
+   no border, no extra chrome. The row keeps the exact same two-line
+   anatomy as every other row. */
+.chat-notes-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Unread stays typographic: a stronger name, the preview stepped up to the
+   soft text colour, the timestamp tinted with the accent — and a compact
+   ink counter. Quiet, scannable, no loud badge. */
+.chat-row.unread .chat-name {
+  font-weight: 650;
+}
+
+.chat-row.unread .chat-preview {
+  color: var(--text-soft);
+}
+
+.chat-row.unread .chat-time {
+  color: var(--accent-text);
+}
+
+.unread-badge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 20px;
+  text-align: center;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.005em;
+}
+
+.chat-row-actions {
+  display: flex;
+  gap: var(--space-2);
+  padding: 0 8px 13px 68px;
+}
+
+/* Connection-request state: the label replaces the preview on the same
+   line and leads with a small status dot, so a request reads as an
+   actionable state instead of a second kind of list item. */
+.request-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent-text);
+}
+
+.request-label::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 6px;
+  flex-shrink: 0;
+}

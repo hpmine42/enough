@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { t } from '../../i18n';
 import { displayName } from '../../lib/helpers';
 import { navigate } from '../../lib/router';
-import { Connection, Profile } from '../../lib/types';
+import { type Connection, type Profile } from '../../lib/types';
 import Avatar from '../Avatar';
 import { Row, Section } from './settings-ui';
 

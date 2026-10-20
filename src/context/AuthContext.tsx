@@ -4,9 +4,9 @@ import {
   useContext,
   useEffect,
   useState,
-  ReactNode,
+  type ReactNode,
 } from 'react';
-import { User } from '@supabase/supabase-js';
+import { type User } from '@supabase/supabase-js';
 import {
   hasImplicitRecoveryCallback,
   isSupabaseConfigured,
@@ -21,7 +21,7 @@ import {
   upsertProfile,
 } from '../lib/api';
 import { t } from '../i18n';
-import { Profile } from '../lib/types';
+import { type Profile } from '../lib/types';
 import {
   isE2eeSupported,
   deleteUserCryptoState,

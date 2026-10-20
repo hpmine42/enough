@@ -1,0 +1,435 @@
+/* ---------- legal / imprint ---------- */
+
+.legal-screen {
+  width: 100%;
+  max-width: 680px;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 48px);
+  animation: screen-in 0.2s ease-out;
+}
+
+.legal-header {
+  min-height: calc(env(safe-area-inset-top) + 66px);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: end;
+  padding: env(safe-area-inset-top) 20px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.legal-header > .icon-button {
+  justify-self: start;
+}
+
+.legal-logo {
+  align-self: center;
+  padding: 10px;
+}
+
+.legal-header-actions {
+  justify-self: end;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.legal-content {
+  padding: 48px 28px 0;
+}
+
+/* Two separate, equal-ranking surfaces stacked one below the other: the
+   imprint on top, the contact form below. The form is a SIBLING of the
+   imprint surface, never a card inside it — the second nesting level cost it
+   48px of usable width and made it unnecessarily narrow. Both surfaces
+   inherit the existing theme variables and share one inset, so their content
+   edges stay aligned and the layout remains fluid on narrow screens. */
+.legal-card {
+  --legal-card-inset: clamp(18px, 5vw, 24px);
+
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.legal-imprint-card {
+  margin-top: 32px;
+  padding: 0 var(--legal-card-inset);
+}
+
+.legal-imprint-card > .legal-section {
+  border-top: 0;
+}
+
+.legal-imprint-card > .legal-section:last-child {
+  border-bottom: 0;
+}
+
+.legal-contact-card {
+  /* Generous, clearly readable gap between the two surfaces. */
+  margin-top: 40px;
+  padding: 24px var(--legal-card-inset);
+}
+
+.legal-contact-card h2 {
+  margin: 0 0 16px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* The card heading provides the gap, so the form keeps its internal rhythm
+   without adding the spacing it needed as a standalone block. */
+.legal-contact-card .contact-form,
+.legal-contact-card .contact-success-box {
+  margin-top: 0;
+}
+
+.legal-kicker {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.legal-content h1 {
+  margin: 0;
+  font-size: clamp(30px, 7vw, 42px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+
+.legal-intro {
+  max-width: 520px;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.legal-template-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 32px 0 38px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.legal-template-notice strong {
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.legal-template-notice span {
+  color: var(--muted);
+}
+
+.legal-section {
+  padding: 25px 0;
+  border-top: 1px solid var(--border);
+}
+
+.legal-section:last-child {
+  border-bottom: 1px solid var(--border);
+}
+
+.legal-section h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.legal-section p,
+.legal-section address {
+  margin: 0;
+  font-size: 14.5px;
+  font-style: normal;
+  line-height: 1.7;
+  color: var(--text-soft);
+}
+
+.legal-section p + p {
+  margin-top: 12px;
+}
+
+.legal-section address strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.legal-contact-list {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.7;
+}
+
+.legal-contact-list > div {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) 1fr;
+  gap: 4px 16px;
+}
+
+.legal-contact-list dt {
+  color: var(--muted);
+}
+
+.legal-contact-list dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.legal-contact-list .link {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.legal-contact-list.legal-provider-contact {
+  margin-top: 14px;
+}
+
+.legal-toc {
+  margin: 32px 0 8px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.legal-toc-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.legal-toc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 6px 20px;
+}
+
+.legal-toc-link {
+  display: block;
+  padding: 2px 0;
+  color: var(--text-soft);
+  font-size: 13.5px;
+  line-height: 1.5;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  text-align: left;
+  font-family: inherit;
+  transition: color 0.18s ease;
+}
+
+.legal-toc-link:hover {
+  color: var(--accent-text);
+}
+
+.legal-section-privacy {
+  /* Keep the anchor clear of the sticky-ish header when jumped to. */
+  scroll-margin-top: calc(env(safe-area-inset-top) + 80px);
+}
+
+.legal-section-privacy p {
+  overflow-wrap: anywhere;
+}
+
+.legal-section-privacy > * + * {
+  margin-top: 12px;
+}
+
+.legal-section-privacy > h2 + * {
+  margin-top: 12px;
+}
+
+.legal-section-privacy:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.legal-refs {
+  margin-top: 32px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.legal-refs-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.legal-refs-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+.legal-refs-list .link {
+  color: var(--text-soft);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.contact-form {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.contact-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.contact-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.contact-input {
+  width: 100%;
+  height: 46px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 14px;
+  font-size: 15px;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.contact-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.contact-textarea {
+  width: 100%;
+  min-height: 132px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: 12px 14px;
+  font-size: 15px;
+  line-height: 1.55;
+  resize: vertical;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.contact-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.contact-privacy-note {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.contact-success {
+  font-size: 14px;
+  color: var(--ok);
+}
+
+.contact-success-box {
+  margin-top: 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.contact-error {
+  font-size: 13.5px;
+  color: var(--danger);
+}
+
+.notice {
+  margin: 12px 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.error {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.chat-error {
+  margin: 0 16px 8px;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.config-screen {
+  width: 100%;
+  max-width: var(--column);
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding:
+    calc(env(safe-area-inset-top) + 40px)
+    28px
+    calc(env(safe-area-inset-bottom) + 32px);
+}
+
+.config-screen .brand {
+  margin-top: 12vh;
+  margin-bottom: 28px;
+}
+
+.config-screen p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.config-screen code {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}

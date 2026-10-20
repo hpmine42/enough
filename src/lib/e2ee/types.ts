@@ -5,7 +5,7 @@
 // adapter: everything the adapter returns is plain bytes / numbers / strings.
 
 /** Envelope format version (stored in messages.ciphertext JSON). */
-export const ENVELOPE_VERSION = 1 as const;
+export const ENVELOPE_VERSION = 2 as const;
 /** Engine identifier recorded in every envelope. */
 export const ENVELOPE_ENGINE = 'sw' as const;
 /** Single device per account in v0.2 (multi-device is deferred). */
@@ -23,13 +23,26 @@ export const MESSAGE_TYPE_PREKEY = 3;
  * value have numeric `v` and string `e`?" (see session-manager). Only
  * `kind === 'text'` messages ever become envelopes; system messages keep an
  * empty/meta ciphertext.
+ *
+ * v2 envelopes carry a monotonic sequence counter `c` assigned by the sender
+ * (per sender-device → receiver pair). The receiver persistently tracks the
+ * highest counter observed per sender and rejects any envelope whose counter
+ * is not strictly greater — defence-in-depth against server-side replay /
+ * rollback after a session is established (see roadmap item #14 / C-1). v1
+ * envelopes (produced by older clients before the counter existed) are still
+ * accepted; they simply do not benefit from the counter check.
  */
 export interface MessageEnvelope {
-  v: typeof ENVELOPE_VERSION;
+  v: 1 | typeof ENVELOPE_VERSION;
   e: typeof ENVELOPE_ENGINE;
   t: SignalMessageType;
   /** base64 of the libsignal ciphertext body. */
   b: string;
+  /**
+   * Outbound monotonic sequence number (v2+ only). Omitted on v1 envelopes
+   * for backward compatibility. When present it MUST be an integer >= 1.
+   */
+  c?: number;
 }
 
 /** Public portion of a signed prekey, safe to publish to Supabase. */

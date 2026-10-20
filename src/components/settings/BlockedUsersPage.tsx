@@ -1,6 +1,6 @@
 import { t } from '../../i18n';
 import { displayName } from '../../lib/helpers';
-import { Profile } from '../../lib/types';
+import { type Profile } from '../../lib/types';
 
 interface BlockedUsersPageProps {
   blockedUsers: Profile[];

@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readStyles } from './read-styles.mjs';
 
 /* ------------------------------------------------------------------ */
 /* Browser surface stubs (set before i18n import)                       */
@@ -39,7 +40,7 @@ globalThis.document = { documentElement: { lang: 'en' } };
 const { t, setLang } = await import('../../i18n/index.ts');
 const { translations } = await import('../../i18n/translations.ts');
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const read = (rel) => readFileSync(join(root, rel), 'utf8');
+const read = (rel) => (rel === 'src/index.css' ? readStyles() : readFileSync(join(root, rel), 'utf8'));
 
 const settings = read('src/components/Settings.tsx');
 const peopleSettings = read('src/components/settings/PeopleSettings.tsx');

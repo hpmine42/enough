@@ -1,0 +1,63 @@
+/* ---------- responsive ---------- */
+
+/* Narrow phones. */
+@media (max-width: 359px) {
+  .home-screen {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .settings-section {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+/* Tablet / desktop: the app stays a phone-width column with a soft frame. */
+@media (min-width: 760px) {
+  .auth-screen,
+  .home-screen,
+  .chat-screen,
+  .legal-screen {
+    margin-top: 24px;
+    margin-bottom: 24px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    min-height: calc(100dvh - 48px);
+    box-shadow: var(--shadow-1);
+  }
+
+  .chat-screen {
+    height: calc(100dvh - 48px);
+  }
+
+  .brand {
+    margin-top: 12vh;
+  }
+
+  .settings-overlay {
+    align-items: center;
+  }
+
+  .settings-header,
+  .settings-scroll {
+    max-width: 480px;
+  }
+
+  /* Same 480px column as the scroll body — and now the same centering.
+     `.settings-scroll` centers itself via `margin: 0 auto` in the base
+     rule; the header had the width but no auto margins, so as a flex item
+     of the full-width pane/subpanel it hung on the left while the content
+     centered. `margin: 0 auto` aligns header and content on one column
+     (mobile is untouched: full width, auto margins resolve to 0). */
+  .settings-header {
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  .sheet {
+    border-radius: var(--radius-lg);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+}

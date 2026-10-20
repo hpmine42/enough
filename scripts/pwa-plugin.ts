@@ -145,9 +145,9 @@ function underScope(url) {
 }
 
 function isStaticAsset(url) {
-  // Hashed Vite assets + icons + manifest + the SW itself.
+  // Hashed Vite assets + icons + manifest + WASM engine.
   if (url.pathname.includes('/assets/')) return true;
-  if (/\\.(?:js|css|png|svg|ico|webmanifest|woff2?|ttf|map)$/i.test(url.pathname)) {
+  if (/\\.(?:js|css|wasm|png|svg|ico|webmanifest|woff2?|ttf|map)$/i.test(url.pathname)) {
     return true;
   }
   return false;
@@ -382,6 +382,10 @@ export function enoughPwa(): Plugin {
       }
 
       // Precache the app shell only — never anything that looks like API data.
+      // The Signal WASM engine is included here (798 KB / 303 KB gzip): it is
+      // required for every peer-chat render and never changes except on deploy,
+      // so serving it from Cache Storage on repeat visits saves a full round-
+      // trip for the single largest asset.
       const include = files.filter((f) => {
         if (f === SW_FILENAME) return false;
         if (f === 'sw-build.json') return false;
@@ -390,6 +394,7 @@ export function enoughPwa(): Plugin {
           f === 'index.html' ||
           f.endsWith('.js') ||
           f.endsWith('.css') ||
+          f.endsWith('.wasm') ||
           f.endsWith('.png') ||
           f.endsWith('.svg') ||
           f.endsWith('.ico') ||

@@ -275,11 +275,12 @@ function parseRichBlocks(text: string): Block[] {
     const heading = HEADING_RE.exec(line);
     if (heading) {
       flushAll();
+      const [, hashes, rawHeading] = heading;
       blocks.push({
         type: 'heading',
-        level: heading[1].length,
+        level: hashes!.length,
         // An optional closing sequence of #s is decoration, not content.
-        raw: heading[2].replace(/\s+#+$/, ''),
+        raw: rawHeading!.replace(/\s+#+$/, ''),
       });
       continue;
     }
@@ -288,7 +289,7 @@ function parseRichBlocks(text: string): Block[] {
     if (quoteLine) {
       flushParagraph();
       flushList();
-      quote.push(quoteLine[1]);
+      quote.push(quoteLine[1]!);
       continue;
     }
 
@@ -296,11 +297,12 @@ function parseRichBlocks(text: string): Block[] {
     if (ulItem) {
       flushParagraph();
       flushQuote();
+      const ulText = ulItem[1]!;
       if (list && !list.ordered) {
-        list.items.push(ulItem[1]);
+        list.items.push(ulText);
       } else {
         flushList();
-        list = { ordered: false, start: 1, items: [ulItem[1]] };
+        list = { ordered: false, start: 1, items: [ulText] };
       }
       continue;
     }
@@ -309,11 +311,13 @@ function parseRichBlocks(text: string): Block[] {
     if (olItem) {
       flushParagraph();
       flushQuote();
+      const olNum = olItem[1]!;
+      const olText = olItem[2]!;
       if (list && list.ordered) {
-        list.items.push(olItem[2]);
+        list.items.push(olText);
       } else {
         flushList();
-        list = { ordered: true, start: parseInt(olItem[1], 10), items: [olItem[2]] };
+        list = { ordered: true, start: parseInt(olNum, 10), items: [olText] };
       }
       continue;
     }

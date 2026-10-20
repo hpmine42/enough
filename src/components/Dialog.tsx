@@ -1,5 +1,4 @@
-import { ReactNode, useEffect, useRef } from 'react';
-import { t } from '../i18n';
+import { type ReactNode, useEffect, useRef } from 'react';
 import { useFocusTrap } from './useFocusTrap';
 
 interface DialogProps {

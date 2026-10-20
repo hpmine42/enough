@@ -1,0 +1,127 @@
+/* ---------- base ---------- */
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+/*
+ * The canvas token is painted on the ROOT element and on the React root, not
+ * only on <body>.
+ *
+ * An installed PWA derives the strip it draws around the display cutout /
+ * status bar from the page's own background: iOS 26+ ignores
+ * `meta name="theme-color"` there completely and reads the root element's
+ * `background-color`, and an unpainted <html> leaves that region on the UA
+ * default light canvas — a pale band above an otherwise dark app. The
+ * manifest cannot cover it either (it holds one colour per scheme, not one per
+ * in-app theme), so <html> is the only channel that follows an explicit
+ * light/dark choice. Keeping #root on the same token makes the colour reach
+ * every pixel the screens leave unpainted.
+ */
+html,
+#root {
+  background: var(--bg);
+  transition: background 0.25s ease;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition:
+    background 0.25s ease,
+    color 0.25s ease;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  touch-action: manipulation;
+}
+
+input,
+textarea {
+  font-family: inherit;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.015em;
+}
+
+/*
+ * Prevent accidental text selection on non-editable UI chrome: buttons, the
+ * logo, navigation chrome, settings rows/labels, option/tab controls, and
+ * modal/sheet titles. Editable controls stay selectable (they are not matched
+ * by these selectors), and the Settings overlay is made non-selectable as a
+ * whole before re-enabling its editable fields so the rule cannot miss a
+ * label, icon, row, or title inside Settings.
+ */
+button,
+.logo,
+.logo-button,
+.home-header,
+.home-header-actions,
+.chat-header,
+.option,
+.tab,
+.nav-label,
+.bottom-nav,
+.settings-page-title,
+.settings-section-title,
+.settings-row,
+.settings-row-label,
+.settings-row-sub,
+.settings-field-label,
+.settings-static-row,
+.settings-email-row,
+.dialog-title,
+.sheet-title {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.settings-overlay,
+.settings-overlay * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.settings-overlay input,
+.settings-overlay textarea,
+.settings-overlay [contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+:focus-visible {
+  outline: 2px solid var(--muted);
+  outline-offset: 2px;
+}

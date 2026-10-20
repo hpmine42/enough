@@ -1,0 +1,32 @@
+/* ---------- empty & error state ----------
+   One centered block for both: a clear title, a single quiet line of text
+   and one primary action. No icon, no card — the canvas and the type do
+   the work. */
+
+.empty {
+  margin: 14vh auto 0;
+  text-align: center;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.empty-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.empty-text {
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 280px;
+  margin: 0 auto;
+}
+
+.empty-action {
+  margin-top: 12px;
+}

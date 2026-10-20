@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 // `import.meta.env` is a Vite provision; guard it so this module does not
 // crash on import in non-Vite runtimes (e.g. the Node test runner loading the

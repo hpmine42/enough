@@ -1,6 +1,6 @@
 import { t } from '../../i18n';
 import { displayName } from '../../lib/helpers';
-import { Connection, Profile } from '../../lib/types';
+import { type Connection, type Profile } from '../../lib/types';
 import { SearchIcon } from '../icons';
 import { Section } from './settings-ui';
 

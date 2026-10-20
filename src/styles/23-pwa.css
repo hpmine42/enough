@@ -1,0 +1,16 @@
+/* ---------- installed PWA (standalone) ---------- */
+
+/* When launched from the home screen there is no browser chrome. Keep the
+   canvas filled edge-to-edge; safe-area insets already pad interactive UI. */
+@media (display-mode: standalone) {
+  html,
+  body,
+  #root {
+    min-height: 100dvh;
+    min-height: -webkit-fill-available;
+  }
+
+  body {
+    overscroll-behavior-y: none;
+  }
+}

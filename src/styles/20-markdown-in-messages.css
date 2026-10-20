@@ -1,0 +1,167 @@
+/* ---------- markdown in messages ----------
+ *
+ * The bubble is the color context, not the global theme: the bubble background
+ * depends on the theme AND on who sent the message. Markdown must keep enough
+ * contrast against whichever bubble it sits on, so each bubble context defines
+ * its own palette here. The .md-* rules below only consume these variables —
+ * the markdown renderer never needs to know about theme or sender/receiver.
+ *
+ * Dark bubble  -> light surfaces on dark (light overlays).
+ * Light bubble -> dark surfaces on light (dark overlays).
+ */
+
+/* Dark bubble (sent in light mode): light surfaces on dark. */
+.message.sent {
+  --md-inline-code-bg: rgba(255, 255, 255, 0.18);
+  --md-inline-code-border: rgba(255, 255, 255, 0.18);
+  --md-code-bg: rgba(255, 255, 255, 0.14);
+  --md-code-border: rgba(255, 255, 255, 0.18);
+  --md-quote-border: rgba(255, 255, 255, 0.45);
+  --md-quote-text: var(--sent-text);
+  --md-link-underline: rgba(255, 255, 255, 0.7);
+}
+
+/* Dark bubble (received in dark mode): light surfaces on dark. */
+:root.dark .message.received {
+  --md-inline-code-bg: rgba(255, 255, 255, 0.18);
+  --md-inline-code-border: rgba(255, 255, 255, 0.18);
+  --md-code-bg: rgba(255, 255, 255, 0.14);
+  --md-code-border: rgba(255, 255, 255, 0.18);
+  --md-quote-border: rgba(255, 255, 255, 0.45);
+  --md-quote-text: var(--muted);
+  --md-link-underline: rgba(255, 255, 255, 0.7);
+}
+
+/* Light bubble (sent in dark mode): dark surfaces on light. */
+:root.dark .message.sent {
+  --md-inline-code-bg: rgba(23, 22, 20, 0.1);
+  --md-inline-code-border: rgba(23, 22, 20, 0.18);
+  --md-code-bg: rgba(23, 22, 20, 0.08);
+  --md-code-border: rgba(23, 22, 20, 0.32);
+  --md-quote-border: rgba(23, 22, 20, 0.38);
+  --md-quote-text: var(--sent-text);
+  --md-link-underline: rgba(23, 22, 20, 0.6);
+}
+
+.md-root {
+  display: block;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.message .md-root {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.md-root > :first-child {
+  margin-top: 0;
+}
+
+.md-root > :last-child {
+  margin-bottom: 0;
+}
+
+.md-heading {
+  margin: 8px 0 4px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.md-h1 {
+  font-size: 1.35em;
+}
+
+.md-h2 {
+  font-size: 1.22em;
+}
+
+.md-h3 {
+  font-size: 1.1em;
+}
+
+.md-h4,
+.md-h5,
+.md-h6 {
+  font-size: 1em;
+}
+
+.md-list {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.md-list > li {
+  margin: 2px 0;
+}
+
+.md-list > li:first-child {
+  margin-top: 0;
+}
+
+.md-list > li:last-child {
+  margin-bottom: 0;
+}
+
+.md-quote {
+  margin: 6px 0;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--md-quote-border);
+  color: var(--md-quote-text);
+}
+
+.md-paragraph {
+  margin: 0;
+}
+
+.md-paragraph + .md-paragraph {
+  margin-top: 8px;
+}
+
+.md-paragraph-gap {
+  height: 8px;
+}
+
+.md-inline-code {
+  padding: 1px 5px;
+  border: 1px solid var(--md-inline-code-border);
+  border-radius: var(--radius-xs);
+  background: var(--md-inline-code-bg);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.md-code-block {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--md-code-border);
+  border-radius: var(--radius-sm);
+  background: var(--md-code-bg);
+  overflow-x: auto;
+}
+
+.md-code-block code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  white-space: pre;
+}
+
+.md-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--md-link-underline);
+  text-underline-offset: 2px;
+}
+
+.md-bold {
+  font-weight: 650;
+}
+
+.md-italic {
+  font-style: italic;
+}
+
+.md-strike {
+  text-decoration: line-through;
+}

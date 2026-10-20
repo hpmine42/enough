@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { type FormEvent, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { t } from '../i18n';
 import AuthChrome from './AuthChrome';
@@ -7,7 +7,7 @@ import LegalFooter from './LegalFooter';
 /** Shown once a recovery session exists: the user verified the one-time
  * recovery code (current flow) or followed a legacy reset link. */
 export default function ResetPassword() {
-  const { updatePassword, clearRecovery, signOut } = useAuth();
+  const { updatePassword, clearRecovery } = useAuth();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);

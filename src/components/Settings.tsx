@@ -1,11 +1,9 @@
-import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { usePreferences } from '../context/PreferencesContext';
 import { useHashRoute, navigate } from '../lib/router';
 import {
-  acceptConnection,
   blockUser,
-  cancelConnectionRequest,
   ensureMyNotes,
   getBlockRelations,
   getBlockedUsers,
@@ -32,9 +30,10 @@ import {
   getStoredMode,
   prefersReducedMotion,
   THEME_CHANGE_EVENT,
-  ThemeMode,
+  type ThemeMode,
 } from '../lib/theme';
-import { Connection, Profile } from '../lib/types';
+import { type Connection, type Profile } from '../lib/types';
+import { type SettingsCategory, settingsCategoryFromRoute } from '../lib/settingsRoute';
 import { inertWhen, useScreenFocus } from './useScreenFocus';
 import BottomSheet from './BottomSheet';
 import Dialog from './Dialog';
@@ -56,47 +55,6 @@ import ChatSettings from './settings/ChatSettings';
 import AccountSettings from './settings/AccountSettings';
 
 const GITHUB_URL = 'https://github.com/hpmine42/enough';
-
-export type SettingsCategory =
-  | 'profile'
-  | 'people'
-  | 'blocked'
-  | 'language'
-  | 'appearance'
-  | 'chat'
-  | 'account';
-
-/** Every valid subpage route, including the third-level blocked list. */
-const SETTINGS_CATEGORIES: SettingsCategory[] = [
-  'profile',
-  'people',
-  'blocked',
-  'language',
-  'appearance',
-  'chat',
-  'account',
-];
-
-/**
- * The category subpage a route points at, or `null` for the Settings
- * overview, the dedicated people-search screen and every other route.
- *
- * Exported because the bottom navigation is a persistent top-level layer
- * OUTSIDE this overlay (`App.tsx`): it must know whether a subpage currently
- * covers it without becoming a child of the overlay — a child would inherit
- * the overlay's slide-in transform and move with it.
- */
-export function settingsCategoryFromRoute(route: string): SettingsCategory | null {
-  const parts = route.split('/');
-  if (parts[0] !== '#' || parts[1] !== 'settings') return null;
-  const firstSegment = parts[2];
-  const secondSegment = parts[3];
-  const categorySegment =
-    firstSegment === 'people' && secondSegment === 'blocked' ? 'blocked' : firstSegment;
-  return (SETTINGS_CATEGORIES as string[]).includes(categorySegment)
-    ? (categorySegment as SettingsCategory)
-    : null;
-}
 
 /**
  * The two equal top-level destinations the overlay hosts: the dedicated
@@ -378,7 +336,6 @@ export default function Settings() {
     updateEmail,
     updatePassword,
     deleteAccount,
-    refreshProfile,
   } = useAuth();
   const {
     enterToSend,
@@ -863,27 +820,6 @@ export default function Settings() {
     if (fresh) navigate(`#/chat/${fresh.id}`);
   }
 
-  async function handleAccept(conn: Connection) {
-    setActionBusyId(conn.id);
-    const err = await acceptConnection(conn.id);
-    setActionBusyId(null);
-    if (!err) {
-      const result = await getMyConnections(me);
-      setConnections(result.data);
-      navigate(`#/chat/${conn.id}`);
-    }
-  }
-
-  async function handleCancelRequest(conn: Connection) {
-    setActionBusyId(conn.id);
-    const err = await cancelConnectionRequest(conn.id);
-    setActionBusyId(null);
-    if (!err) {
-      const result = await getMyConnections(me);
-      setConnections(result.data);
-    }
-  }
-
   async function handleUnblock(target: Profile) {
     if (!me || blockBusyId === target.id) return;
     setBlockBusyId(target.id);
@@ -1152,7 +1088,6 @@ export default function Settings() {
           {category === 'account' && (
             <div ref={accountRef}>
               <AccountSettings
-                emailEditing={emailEditing}
                 emailCollapseRender={emailCollapse.render}
                 emailCollapseClosing={emailCollapse.closing}
                 newEmail={newEmail}

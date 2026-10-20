@@ -17,9 +17,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { readStyles } from './read-styles.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const readRel = (p) => fs.readFileSync(`${__dirname}/../../${p}`, 'utf-8');
+const readRel = (p) => (p === 'index.css' ? readStyles() : fs.readFileSync(`${__dirname}/../../${p}`, 'utf-8'));
 const home = readRel('components/Home.tsx');
 const css = readRel('index.css');
 

@@ -1,21 +1,33 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { useAuth } from './context/AuthContext';
 import { useHashRoute } from './lib/router';
 import type { ChatOpenIdentity } from './lib/types';
-import Chat from './components/Chat';
 import Home from './components/Home';
 import Login from './components/Login';
-import Register from './components/Register';
-import ForgotPassword from './components/ForgotPassword';
-import ResetPassword from './components/ResetPassword';
 import { inertWhen } from './components/useScreenFocus';
-import Settings, { settingsCategoryFromRoute } from './components/Settings';
+import { settingsCategoryFromRoute } from './lib/settingsRoute';
 import BottomNav from './components/BottomNav';
-import Imprint from './components/Imprint';
-import Privacy from './components/Privacy';
 import LegalFooter from './components/LegalFooter';
 import ThemeButton from './components/ThemeButton';
 import { t, useLang } from './i18n';
+
+// Route-level code splitting: screens not shown on the first paint are
+// lazy-loaded so they do not inflate the initial bundle. Chat, Home and
+// Login are kept synchronous because they are the entry points; E2EE
+// context (signal-wasm) is pulled in by AuthProvider regardless.
+const Chat = lazy(() => import('./components/Chat'));
+const Register = lazy(() => import('./components/Register'));
+const ForgotPassword = lazy(() => import('./components/ForgotPassword'));
+const ResetPassword = lazy(() => import('./components/ResetPassword'));
+const Settings = lazy(() => import('./components/Settings'));
+const Imprint = lazy(() => import('./components/Imprint'));
+const Privacy = lazy(() => import('./components/Privacy'));
+
+// Tiny fallback shown while a lazy chunk is loading. Same quiet visual as
+// the boot state so lazy navigation never shows a spinner or flashes.
+function RouteFallback() {
+  return <main className="loading" role="status" aria-label={t('appLoading')} />;
+}
 
 export default function App() {
   const { configured, loading, user, recovery } = useAuth();
@@ -31,14 +43,14 @@ export default function App() {
   // Public legal screens (Imprint & Privacy) must remain reachable without a
   // configured backend, an account, or a completed authentication check.
   if (route.startsWith('#/impressum') || route.startsWith('#/imprint')) {
-    return <Imprint />;
+    return <Suspense fallback={<RouteFallback />}><Imprint /></Suspense>;
   }
   if (
     route.startsWith('#/datenschutz') ||
     route.startsWith('#/privacy') ||
     route.startsWith('#/settings/privacy')
   ) {
-    return <Privacy />;
+    return <Suspense fallback={<RouteFallback />}><Privacy /></Suspense>;
   }
 
   if (!configured) {
@@ -72,13 +84,13 @@ export default function App() {
   // Password-reset flow: a recovery session exists — either the user
   // verified the one-time recovery code or followed a legacy reset link.
   if (recovery) {
-    return <ResetPassword />;
+    return <Suspense fallback={<RouteFallback />}><ResetPassword /></Suspense>;
   }
 
   if (!user) {
-    if (route.startsWith('#/register')) return <Register />;
-    if (route.startsWith('#/forgot')) return <ForgotPassword />;
-    if (route.startsWith('#/reset')) return <ResetPassword />;
+    if (route.startsWith('#/register')) return <Suspense fallback={<RouteFallback />}><Register /></Suspense>;
+    if (route.startsWith('#/forgot')) return <Suspense fallback={<RouteFallback />}><ForgotPassword /></Suspense>;
+    if (route.startsWith('#/reset')) return <Suspense fallback={<RouteFallback />}><ResetPassword /></Suspense>;
     return <Login />;
   }
 
@@ -86,7 +98,7 @@ export default function App() {
   // screen) dim the stage behind them.
   const overlayOpen = route.startsWith('#/settings') || route.startsWith('#/new-chat');
   const chatMatch = route.match(/^#\/chat\/(.+)$/);
-  const chatConnectionId = chatMatch ? decodeURIComponent(chatMatch[1]) : null;
+  const chatConnectionId = chatMatch?.[1] ? decodeURIComponent(chatMatch[1]) : null;
   const openingIdentity =
     chatConnectionId &&
     chatOpenIdentity?.accountId === user.id &&
@@ -117,14 +129,16 @@ export default function App() {
         {chatConnectionId ? (
           // One account/connection owns the entire Chat instance, including the
           // first committed frame. Passive resets cannot isolate that frame.
-          <Chat key={`${user.id}:${chatConnectionId}`} connectionId={chatConnectionId} initialIdentity={openingIdentity} />
+          <Suspense fallback={<RouteFallback />}>
+            <Chat key={`${user.id}:${chatConnectionId}`} connectionId={chatConnectionId} initialIdentity={openingIdentity} />
+          </Suspense>
         ) : (
           <Home onOpenChat={setChatOpenIdentity} />
         )}
       </div>
       {/* Overlay: slides in with a transform — the navigation is NOT inside
           it either, so it cannot inherit that motion. */}
-      <Settings />
+      <Suspense fallback={null}><Settings /></Suspense>
       {/* Persistent top-level navigation layer: a fixed sibling above both
           (see `.bottom-nav` in index.css). It stays anchored to the viewport
           while screens and overlays animate underneath it. A chat is a

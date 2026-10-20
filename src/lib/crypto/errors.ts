@@ -8,7 +8,7 @@ import type { CryptoErrorCode } from './types.ts';
 
 export class CryptoError extends Error {
   readonly code: CryptoErrorCode;
-  readonly cause?: unknown;
+  override readonly cause?: unknown;
 
   constructor(code: CryptoErrorCode, message?: string, cause?: unknown) {
     // Never include `cause`'s message in the Error message — callers may pass

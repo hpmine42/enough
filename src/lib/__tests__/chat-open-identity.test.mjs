@@ -10,9 +10,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { isProfileReady } from '../helpers.ts';
+import { readStyles } from './read-styles.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const readRel = (path) => fs.readFileSync(`${__dirname}/../../${path}`, 'utf8');
+const readRel = (path) => (path === 'index.css' ? readStyles() : fs.readFileSync(`${__dirname}/../../${path}`, 'utf8'));
 const app = readRel('App.tsx');
 const home = readRel('components/Home.tsx');
 const chat = readRel('components/Chat.tsx');
