@@ -13,7 +13,40 @@ interface ErrorFields {
 
 // Keep production diagnostics limited to stable, non-content metadata. Error
 // messages, details, and hints can echo user input or database values.
+//
+// In DEV builds we always log to the console so developers can debug; in
+// production we only log when the user has explicitly opted in via
+// `localStorage.enoughDebug = '1'`, so a normal deployed instance stays
+// silent on the console (no PII/no user-content risk from accidental logs).
 function logError(error: ErrorFields, context: string): void {
+  // Diagnostics policy:
+  //   * Vite DEV builds                             → always log.
+  //   * Node / test runner (no Vite transform)      → always log (tests spy
+  //     console.error explicitly; non-test Node environments are dev-tooling).
+  //   * Vite PROD builds                             → log ONLY when the user
+  //     sets localStorage.enoughDebug = '1' (opt-in).
+  //
+  // Static replacement guarantees: Vite replaces `import.meta.env.DEV` /
+  // `import.meta.env.PROD` with boolean literals at build time, so dead-code
+  // elimination removes the wrong branch. When running unbundled in Node,
+  // `import.meta.env` is undefined and we fall through to logging.
+  const env = (import.meta as { env?: { DEV?: boolean; PROD?: boolean } }).env;
+  const isProd = env?.PROD === true;
+
+  if (isProd) {
+    try {
+      if (
+        typeof window === 'undefined' ||
+        !window.localStorage ||
+        window.localStorage.getItem('enoughDebug') !== '1'
+      ) {
+        return;
+      }
+    } catch {
+      return; // localStorage unavailable (private mode etc.) → stay silent
+    }
+  }
+
   console.error(`enough. ${context}:`, {
     code: error.code ?? null,
     status: error.status ?? null,

@@ -4,7 +4,7 @@ import {
   getStoredMode,
   nextThemeMode,
   THEME_CHANGE_EVENT,
-  ThemeMode,
+  type ThemeMode,
 } from '../lib/theme';
 import { t, useLang } from '../i18n';
 import { MoonIcon, SunIcon, SystemIcon } from './icons';

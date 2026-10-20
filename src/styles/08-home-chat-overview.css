@@ -1,0 +1,66 @@
+/* ---------- home / chat overview ---------- */
+
+.home-screen {
+  position: relative;
+  width: 100%;
+  max-width: var(--column);
+  min-height: 100dvh;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  /* The bottom navigation is a fixed top-level layer now, so the screens it
+     floats over reserve its space instead of hosting it in flow. */
+  padding: calc(env(safe-area-inset-top) + 16px) 20px var(--nav-clearance);
+  animation: screen-in 0.2s ease-out;
+}
+
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* Clear screen header: the wordmark acts as the screen title, the theme
+   toggle anchors the right edge. No chrome, no divider — the canvas and the
+   type carry the hierarchy. */
+.home-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: var(--space-3);
+  padding: 0 2px;
+}
+
+.logo {
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+
+.logo-button {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  padding: 8px 14px 8px 2px;
+  transition: opacity 0.2s ease;
+}
+
+.logo-button:active {
+  opacity: 0.6;
+}
+
+.home-header-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* One list principle for the whole app: entries are separated by spacing and
+   vertical hierarchy — never by a decorative line between them. */
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}

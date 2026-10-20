@@ -160,10 +160,11 @@ test('MF12: a tampered / unparseable value is treated as legacy plaintext, never
   assert.equal(isEnvelope(''), false);
   assert.equal(isEnvelope('hello'), false);
   assert.equal(isEnvelope('{not json'), false);
-  assert.equal(isEnvelope('{"v":2,"e":"sw","t":2,"b":"x"}'), false, 'wrong version rejected');
+  assert.equal(isEnvelope('{"v":3,"e":"sw","t":2,"b":"x"}'), false, 'wrong version rejected');
   assert.equal(isEnvelope('{"v":1,"e":"other","t":2,"b":"x"}'), false, 'wrong engine rejected');
   assert.equal(isEnvelope('{"v":1,"e":"sw","t":9,"b":"x"}'), false, 'bad type rejected');
   assert.equal(isEnvelope('{"v":1,"e":"sw","t":2,"b":"YQ=="}'), true);
+  assert.equal(isEnvelope('{"v":2,"e":"sw","t":2,"b":"YQ==","c":1}'), true, 'v2 envelope with C-1 counter accepted');
 });
 
 test('MF13: clearMessageCache wipes local plaintext but is local-only', async () => {

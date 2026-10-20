@@ -72,6 +72,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Fail the gate on known high/critical vulnerabilities in the installed
+      # dependency tree. We use --omit=dev because jsdom and other test-only
+      # devDependencies are never shipped to visitors; runtime dependencies
+      # are audited strictly.
+      - name: Audit dependencies (high/critical)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Lint
+        run: npm run lint
+
+      # i18n parity: every non-EN language must define every key the EN dict
+      # carries (no missing strings, no orphan keys from removed features).
+      - name: Check i18n parity
+        run: npm run i18n:check
+
       # F5: byte-exact SHA-256 verification of @getmaapp/signal-wasm@0.6.6
       # against the audited manifest (docs/e2ee-f5-supply-chain.md). Pure
       # filesystem check — it runs first because everything below links against

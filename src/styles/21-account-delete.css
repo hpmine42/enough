@@ -1,0 +1,9 @@
+/* ---------- account delete spacing ---------- */
+
+/* Distance, not a divider line: the gap above Delete Account is
+   intentionally much larger than the row rhythm around it (44px against the
+   4px between two ordinary rows), so the destructive action stands on its
+   own without a line above it. */
+.settings-row.delete-spaced {
+  margin-top: 44px;
+}

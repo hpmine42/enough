@@ -1,0 +1,628 @@
+/* ---------- the overlay's two top-level destinations ----------
+   The overlay hosts two equal destinations: the dedicated people-search
+   screen ("New chat", #/new-chat) and the Settings overview (#/settings).
+   Both are full-size surfaces of the same shape as a `.settings-subpanel`
+   (own header, own scroll body), so switching between them is one horizontal
+   movement of two peers instead of a single screen swapping its content.
+
+   Each destination keeps its side: New chat is the left area, Settings the
+   right one. Moving to Settings therefore moves everything left — the search
+   screen out to the left, the Settings overview in from the right — and
+   moving back to New chat is exactly that movement played backwards (both
+   move right). Same distance, same duration, same curve in both directions,
+   which is why no direction state is needed anywhere.
+
+   The animations belong to the swap only: the overlay's own entrance/exit and
+   the Settings subpages keep their own transitions, so a plain `.active` pane
+   carries no animation at all and no second screen animation can ever run on
+   top of the overlay's slide. */
+.settings-pane {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+/* The destination a running swap is animating away from: it stays underneath
+   the arriving pane (which is why it loses the stacking order), keeps its own
+   content for the exit and is not interactive. Its base style is already the
+   end of the exit, so without animations (reduced motion, or an environment
+   that does not run them) only the arriving pane is left visible. */
+.settings-pane.leaving {
+  z-index: 0;
+  pointer-events: none;
+}
+
+.settings-pane-new-chat.entering {
+  animation: pane-in-left 0.3s var(--ease);
+}
+
+.settings-pane-settings.entering {
+  animation: pane-in-right 0.3s var(--ease);
+}
+
+.settings-pane-new-chat.leaving {
+  transform: translateX(-56px);
+  opacity: 0;
+  animation: pane-out-left 0.3s var(--ease) forwards;
+}
+
+.settings-pane-settings.leaving {
+  transform: translateX(56px);
+  opacity: 0;
+  animation: pane-out-right 0.3s var(--ease) forwards;
+}
+
+/* Leaving New chat: the search screen slides out to the left while the
+   Settings overview arrives from the right — both travel the same 56px, so
+   the two areas move as one. */
+@keyframes pane-out-left {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-56px);
+  }
+}
+
+@keyframes pane-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(56px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Leaving Settings: the same movement in reverse — everything moves right. */
+@keyframes pane-out-right {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(56px);
+  }
+}
+
+@keyframes pane-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-56px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* The header is safe-area aware WITHOUT giving up its height. With a fixed
+   `height` the top safe-area padding ate into the border-box (padding-top
+   could exceed 56px on notched devices), squeezing the 40px controls and
+   the title out of the frame. `min-height` keeps the pre-safe-area geometry
+   (56px box, 53px content line) on devices without an inset and grows the
+   box additively on devices with one — the same model `.legal-header`
+   already uses. Global box-sizing is border-box, so min-height wraps the
+   padding + border instead of adding to them beyond the inset. */
+.settings-header {
+  min-height: calc(env(safe-area-inset-top) + 56px);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(env(safe-area-inset-top) + 2px) 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-scroll {
+  flex: 1;
+  overflow-y: auto;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  overscroll-behavior: contain;
+  /* The fixed bottom navigation floats above this overlay, so the last row
+     of a destination stays clear of it. Settings subpages cover the bar
+     instead and reset this padding (`.settings-subpanel .settings-scroll`). */
+  padding-bottom: var(--nav-clearance);
+}
+
+/* Dedicated people-search screen ("New chat", #/new-chat): the shared
+   PeopleSearch section scrolls in the same way as the Settings overview. */
+.newchat-screen {
+  padding-bottom: var(--nav-clearance);
+}
+
+/* Centered header title, shared by the overview and its subpages. */
+.settings-page-title,
+.settings-subpanel-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--text);
+}
+
+/* A group is a spacing unit: the section title opens it, the rows inside it
+   keep a tight rhythm, and the distance to the next group is what makes the
+   grouping legible — no divider lines anywhere in between. */
+.settings-section {
+  padding: 24px 22px 12px;
+}
+
+.settings-section + .settings-section {
+  padding-top: 30px;
+}
+
+.settings-section-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* One menu/list row: no separator line, no card. The row bleeds to the
+   section's content edges (negative inline margin) while its own padding
+   keeps the label on the section's reading axis, so the hover/press surface
+   can be a soft rounded rect around the text. */
+.settings-row {
+  width: calc(100% + var(--row-inset) * 2);
+  margin: 0 calc(var(--row-inset) * -1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px var(--row-inset);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+/* Two entries of one group are separated by spacing alone. */
+.settings-row + .settings-row,
+.settings-static-row + .settings-static-row {
+  margin-top: var(--space-1);
+}
+
+.settings-row.clickable {
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.settings-row.clickable:hover {
+  background: var(--surface);
+  color: var(--accent-text);
+}
+
+.settings-row.clickable:active {
+  background: var(--surface-2);
+}
+
+.settings-row-main {
+  min-width: 0;
+}
+
+.settings-row-label {
+  font-size: 15.5px;
+}
+
+.settings-row-sub {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.settings-row-control {
+  flex-shrink: 0;
+}
+
+.danger-text {
+  color: var(--danger);
+}
+
+.settings-field-label {
+  display: block;
+  margin: 6px 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.settings-edit-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Profile facts: same row geometry as a menu row, same separation by
+   spacing — only the trailing value replaces the chevron/control. */
+.settings-static-row {
+  width: calc(100% + var(--row-inset) * 2);
+  margin: 0 calc(var(--row-inset) * -1);
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 13px var(--row-inset);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.settings-email-row {
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.settings-email-row:hover {
+  background: var(--surface);
+  color: var(--accent-text);
+}
+
+.settings-static-label {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.settings-static-value {
+  font-size: 14.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-link {
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.settings-inline-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding-bottom: 8px;
+  animation: form-in 0.22s var(--ease);
+}
+
+.settings-inline-form.closing {
+  animation: form-out 0.18s ease-in forwards;
+}
+
+@keyframes form-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes form-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.delete-confirm-input {
+  margin-top: 10px;
+}
+
+.settings-inline-form .btn-small {
+  align-self: flex-start;
+}
+
+/* Results are one list: the same quiet rhythm as the chat overview, so the
+   entries are told apart by spacing and by their own hover surface. */
+.settings-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: 12px;
+  padding-bottom: 10px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.settings-search-row {
+  gap: var(--space-3);
+  padding: 14px 8px;
+}
+
+.settings-search-row:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Active-connection rows on Settings → People. Same geometry as an overview
+   row (they share the `.chat` row base) minus the separator. */
+.settings-connection-row {
+  gap: 14px;
+  padding: 12px 8px;
+}
+
+.settings-connection-row:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.settings-connection-error {
+  margin: 8px 0;
+}
+
+/* search result whose peer is blocked (either direction) — the same row as
+   every other result, only its trailing column carries the block state. */
+.blocked-search-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 14px 8px;
+}
+
+.blocked-search-row .chat-trailing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* settings subpage — mirrors the overlay's slide-in */
+.settings-subpanel {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(56px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 0.3s var(--ease),
+    opacity 0.3s ease,
+    visibility 0s linear 0.3s;
+}
+
+.settings-subpanel.open {
+  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    transform 0.3s var(--ease),
+    opacity 0.3s ease,
+    visibility 0s;
+}
+
+/* Settings → People → Blocked Users uses the same subpanel slide as the
+   other Settings submenus, just on a second layer above People. */
+.settings-subpanel-nested {
+  z-index: 3;
+}
+
+/* Subpanels cover the bottom navigation, so instead of the overview's
+   --nav-clearance they only need their own end spacing — plus the bottom
+   inset on devices with a home indicator, additively (32px stay 32px where
+   there is no inset). The panel itself carries no bottom padding, so this
+   single declaration is the whole safe-area chain for every subpage
+   (Profile/People/Language/Appearance/Chat/Account, incl. the account
+   deletion area at the bottom of Account, and the nested blocked list). */
+.settings-subpanel .settings-scroll {
+  padding: 8px 22px calc(32px + env(safe-area-inset-bottom));
+}
+
+.settings-subpanel .settings-section:first-child {
+  padding-top: 22px;
+}
+
+.settings-blocked-empty {
+  padding: 18px 0;
+}
+
+/* Loading placeholders of the People surfaces: the dedicated search screen
+   (while the debounced lookup runs) and Settings → People (while the active
+   connections load). The same quiet skeleton vocabulary the chat overview
+   and the chat itself already use — neutral `--surface-2` shapes with the
+   shared `skeleton-breathe` pulse, decorative (`aria-hidden`), stilled by
+   the global reduced-motion block. The state itself is carried by the
+   labelled `role="status"` wrapper, never by a placeholder text. The rows
+   mirror the geometry of what they precede: two text lines for an
+   avatar-less search result row, avatar + two lines for an active-connection
+   row (44px like the loaded `Avatar`). */
+.settings-people-skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  animation: skeleton-breathe 1.5s ease-in-out infinite;
+}
+
+.settings-people-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 8px;
+}
+
+.settings-people-skeleton-avatar {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
+}
+
+/* settings category overview — rows open the matching subpage */
+.settings-category-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.settings-category-row .settings-row-label {
+  font-weight: 450;
+}
+
+.blocked-row-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.chat-trailing {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.badge-soft {
+  display: inline-block;
+  padding: 2px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0 16px;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15.5px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.option:hover {
+  border-color: var(--border-strong);
+}
+
+.option.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.option-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.option-label svg {
+  color: var(--muted);
+}
+
+.option.selected .option-label svg {
+  color: var(--accent-text);
+}
+
+/* About group: version, legal surfaces and the source link. Kept as the
+   shared footer element, laid out as a quiet row list. */
+.settings-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  /* The bottom navigation below already carries the safe-area inset. */
+  padding: 4px 0 24px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.settings-footer-version {
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-github {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* toggle switch */
+
+.toggle {
+  width: 46px;
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  padding: 2px;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.toggle-knob {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition:
+    transform 0.2s var(--ease),
+    background 0.2s ease;
+}
+
+.toggle.on {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.toggle.on .toggle-knob {
+  transform: translateX(18px);
+  background: var(--toggle-knob-on);
+}
+
+.toggle:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

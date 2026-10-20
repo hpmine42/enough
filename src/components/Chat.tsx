@@ -9,24 +9,14 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { navigate } from '../lib/router';
 import {
-  acceptConnection,
-  blockUser,
-  cancelConnectionRequest,
-  declineConnection,
-  deleteChatForMe,
-  deleteMessageForEveryone,
-  deleteMessageForMe,
   getBlockState,
   getConnection,
   getMessagesPage,
   getProfiles,
   isHiddenByChatDeletion,
   loadDeletionsForUser,
-  removeMyNotes,
   saveReadState,
-  sendConnectionRequest,
   sendMessage,
-  unblockUser,
 } from '../lib/api';
 import {
   INITIAL_ANCHOR_MAX_WAIT_MS,
@@ -51,7 +41,7 @@ import type { PendingRealtimeRow } from '../lib/chatRealtime';
 import { supabase } from '../lib/supabase';
 import { prefersReducedMotion } from '../lib/theme';
 import { getLang, t, useLang } from '../i18n';
-import { BlockState, ChatOpenIdentity, Connection, Message, Profile } from '../lib/types';
+import { type BlockState, type ChatOpenIdentity, type Connection, type Message, type Profile } from '../lib/types';
 import { useE2EE } from '../context/E2EEContext';
 import { prepareSend, decryptForDisplay, isEnvelope } from '../lib/e2ee/message-flow';
 import { cachePlaintext, getCachedPlaintext } from '../lib/e2ee/message-cache';
@@ -66,22 +56,26 @@ import { isCryptoError } from '../lib/crypto/errors';
 import Avatar from './Avatar';
 import MessageBubble from './MessageBubble';
 import OfflineBanner from './OfflineBanner';
+import { MultiDeviceBanner } from './MultiDeviceBanner';
 import MessageComposer from './MessageComposer';
+import { useOutbox } from '../hooks/useOutbox';
 import BottomSheet from './BottomSheet';
 import ChatActionMenu from './ChatActionMenu';
 import Dialog from './Dialog';
 import ThemeButton from './ThemeButton';
 import { BackIcon, TrashIcon, DownIcon, InfoIcon, LockIcon } from './icons';
-
-const PAGE_SIZE = 40;
-const LONG_PRESS_MS = 550;
-const MINUTE_MS = 60_000;
+import { useSafetyNumber } from '../hooks/useSafetyNumber';
+import { useConnectionActions } from '../hooks/useConnectionActions';
+import { useMessageActions } from '../hooks/useMessageActions';
 
 interface SheetTarget {
   message: Message;
   mine: boolean;
   within24h: boolean;
 }
+
+const PAGE_SIZE = 40;
+const MINUTE_MS = 60_000;
 
 export default function Chat({
   connectionId,
@@ -194,7 +188,7 @@ export default function Chat({
   const atBottomRef = useRef(true);
   const loadingOlderRef = useRef(false);
   const [atBottom, setAtBottom] = useState(true);
-  const [unreadBelow, setUnreadBelow] = useState(0);
+  const [, setUnreadBelow] = useState(0);
   const [newSinceUp, setNewSinceUp] = useState(0);
   const lastReadRef = useRef<string | null>(null);
   const saveTimerRef = useRef<number | null>(null);
@@ -424,7 +418,7 @@ export default function Chat({
       active = false;
       flushReadState();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [connectionId, me, reloadKey, openingIdentity]);
 
   /* Reconnection: rerun the EXISTING load path (same effect, same queries,
@@ -606,7 +600,7 @@ export default function Chat({
     return () => {
       client.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [connectionId, valid, peer, hiddenUntil, me, offline]);
 
   /* Block state follows changes from the other device in real time. */
@@ -694,7 +688,7 @@ export default function Chat({
     return () => {
       active = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [messages, manager, conn, me]);
 
   // Reset display state when switching conversations. The lifecycle token
@@ -980,7 +974,7 @@ export default function Chat({
     if (atBottomRef.current && messages.length > 0) {
       scrollToBottom(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [messages.length]);
 
   // Initial load: open at the bottom. The anchoring phase started here keeps
@@ -1003,7 +997,7 @@ export default function Chat({
       }
       persistRead();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [loading]);
 
   useEffect(() => {
@@ -1026,9 +1020,13 @@ export default function Chat({
   async function handleSend(text: string): Promise<boolean> {
     if (!conn || blocked || !text) return false;
     if (loading || revealPending || !valid || !!loadError) return false;
-    // Offline sending is deliberately not implemented in this version and
-    // nothing is queued: the composer is disabled, and this is the guard
-    // behind it.
+    // When offline and the engine is ready (so we CAN encrypt later), enqueue
+    // locally instead of failing. My Notes always writes directly (it isn't
+    // routed through the network for encryption), and non-ready E2EE states
+    // still fail closed so we don't promise a send that can never drain.
+    if (offline && !self && canSendEncrypted({ e2eeStatus, isSelf: self })) {
+      return enqueue(text);
+    }
     if (offline) return false;
     // Defence in depth behind the disabled composer: a peer conversation is
     // never written to unless the engine is READY. `prepareSend` below would
@@ -1122,241 +1120,6 @@ export default function Chat({
     return true;
   }
 
-  async function handleAccept() {
-    if (!conn) return;
-    setBusyId(conn.id);
-    setError(null);
-    const err = await acceptConnection(conn.id);
-    setBusyId(null);
-    if (err) setError(err);
-    else setConn({ ...conn, status: 'accepted' });
-  }
-
-  async function handleDecline(blockPeer = false) {
-    if (!conn) return;
-    setBusyId(conn.id);
-    setError(null);
-    const err = await declineConnection(conn.id, blockPeer);
-    setBusyId(null);
-    setDeclineOpen(false);
-    if (err) setError(err);
-    else {
-      setConn({ ...conn, status: 'declined' });
-      if (blockPeer) setBlockState('blockedByMe');
-    }
-  }
-
-  async function handleBlockUser() {
-    if (!conn || !peer) return;
-    setActionBusy(true);
-    setError(null);
-    const err = await blockUser(me, peer.id);
-    setActionBusy(false);
-    setChatActionConfirm(null);
-    if (err) {
-      setError(err);
-      return;
-    }
-    setBlockState('blockedByMe');
-  }
-
-  async function handleUnblock() {
-    if (!conn || !peer) return;
-    setBusyId(conn.id);
-    setError(null);
-    const err = await unblockUser(me, peer.id);
-    if (err) {
-      setBusyId(null);
-      setError(err);
-      return;
-    }
-    // Re-derive the relation from the database instead of assuming 'none':
-    // with a mutual block, removing the caller's own side must still leave
-    // the composer disabled while the peer's block ('blockedByThem') exists.
-    setBusyId(null);
-    setBlockState(await getBlockState(me, peer.id));
-  }
-
-  async function handleCancelRequest() {
-    if (!conn) return;
-    setBusyId(conn.id);
-    setError(null);
-    const err = await cancelConnectionRequest(conn.id);
-    setBusyId(null);
-    if (err) setError(err);
-    else navigate('#/');
-  }
-
-  async function handleRequestAgain() {
-    if (!conn || !peer) return;
-    const prevConn = conn;
-    setBusyId(conn.id);
-    setError(null);
-    // Immediate visual feedback: optimistically transition state to pending outgoing request.
-    setConn({
-      ...conn,
-      user_a: me,
-      user_b: peer.id,
-      status: 'pending',
-      created_at: new Date().toISOString(),
-    });
-    const err = await sendConnectionRequest(me, peer.id);
-    setBusyId(null);
-    if (err) {
-      setConn(prevConn);
-      setError(err);
-    } else {
-      const fresh = await getConnection(conn.id);
-      if (fresh) setConn(fresh);
-    }
-  }
-
-  async function handleDeleteEveryone() {
-    if (!confirmTarget) return;
-    const target = confirmTarget;
-    setActionBusy(true);
-    setError(null);
-    const err = await deleteMessageForEveryone(target.message.id);
-    setActionBusy(false);
-    setConfirmAction(null);
-    setConfirmTarget(null);
-    if (err) {
-      setError(err);
-      return;
-    }
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === target.message.id
-          ? { ...m, deleted_at: new Date().toISOString(), ciphertext: '' }
-          : m,
-      ),
-    );
-  }
-
-  async function handleDeleteForMe() {
-    if (!confirmTarget) return;
-    const target = confirmTarget;
-    setActionBusy(true);
-    setError(null);
-    const err = await deleteMessageForMe(me, target.message.id);
-    setActionBusy(false);
-    setConfirmAction(null);
-    setConfirmTarget(null);
-    if (err) {
-      setError(err);
-      return;
-    }
-    setDeletedForMe((prev) => new Set(prev).add(target.message.id));
-  }
-
-  async function handleCopy() {
-    if (!sheetTarget) return;
-    const text = plain[sheetTarget.message.id] ?? '';
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // Fallback for browsers without async clipboard.
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
-  }
-
-  async function handleDeleteChat() {
-    if (!conn) return;
-    setActionBusy(true);
-    setError(null);
-    const err = await deleteChatForMe(me, conn.id);
-    setActionBusy(false);
-    setChatActionConfirm(null);
-    if (err) {
-      setError(err);
-      return;
-    }
-    navigate('#/');
-  }
-
-  /**
-   * C2 peer recovery — the SINGLE call site of resetPeerSecurityState (see
-   * the IR12c/IR9b tripwires). Runs only from the confirmation dialog, after
-   * a fresh block read: a reset while blocked is pointless, and a block must
-   * never be mistaken for an identity change. Never sends — the draft stays
-   * and the user re-sends explicitly (P2).
-   */
-  async function performPeerReset() {
-    const target = resetDialog;
-    if (!target || !manager) return;
-    const token = lifecycleRef.current.current();
-    setResetBusy(true);
-    const freshBlock = await getBlockState(me, target.peerId);
-    if (!lifecycleRef.current.isCurrent(token)) return;
-    if (freshBlock !== 'none') {
-      setResetBusy(false);
-      setResetDialog(null);
-      setBlockState(freshBlock);
-      setIdentityChangedPeer(null);
-      setError(
-        freshBlock === 'blockedByMe' ? t('block.blockedByYouChat') : t('block.blockedByThemChat'),
-      );
-      return;
-    }
-    try {
-      await manager.resetPeerSecurityState(target.peerId, [target.connectionId]);
-    } catch {
-      if (!lifecycleRef.current.isCurrent(token)) return;
-      setResetBusy(false);
-      setResetDialog(null);
-      setError(t('chat.e2eeResetFailed'));
-      return;
-    }
-    if (!lifecycleRef.current.isCurrent(token)) return;
-    setResetBusy(false);
-    setResetDialog(null);
-    setIdentityChangedPeer(null);
-    setError(null);
-  }
-
-  /**
-   * C2 device recovery — the SINGLE call site of resetDeviceState (see the
-   * IR9b tripwire). Runs only from the confirmation dialog; afterwards the
-   * provider re-runs initialization on the fresh state and the UI follows the
-   * normal status channel (preparing → ready, or the error banner again).
-   */
-  async function performDeviceReset() {
-    const token = lifecycleRef.current.current();
-    setDeviceResetBusy(true);
-    let ok = false;
-    try {
-      ok = await resetDeviceE2EE();
-    } catch {
-      ok = false;
-    }
-    if (!lifecycleRef.current.isCurrent(token)) return;
-    setDeviceResetBusy(false);
-    setDeviceResetOpen(false);
-    if (!ok) setError(t('chat.e2eeResetFailed'));
-  }
-
-  /* My Notes trash: clear all notes and disable My Notes in one step.
-     remove_my_notes() deletes the self-connection including its messages, so
-     the notes chat disappears from Home immediately on return. */
-  async function handleClearMyNotes() {
-    if (!conn) return;
-    setActionBusy(true);
-    setError(null);
-    const err = await removeMyNotes(me, conn.id);
-    setActionBusy(false);
-    setChatMenuOpen(false);
-    if (err) {
-      setError(err);
-      return;
-    }
-    navigate('#/');
-  }
-
   /* ------------------------------ derived ------------------------------ */
 
   const status = conn ? effectiveStatus(conn) : 'accepted';
@@ -1385,7 +1148,56 @@ export default function Chat({
   // `initializing` and `error` both refuse (fail-closed) — the composer says
   // why instead of accepting a message that could only fail. My Notes is the
   // documented plaintext exception and stays writable throughout.
+  const peerId = conn && !self ? otherUserId(conn, me) : null;
   const e2eeReady = canSendEncrypted({ e2eeStatus, isSelf: self });
+  const safetyNumberStr = useSafetyNumber({ me, peerId, isSelf: self, ended, manager, e2eeReady });
+
+  // Offline send queue: enqueue sealed messages while offline and drain when
+  // online. My-Notes goes through the normal synchronous write (never online-
+  // dependent in the same way), so outbox is only used for peer chats.
+  const { enqueue } = useOutbox({
+    me,
+    conn,
+    isSelf: self,
+    manager,
+    e2eeStatus,
+    lifecycleRef,
+    setError,
+    setMessages,
+    setPlain,
+    otherUserId,
+  });
+
+  // Connection-lifecycle and message-sheet actions, extracted into dedicated
+  // hooks (#5). Passed in current-state + setter setups; behaviour preserved
+  // verbatim (optimistic updates, busy gating, lifecycle tokens).
+  const {
+    handleAccept,
+    handleDecline,
+    handleBlockUser,
+    handleUnblock,
+    handleCancelRequest,
+    handleRequestAgain,
+    handleDeleteChat,
+    handleClearMyNotes,
+  } = useConnectionActions({
+    me, conn, peer, setError, setBusyId, setActionBusy,
+    setConn, setBlockState, setDeclineOpen, setChatActionConfirm,
+    setChatMenuOpen, navigate,
+  });
+  const {
+    handleDeleteEveryone,
+    handleDeleteForMe,
+    handleCopy,
+    performPeerReset,
+    performDeviceReset,
+  } = useMessageActions({
+    me, manager, lifecycleRef, setError, setActionBusy,
+    setMessages, setDeletedForMe, setConfirmAction, setConfirmTarget,
+    setResetBusy, setResetDialog, setDeviceResetBusy, setDeviceResetOpen,
+    setBlockState, setIdentityChangedPeer, resetDeviceState: resetDeviceE2EE,
+    plain, confirmTarget, sheetTarget, resetDialog,
+  });
   // Only a settled failure gets the explanatory banner with a retry action;
   // `initializing` is transient and must not alarm the user.
   const e2eeFailed = e2eeStatus === 'error';
@@ -1497,7 +1309,7 @@ export default function Chat({
       }, INITIAL_ANCHOR_MAX_WAIT_MS),
     ];
     return () => timers.forEach((id) => window.clearTimeout(id));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [loading, valid, connectionId]);
 
   const grouped = useMemo(() => {
@@ -1601,6 +1413,11 @@ export default function Chat({
                 <div className="chat-peer-username">
                   {ended ? '' : `@${peer!.username}`}
                 </div>
+                {safetyNumberStr && !ended ? (
+                  <div className="chat-safety-number" aria-label={t('chat.safetyNumberLabel')} title={t('chat.safetyNumberHint')}>
+                    {safetyNumberStr}
+                  </div>
+                ) : null}
                 {/* Understated, icon-only E2EE marker for peer conversations: a
                     small lock that never competes with the contact name for
                     horizontal space (the accessible name stays on the icon).
@@ -1756,6 +1573,7 @@ export default function Chat({
       )}
 
       <OfflineBanner status={connectivity} />
+      <MultiDeviceBanner />
 
       {loading ? (
         /* Quiet first-paint state for the message area. The container keeps
@@ -1839,6 +1657,11 @@ export default function Chat({
                   : bubble.kind === 'pending'
                     ? t('chat.decrypting')
                     : t('chat.undecryptable');
+              // Placeholder bubbles for queued offline messages (id prefix
+              // `outbox-` assigned by the outbox hook) render with the
+              // pending visual state even though their plaintext is known
+              // locally — they have not been delivered yet.
+              const isOutboxPending = message.id.startsWith('outbox-');
               return (
                 <MessageBubble
                   key={message.id}
@@ -1846,10 +1669,11 @@ export default function Chat({
                   mine={message.sender_id === me}
                   peerUsername={peerUsername}
                   group={group}
-                  focusable={canChat && !message.deleted_at}
+                  focusable={canChat && !message.deleted_at && !isOutboxPending}
                   text={bubbleText}
-                  pending={bubble.kind === 'pending'}
+                  pending={bubble.kind === 'pending' || isOutboxPending}
                   onLongPress={(m) => {
+                    if (isOutboxPending) return;
                     const within24h =
                       Date.now() - new Date(m.created_at).getTime() < 24 * 60 * 60 * 1000;
                     setSheetTarget({
@@ -1977,8 +1801,11 @@ export default function Chat({
             revealPending ||
             !canChat ||
             blocked ||
-            offline ||
-            !e2eeReady
+            // When the engine is not ready, sending is never possible (fail
+            // closed for peer chats; My Notes requires a server write).
+            !e2eeReady ||
+            // My Notes is a server-side write and cannot be queued offline.
+            (offline && self)
           }
         />
       )}

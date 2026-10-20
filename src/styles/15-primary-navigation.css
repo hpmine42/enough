@@ -1,0 +1,109 @@
+/* ---------- primary navigation ----------
+   Chats | New chat | Settings.
+
+   LAYERING — the architectural invariant: the bar is a fixed top-level layer
+   rendered as a SIBLING of `.app-stage` and `.settings-overlay` (see
+   `App.tsx`), never as a child of either. Those layers animate — the screens
+   slide in with `screen-in`, the overlay slides in with a transform, the
+   stage dims — and the bar must not inherit any of that motion. It therefore
+   has its own stacking context above them (its `z-index` sits between the
+   overlay and the dialog/sheet backdrops) and is pinned to the viewport.
+
+   DESIGN — a calm floating surface: warm card, hairline border, one soft
+   shadow, moderate radius, three equally sized destinations.
+
+   Stability contract: tapping a destination must never move this bar or its
+   items. No transform, no scale, no animation, no font-weight change — the
+   active state is a colour/background tint only, and the bar stays on the
+   same pixels across every destination and every screen transition. */
+
+.bottom-nav {
+  position: fixed;
+  z-index: 50;
+  bottom: calc(var(--nav-inset) + env(safe-area-inset-bottom));
+  /* Centered with `left`/`right` + auto margins, so it needs no centering
+     trick that would give it a movement property of its own. */
+  left: var(--nav-inset);
+  right: var(--nav-inset);
+  margin: 0 auto;
+  max-width: calc(var(--column) - var(--nav-inset) * 2);
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: var(--nav-height);
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--nav-shadow);
+  transition:
+    opacity 0.2s ease,
+    visibility 0s,
+    background 0.25s ease,
+    border-color 0.25s ease;
+}
+
+/* A Settings subpage is one navigation level below the bar's destinations.
+   While it slides over the screen the bar is not a reachable destination, so
+   it leaves the accessibility tree and the tab order (BottomNav.tsx) and
+   fades out of view — from the same fixed position, without moving. */
+.bottom-nav.covered {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.2s ease,
+    visibility 0s linear 0.2s;
+}
+
+.bottom-nav-item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 6px 2px;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease;
+}
+
+.bottom-nav-item:hover {
+  color: var(--text-soft);
+  background: var(--surface-2);
+}
+
+.bottom-nav-item:active {
+  background: var(--accent-soft);
+}
+
+/* Active destination: icon and label tinted with the accent plus a quiet
+   accent-soft surface. No font-weight change (it would reflow the centered
+   label), no size change, no movement — layout stays identical. */
+.bottom-nav-item.active {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+/* Single font weight for every item: the active state is a tint only.
+   Changing font-weight would reflow the centered label and visibly nudge
+   the item — the bar must stay layout-stable on interaction. A long
+   localized label (German "Einstellungen") is clipped instead of wrapped,
+   so it can never grow the bar on a narrow screen. */
+.bottom-nav-label {
+  max-width: 100%;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

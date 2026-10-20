@@ -424,6 +424,9 @@ export const translations = {
       you: 'You',
       encryptedPreview: 'Encrypted message',
       e2eeLabel: 'End-to-end encrypted',
+      safetyNumberLabel: 'Safety number',
+      safetyNumberHint:
+        'Safety number — compare this number out of band with your contact to verify their identity.',
       undecryptable: 'Couldn’t decrypt this message.',
       e2eeUnavailable:
         'Secure messaging is unavailable in this browser. Update or reopen the app to send messages.',
@@ -528,6 +531,15 @@ export const translations = {
       loadFailed: 'Data could not be loaded.',
       messagesLoadFailed: 'Messages could not be loaded.',
       retry: 'Try again',
+    },
+
+    multiDevice: {
+      // Shown at the top of Home / Chat when more than one browser/device
+      // has registered for the current account. Signal-WASM sessions are
+      // device-local, so some messages may not be readable on every device
+      // until multi-device sync lands.
+      banner:
+        'This account is signed in on {count} devices. Messages are end-to-end encrypted per device, so some chats may not be readable on all of them yet.',
     },
   },
 
@@ -929,6 +941,9 @@ export const translations = {
       you: 'Du',
       encryptedPreview: 'Verschlüsselte Nachricht',
       e2eeLabel: 'Ende-zu-Ende-verschlüsselt',
+      safetyNumberLabel: 'Sicherheitsnummer',
+      safetyNumberHint:
+        'Sicherheitsnummer — vergleiche diese Nummer auf einem anderen Kanal mit deinem Kontakt, um dessen Identität zu bestätigen.',
       undecryptable: 'Diese Nachricht konnte nicht entschlüsselt werden.',
       e2eeUnavailable:
         'Sichere Nachrichten sind in diesem Browser nicht verfügbar. Aktualisiere oder öffne die App erneut, um Nachrichten zu senden.',
@@ -1028,6 +1043,11 @@ export const translations = {
       loadFailed: 'Daten konnten nicht geladen werden.',
       messagesLoadFailed: 'Nachrichten konnten nicht geladen werden.',
       retry: 'Erneut versuchen',
+    },
+
+    multiDevice: {
+      banner:
+        'Dieses Konto ist auf {count} Geräten angemeldet. Nachrichten sind gerätespezifisch Ende-zu-Ende verschlüsselt, daher können einige Chats noch nicht auf allen Geräten lesbar sein.',
     },
   },
 } as const;

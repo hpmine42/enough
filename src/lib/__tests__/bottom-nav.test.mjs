@@ -27,9 +27,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readStyles } from './read-styles.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const read = (rel) => readFileSync(join(root, rel), 'utf8');
+const read = (rel) => (rel === 'src/index.css' ? readStyles() : readFileSync(join(root, rel), 'utf8'));
 
 const app = read('src/App.tsx');
 const home = read('src/components/Home.tsx');
@@ -156,14 +157,21 @@ test('neither Home nor Settings renders the bar', () => {
 
 test('the covered state is derived from the route, not from overlay internals', () => {
   // The bar lives outside the overlay but still has to know when a Settings
-  // subpage covers it. The route parser is exported for exactly that.
+  // subpage covers it. The route parser lives in src/lib/settingsRoute.ts so
+  // App can import it without statically pulling in the lazy Settings overlay.
   assert.ok(
-    /export function settingsCategoryFromRoute\(/.test(settings),
-    'Settings exports its route → category parser for the top-level bar',
+    /export function settingsCategoryFromRoute\(/.test(
+      read('src/lib/settingsRoute.ts')
+    ),
+    'settingsRoute.ts exports the route → category parser for the top-level bar',
   );
   assert.ok(
     app.includes('settingsCategoryFromRoute'),
     'App imports that parser instead of duplicating route logic',
+  );
+  assert.ok(
+    app.includes("from './lib/settingsRoute'"),
+    'App imports the parser from lib/settingsRoute (not from the lazy Settings component)',
   );
   assert.ok(
     app.includes('const navCovered = settingsCategoryFromRoute(route) !== null;'),

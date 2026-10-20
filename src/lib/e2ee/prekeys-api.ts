@@ -148,3 +148,22 @@ export async function countAvailableKyberPreKeys(userId: string): Promise<number
     .eq('is_last_resort', false);
   return error ? 0 : count ?? 0;
 }
+
+/**
+ * Return every (device_id, created_at) pair published for the given user.
+ * Used by the multi-device warning: if the count is greater than one the
+ * user is sharing the account across browsers and Signal-WASM sessions are
+ * NOT shared between devices, so messages may be unreadable on one of them.
+ */
+export async function listUserDevices(
+  userId: string,
+): Promise<{ devices: Array<{ device_id: number; created_at: string | null }>; error: string | null }> {
+  if (!supabase) return { devices: [], error: t('errors.network') };
+  const { data, error } = await supabase
+    .from('crypto_devices')
+    .select('device_id, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+  if (error) return { devices: [], error: errorMessage(error, 'crypto_devices list') };
+  return { devices: (data ?? []) as Array<{ device_id: number; created_at: string | null }>, error: null };
+}

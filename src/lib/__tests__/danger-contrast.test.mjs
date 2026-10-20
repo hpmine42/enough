@@ -32,9 +32,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readStyles } from './read-styles.mjs';
 
-const css = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
+const css = readStyles();
 
 /* ------------------------------------------------------------------ */
 /* Minimal stylesheet helpers (same brace-matched approach as the R6   */

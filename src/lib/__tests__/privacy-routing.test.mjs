@@ -28,10 +28,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { readStyles } from './read-styles.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
-const read = (rel) => fs.readFileSync(`${__dirname}/${rel}`, 'utf-8');
+const read = (rel) => (rel === '../../index.css' ? readStyles() : fs.readFileSync(`${__dirname}/${rel}`, 'utf-8'));
 
 const appSource = read('../../App.tsx');
 const privacySource = read('../../components/Privacy.tsx');

@@ -1,9 +1,8 @@
-import { FormEvent } from 'react';
+import { type FormEvent } from 'react';
 import { t } from '../../i18n';
 import { Section } from './settings-ui';
 
 interface AccountSettingsProps {
-  emailEditing: boolean;
   emailCollapseRender: boolean;
   emailCollapseClosing: boolean;
   newEmail: string;
@@ -34,7 +33,6 @@ interface AccountSettingsProps {
 }
 
 export default function AccountSettings({
-  emailEditing,
   emailCollapseRender,
   emailCollapseClosing,
   newEmail,

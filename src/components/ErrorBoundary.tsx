@@ -1,4 +1,4 @@
-import { Component, ReactNode } from 'react';
+import { Component, type ReactNode } from 'react';
 import { t } from '../i18n';
 
 interface Props {
@@ -16,13 +16,13 @@ interface State {
  * screen or child is caught.
  */
 export default class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false };
+  override state: State = { hasError: false };
 
   static getDerivedStateFromError(): State {
     return { hasError: true };
   }
 
-  componentDidCatch(error: unknown): void {
+  override componentDidCatch(error: unknown): void {
     // Minimal diagnostics for the developer console — name and message only,
     // never request bodies, credentials or tokens (mirrors errors.ts).
     const e = error as { name?: string; message?: string } | null;
@@ -36,7 +36,7 @@ export default class ErrorBoundary extends Component<Props, State> {
     window.location.reload();
   };
 
-  render(): ReactNode {
+  override render(): ReactNode {
     if (this.state.hasError) {
       return (
         <main className="config-screen">

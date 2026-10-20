@@ -1,5 +1,5 @@
 import { t } from '../../i18n';
-import { applyMode, ThemeMode } from '../../lib/theme';
+import { applyMode, type ThemeMode } from '../../lib/theme';
 import { CheckIcon, MoonIcon, SunIcon, SystemIcon } from '../icons';
 import { Section } from './settings-ui';
 

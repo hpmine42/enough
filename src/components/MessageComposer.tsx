@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useRef } from 'react';
+import { type FormEvent, type KeyboardEvent, useRef } from 'react';
 import { usePreferences } from '../context/PreferencesContext';
 import { sanitizeMessagePlaintext } from '../lib/input';
 import { t } from '../i18n';

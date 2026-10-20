@@ -1,0 +1,8 @@
+/* ==================================================================
+   enough. — design system + global stylesheet
+
+   v0.5.0 "Quiet Modern": warm minimalism, generous whitespace, one
+   type scale, one spacing scale, restrained colour. Every component
+   below consumes the tokens defined here, so light/dark/system themes
+   and the responsive rules stay consistent across the whole app.
+   ================================================================== */

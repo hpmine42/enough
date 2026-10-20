@@ -1,0 +1,14 @@
+/* ---------- app stage (home/chat behind the Settings / new-chat overlays)
+   ---------- */
+/* The stage only DIMS while an overlay is open. It must never move or
+   scale, so the transition is opacity-only (a layout-stable visual cue).
+   The bottom navigation is deliberately NOT a child of this element (it is
+   a fixed sibling layer, see `.bottom-nav`), so no stage transition can
+   ever move, scale or fade it. */
+.app-stage {
+  transition: opacity 0.3s ease;
+}
+
+.app-stage.shifted {
+  opacity: 0.45;
+}

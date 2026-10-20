@@ -91,6 +91,12 @@ export const RECORD_X25519_IDENTITY = 'x25519-identity';
  * (`vaultkeys` store) with AAD bound to the user id.
  */
 export const RECORD_MESSAGE_CACHE = 'msgcache';
+/**
+ * Record key for the C-1 monotonic sequence-counter state (E2EE rollback
+ * defence). Stores outbound next-seq values and inbound high-water marks
+ * per (peer/localDevice) and (sender/senderDevice/localDevice) respectively.
+ */
+export const RECORD_SEQ_COUNTERS = 'seq-counters';
 
 /**
  * Record-key prefix for Offline Read Mode snapshots (v0.3.x).

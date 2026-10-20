@@ -1,0 +1,35 @@
+/* ---------- settings ---------- */
+
+.settings-overlay {
+  /* Horizontal inset of a row's own surface. Rows bleed into the padding of
+     their section (negative inline margin of the same size) so the hover /
+     press surface starts before the text while every label stays on the
+     section's reading axis. */
+  --row-inset: 10px;
+
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--bg);
+  transform: translateX(56px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 0.3s var(--ease),
+    opacity 0.3s ease,
+    visibility 0s linear 0.3s;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-overlay.open {
+  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    transform 0.3s var(--ease),
+    opacity 0.3s ease,
+    visibility 0s;
+}

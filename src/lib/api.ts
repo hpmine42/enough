@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { errorMessage } from './errors';
 import { sanitizeDisplayName } from './input';
 import { advanceReadPosition, isHiddenByChatDeletion } from './helpers';
@@ -1009,13 +1010,19 @@ export async function saveReadState(
  *
  * The optional `_client` parameter exists solely for unit testing.
  */
+// Minimal structural type for the PostgREST query surface used by the
+// unread-count helpers. Using `ReturnType<Awaited<...>>` keeps this compatible
+// with BOTH the real SupabaseClient and the stripped-down mocks used in unit
+// tests, without replicating the full generic PostgrestBuilder type (which
+// triggers excessive instantiation depth when manually redefined).
+type UnreadQueryClient = Pick<SupabaseClient, 'from'>;
+
 export async function getUnreadCounts(
   me: string,
   connectionIds: string[],
   readState: Record<string, string>,
   /** @internal Optional Supabase client override for testing. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  _client?: any,
+  _client?: UnreadQueryClient | null,
 ): Promise<Record<string, number>> {
   const client = _client ?? supabase;
   if (!client || connectionIds.length === 0) return {};
@@ -1052,7 +1059,7 @@ export async function getUnreadCounts(
  * @internal Exported for unit testing only.
  */
 export async function batchUnreadFallback(
-  client: any,
+  client: UnreadQueryClient,
   me: string,
   missing: string[],
   readState: Record<string, string>,

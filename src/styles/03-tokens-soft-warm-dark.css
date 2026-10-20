@@ -1,0 +1,38 @@
+/* ---------- tokens: soft warm dark ---------- */
+
+:root.dark {
+  color-scheme: dark;
+  --bg: #171614;
+  --surface: #1e1d1a;
+  --surface-2: #262420;
+  --text: #ece9e1;
+  --text-soft: #d2cec4;
+  --muted: #9b978d;
+  --border: #2d2b26;
+  --border-strong: #3d3a33;
+  --accent: #8bab8e;
+  --accent-text: #a2c0a5;
+  --accent-strong: #79997c;
+  --accent-soft: rgba(139, 171, 142, 0.14);
+  --button: #e5e2d8;
+  --button-text: #171614;
+  --button-press: #f2efe6;
+  --received: #262420;
+  --sent: #e5e2d8;
+  --sent-text: #171614;
+  --danger: #d9907e;
+  --danger-soft: rgba(217, 144, 126, 0.14);
+  /* Dark keeps --danger the warm muted salmon — everything placed on a
+     coloured chip in this theme reads in the same dark warm ink as
+     --button-text / --sent-text / --badge-text. White on #d9907e was
+     barely 2.55 to 1; this ink is 7.10 to 1, and it also holds up on the
+     --button-press surface the shared primary hover repaints to. */
+  --danger-text: #171614;
+  --ok: #a3bd8d;
+  --badge-bg: #e5e2d8;
+  --badge-text: #171614;
+  --overlay: rgba(0, 0, 0, 0.55);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 6px 24px rgba(0, 0, 0, 0.45);
+  --nav-shadow: 0 1px 2px rgba(0, 0, 0, 0.32), 0 6px 18px rgba(0, 0, 0, 0.36);
+}

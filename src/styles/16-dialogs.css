@@ -1,0 +1,184 @@
+/* ---------- dialogs & bottom sheets ---------- */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: var(--overlay);
+  display: flex;
+  align-items: flex-end;
+  padding: 0;
+  animation: fade-in 0.18s ease-out;
+}
+
+.sheet-backdrop.closing {
+  pointer-events: none;
+  animation: fade-out 0.18s ease-in forwards;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fade-in 0.18s ease-out;
+}
+
+.dialog {
+  width: 100%;
+  max-width: 340px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  box-shadow: var(--shadow-2);
+  animation: dialog-in 0.22s var(--ease);
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.dialog-title {
+  margin: 0 0 8px;
+  font-size: 16.5px;
+  font-weight: 600;
+}
+
+.dialog-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: 20px;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+.sheet {
+  width: 100%;
+  max-width: var(--column);
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 10px 16px calc(env(safe-area-inset-bottom) + 14px);
+  animation: sheet-in 0.22s var(--ease);
+}
+
+.sheet.closing {
+  animation: sheet-out 0.18s ease-in forwards;
+}
+
+.sheet-title {
+  padding: 10px 6px 6px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Same list principle as the menus: the actions are separated by their own
+   spacing and by the hover surface of the tapped item — no hairlines
+   between them. */
+.sheet-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.sheet-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 52px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: 15.5px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.18s ease;
+}
+
+.sheet-item:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.sheet-item.danger {
+  color: var(--danger);
+}
+
+.sheet-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.sheet-item-icon {
+  display: flex;
+  color: var(--muted);
+}
+
+.sheet-item.danger .sheet-item-icon {
+  color: var(--danger);
+}
+
+.sheet-cancel {
+  width: 100%;
+  height: 48px;
+  margin-top: 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 15.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.sheet-cancel:hover {
+  background: var(--border);
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+
+@keyframes sheet-out {
+  to {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}

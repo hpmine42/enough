@@ -44,7 +44,7 @@ function hashName(name: string): number {
 }
 
 function pickColour(name: string): string {
-  return COLOURS[hashName(name) % COLOURS.length];
+  return COLOURS[hashName(name) % COLOURS.length] ?? COLOURS[0]!;
 }
 
 /**

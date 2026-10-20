@@ -1,0 +1,31 @@
+/* ---------- offline read mode ---------- */
+
+/* A single quiet status line. Mobile-first, non-blocking, never a modal:
+   cached reading must continue while it is visible. */
+.offline-banner {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 6px 14px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+  animation: fade-in 0.2s ease-out;
+}
+
+.offline-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.offline-text {
+  min-width: 0;
+}

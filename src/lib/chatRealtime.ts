@@ -211,12 +211,13 @@ export function captureRealtimeRow(
   const idx = pending.findIndex((p) => p.row.id === row.id);
   if (idx === -1) return [...pending, { event, row }];
   if (event === 'INSERT') return pending; // duplicate INSERT (replay): already queued
-  if (pending[idx].event === 'INSERT') {
+  const existing = pending[idx]!;
+  if (existing.event === 'INSERT') {
     // Newer state for a message whose INSERT is still queued: the INSERT must
     // run first at drain time, so the UPDATE is queued behind it.
     return [...pending, { event, row }];
   }
-  if (pending[idx].row === row) return pending; // same delivery repeated
+  if (existing.row === row) return pending; // same delivery repeated
   const next = pending.slice();
   next[idx] = { event, row }; // newest UPDATE payload wins, arrival slot kept
   return next;
