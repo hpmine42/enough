@@ -1014,9 +1014,12 @@ test('IR12c: no network, realtime or server path can invoke a reset (static trip
     'src/lib/e2ee/session-manager.ts:deleteRatchetSession',
     'src/lib/crypto/ratchet-state.ts:deleteRatchetSession',
     'src/lib/e2ee/device-store.ts:removePeerTrust',
-    // UI call sites (added with the Chat/E2EEContext wiring):
+    // UI call sites (Chat action handlers were extracted to
+    // useMessageActions during #5; the hook is now the sanctioned
+    // single call site for peer reset, reachable only from the
+    // confirmation dialog onConfirm handlers).
     'src/context/E2EEContext.tsx:resetDeviceIdentity',
-    'src/components/Chat.tsx:resetPeerSecurityState',
+    'src/hooks/useMessageActions.ts:resetPeerSecurityState',
   ]);
   for (const hit of hits) {
     assert.ok(allowed.has(hit), `reset-related identifier outside its sanctioned module: ${hit}`);
