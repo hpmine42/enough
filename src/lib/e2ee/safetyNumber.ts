@@ -6,7 +6,7 @@
 // trusted channel) to confirm they are talking to the same device and the
 // same person. The number is NEVER used as a trust decision in code:
 // TOFU acceptance and identity-mismatch rejection live entirely in
-// session-manager.ts (`applyPeerTrust`, `resetPeerSecurityState`) and do not
+// session-manager.ts (`applyPeerTrust`, the peer-trust reset entrypoint) and do not
 // consult this module at all.
 //
 // Format:
