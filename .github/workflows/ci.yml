@@ -106,7 +106,8 @@ jobs:
           set -uo pipefail
           suites="$(node -e '
             const s = require("./package.json").scripts;
-            process.stdout.write(Object.keys(s).filter((k) => k.startsWith("test:")).sort().join("\n"));
+            // test:smoke is an aggregate runner alias; smoke has its own step below.
+            process.stdout.write(Object.keys(s).filter((k) => k.startsWith("test:") && k !== "test:smoke").sort().join("\n"));
           ')"
           echo "Discovered test suites:"
           printf '  - %s\n' $suites

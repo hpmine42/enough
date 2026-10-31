@@ -381,14 +381,18 @@ test('IR9b: Chat resets only from explicit confirmation (single call sites)', as
     new URL('../../components/Chat.tsx', import.meta.url),
     'utf8',
   );
+  const actions = readFileSync(
+    new URL('../../hooks/useMessageActions.ts', import.meta.url),
+    'utf8',
+  );
   const count = (haystack, needle) => haystack.split(needle).length - 1;
 
-  assert.equal(count(chat, 'resetPeerSecurityState('), 1, 'exactly one peer-reset call site');
-  assert.equal(count(chat, 'async function performPeerReset'), 1, 'peer reset has one handler');
+  assert.equal(count(actions, 'resetPeerSecurityState('), 1, 'exactly one peer-reset call site');
+  assert.equal(count(actions, 'const performPeerReset = useCallback'), 1, 'peer reset has one handler');
   assert.equal(count(chat, 'onConfirm={performPeerReset}'), 1, 'peer reset runs from onConfirm only');
 
-  assert.equal(count(chat, 'resetDeviceE2EE()'), 1, 'exactly one device-reset call site');
-  assert.equal(count(chat, 'async function performDeviceReset'), 1, 'device reset has one handler');
+  assert.equal(count(actions, 'resetDeviceState()'), 1, 'exactly one device-reset call site');
+  assert.equal(count(actions, 'const performDeviceReset = useCallback'), 1, 'device reset has one handler');
   assert.equal(count(chat, 'onConfirm={performDeviceReset}'), 1, 'device reset runs from onConfirm only');
 
   // Cancel closes the dialog and nothing else — no reset on cancel; and the
