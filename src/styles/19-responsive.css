@@ -13,7 +13,8 @@
   }
 }
 
-/* Tablet / desktop: the app stays a phone-width column with a soft frame. */
+/* Tablet / desktop: keep the same quiet, centered surfaces, but let each
+   screen use the space a larger viewport provides. */
 @media (min-width: 760px) {
   .auth-screen,
   .home-screen,
@@ -24,11 +25,48 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     min-height: calc(100dvh - 48px);
+    background: var(--surface);
     box-shadow: var(--shadow-1);
   }
 
+  .auth-screen {
+    max-width: 520px;
+    padding-left: 52px;
+    padding-right: 52px;
+  }
+
+  .home-screen {
+    max-width: 760px;
+    padding-left: 48px;
+    padding-right: 48px;
+  }
+
+  .home-header {
+    margin-bottom: var(--space-5);
+  }
+
   .chat-screen {
+    max-width: 960px;
     height: calc(100dvh - 48px);
+  }
+
+  .chat-header {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  .messages {
+    padding-left: clamp(28px, 8vw, 108px);
+    padding-right: clamp(28px, 8vw, 108px);
+  }
+
+  .message {
+    max-width: min(78%, 680px);
+  }
+
+  .composer {
+    padding-left: max(24px, calc((100% - 760px) / 2));
+    padding-right: max(24px, calc((100% - 760px) / 2));
   }
 
   .brand {
@@ -59,5 +97,39 @@
     border-radius: var(--radius-lg);
     border-bottom: 1px solid var(--border);
     margin-bottom: 24px;
+  }
+}
+
+/* Large desktop: use a comfortable reading width instead of stretching text
+   to the edges of a monitor. */
+@media (min-width: 1200px) {
+  .auth-screen {
+    max-width: 560px;
+    padding-left: 60px;
+    padding-right: 60px;
+  }
+
+  .home-screen {
+    max-width: 880px;
+    padding-left: 64px;
+    padding-right: 64px;
+  }
+
+  .chat-screen {
+    max-width: 1120px;
+  }
+
+  .messages {
+    padding-left: clamp(108px, 12vw, 168px);
+    padding-right: clamp(108px, 12vw, 168px);
+  }
+
+  .message {
+    max-width: min(78%, 740px);
+  }
+
+  .composer {
+    padding-left: max(32px, calc((100% - 820px) / 2));
+    padding-right: max(32px, calc((100% - 820px) / 2));
   }
 }
