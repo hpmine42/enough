@@ -126,9 +126,8 @@ export function connectionExpiresAt(conn: Connection): Date | null {
 }
 
 export function isConnectionExpired(conn: Connection, now = new Date()): boolean {
-  if (conn.status === 'accepted' || conn.status === 'ended') return false;
   const expiresAt = connectionExpiresAt(conn);
-  return expiresAt ? expiresAt.getTime() <= now.getTime() : false;
+  return expiresAt !== null && expiresAt.getTime() <= now.getTime();
 }
 
 /** Effective status including client-side expiry. */
@@ -136,10 +135,7 @@ export function effectiveStatus(
   conn: Connection,
   now = new Date(),
 ): Connection['status'] {
-  if (conn.status !== 'accepted' && conn.status !== 'ended' && isConnectionExpired(conn, now)) {
-    return 'expired';
-  }
-  return conn.status;
+  return isConnectionExpired(conn, now) ? 'expired' : conn.status;
 }
 
 const MINUTE = 60_000;

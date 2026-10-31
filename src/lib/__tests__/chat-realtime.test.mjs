@@ -982,6 +982,7 @@ test('CRL6: the guarded commit decision keeps ordering when the current result i
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const chatSrc = fs.readFileSync(path.join(here, '..', '..', 'components', 'Chat.tsx'), 'utf8');
+const messageActionsSrc = fs.readFileSync(path.join(here, '..', '..', 'hooks', 'useMessageActions.ts'), 'utf8');
 
 /** The chat realtime channel wiring, from `.channel(`chat-${connectionId}`)` to `.subscribe()`. */
 function realtimeWiring() {
@@ -1193,7 +1194,7 @@ test('CRG7: existing send, pagination and deletion behavior is preserved', () =>
     /setMessages\(\(prev\) =>\s*mergeOlderPage\(prev, result\.messages, drained, conn\.id, hiddenUntil\)/,
   );
   // Delete-for-me is still pure per-user tombstone bookkeeping.
-  assert.match(chatSrc, /setDeletedForMe\(\(prev\) => new Set\(prev\)\.add\(target\.message\.id\)\)/);
+  assert.match(messageActionsSrc, /setDeletedForMe\(\(prev\) => new Set\(prev\)\.add\(target\.message\.id\)\)/);
 });
 
 /* ---------------- 11. F-01 lifecycle wiring (static guards) ---------------- */
@@ -1216,8 +1217,8 @@ test('CRL-G1: the lifecycle is advanced synchronously with the connectionId prop
 
 test('CRL-G2: a send started in A cannot commit into B after switching', () => {
   const start = chatSrc.indexOf('async function handleSend');
-  const end = chatSrc.indexOf('async function handleAccept', start);
-  assert.ok(start >= 0 && end > start, 'handleSend exists');
+  const end = chatSrc.indexOf('/* ------------------------------ derived ------------------------------ */', start);
+  assert.ok(start >= 0 && end > start, 'Chat defines handleSend before derived state');
   const send = chatSrc.slice(start, end);
   // The operation is bound to the conversation before its first await.
   assert.match(send, /const token = lifecycleRef\.current\.current\(\);/);

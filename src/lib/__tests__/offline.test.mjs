@@ -326,7 +326,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const read = (rel) => fs.readFileSync(path.join(here, '..', '..', rel), 'utf8');
 const homeSrc = read('components/Home.tsx');
 const chatSrc = read('components/Chat.tsx');
-const composerSrc = read('components/MessageComposer.tsx');
+const outboxHookSrc = read('hooks/useOutbox.ts');
 const settingsSrc = read('components/Settings.tsx');
 
 test('O14: Home renders the offline indicator and hydrates from the snapshot', () => {
@@ -367,25 +367,23 @@ test('O16: Chat renders cached messages offline without a network request', () =
   }
 });
 
-test('O17: sending is disabled offline and nothing is queued', () => {
-  // Other features add further disabling terms to the composer (C1 adds the
-  // E2EE readiness gate), so assert `offline` is one of them rather than
-  // pinning the whole expression.
+test('O17: offline peer sends use the outbox; My Notes writes stay disabled', () => {
   const composerTag = chatSrc.match(/<MessageComposer[^>]*\/>/s);
   assert.ok(composerTag, 'the MessageComposer element exists');
   const disabledExpr = composerTag[0].match(/disabled=\{([^}]*)\}/);
   assert.ok(disabledExpr, 'the composer has a disabled expression');
-  assert.ok(
-    disabledExpr[1].split('||').map((t) => t.trim()).includes('offline'),
-    'the composer stays disabled while offline',
+  assert.match(disabledExpr[1], /offline && self/, 'My Notes cannot write while offline');
+
+  // Peer messages are accepted offline only when E2EE is ready, then persisted
+  // through the dedicated outbox hook for encrypted delivery after reconnection.
+  assert.match(chatSrc, /const \{ enqueue \} = useOutbox\(/);
+  assert.match(
+    chatSrc,
+    /if \(offline && !self && canSendEncrypted\(\{ e2eeStatus, isSelf: self \}\)\) \{\s*return enqueue\(text\);\s*\}/,
   );
-  // The send guard refuses offline. It returns `false` so the composer keeps
-  // the draft instead of discarding text that was never queued or sent.
   assert.match(chatSrc, /if \(offline\) return false;/);
-  // No outbox anywhere.
-  for (const src of [homeSrc, chatSrc, composerSrc]) {
-    assert.ok(!/outbox/i.test(src), 'no offline outbox may exist');
-  }
+  assert.match(outboxHookSrc, /await enqueueMessage\(me, \{ id, connectionId: conn\.id, plaintext \}\)/);
+  assert.match(outboxHookSrc, /await prepareSend\(\{/);
 });
 
 test('O18: server-dependent actions are unavailable offline', () => {

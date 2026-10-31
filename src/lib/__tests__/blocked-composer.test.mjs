@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const read = (rel) => fs.readFileSync(`${__dirname}/../../${rel}`, 'utf-8');
 const chat = read('components/Chat.tsx');
+const connectionActions = read('hooks/useConnectionActions.ts');
 const home = read('components/Home.tsx');
 const menu = read('components/ChatActionMenu.tsx');
 const composer = read('components/MessageComposer.tsx');
@@ -47,7 +48,10 @@ function fnBody(src, name) {
 /* ------------------------------------------------------------------ */
 
 test('self-unblock re-derives the block state from user_blocks', () => {
-  const body = fnBody(chat, 'handleUnblock');
+  const start = connectionActions.indexOf('const handleUnblock = useCallback(async () => {');
+  const end = connectionActions.indexOf('const handleCancelRequest', start);
+  assert.ok(start >= 0 && end > start, 'the connection-actions hook owns handleUnblock');
+  const body = connectionActions.slice(start, end);
   assert.ok(
     body.includes('setBlockState(await getBlockState(me, peer.id))'),
     'after unblockUser the authoritative getBlockState(me, peer) result must be applied',
@@ -71,12 +75,10 @@ test('composer disable and the client send guard are wired to the two-directiona
   assert.ok(composerTag, 'the MessageComposer element exists');
   const disabledExpr = composerTag[0].match(/disabled=\{([^}]*)\}/);
   assert.ok(disabledExpr, 'the composer has a disabled expression');
-  for (const term of ['!canChat', 'blocked', 'offline', '!e2eeReady']) {
-    assert.ok(
-      disabledExpr[1].split('||').map((t) => t.trim()).includes(term),
-      `the composer stays disabled by \`${term}\``,
-    );
+  for (const term of ['!canChat', 'blocked', '!e2eeReady']) {
+    assert.ok(disabledExpr[1].includes(term), `the composer stays disabled by \`${term}\``);
   }
+  assert.match(disabledExpr[1], /offline && self/, 'My Notes cannot queue writes while offline');
   // ...and the client-side send guard fails closed on the same state. It
   // returns `false` (not `undefined`) so the composer keeps the draft of a
   // rejected send instead of discarding it.

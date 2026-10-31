@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const chatSource = fs.readFileSync(`${__dirname}/../../components/Chat.tsx`, 'utf-8');
+const connectionActionsSource = fs.readFileSync(`${__dirname}/../../hooks/useConnectionActions.ts`, 'utf-8');
 
 test('chat block-state channel filters are scoped to the exact me↔peer pair', () => {
   const channelStart = chatSource.indexOf("channel(`chat-blocks-");
@@ -53,10 +54,10 @@ test('chat block-state channel filters are scoped to the exact me↔peer pair', 
 // (The derivation itself is covered behaviorally in api.test.mjs; the
 // runtime composer behavior is exercised by scripts/smoke-test.mjs.)
 test('chat unblock re-derives the block state instead of assuming none', () => {
-  const start = chatSource.indexOf('async function handleUnblock');
-  assert.ok(start !== -1, 'handleUnblock must exist');
-  const end = chatSource.indexOf('async function', start + 1);
-  const body = chatSource.slice(start, end === -1 ? undefined : end);
+  const start = connectionActionsSource.indexOf('const handleUnblock = useCallback(async () => {');
+  const end = connectionActionsSource.indexOf('const handleCancelRequest', start);
+  assert.ok(start !== -1 && end > start, 'useConnectionActions owns handleUnblock');
+  const body = connectionActionsSource.slice(start, end);
 
   assert.ok(
     body.includes('getBlockState('),

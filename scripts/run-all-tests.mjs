@@ -19,7 +19,9 @@ const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
 const includeSmoke = process.argv.includes('--smoke');
 
 const suites = Object.keys(pkg.scripts || {})
-  .filter((k) => k.startsWith('test:'))
+  // `test:smoke` is this runner with `--smoke`; discovering it here would
+  // recursively launch another full run instead of executing one suite.
+  .filter((k) => k.startsWith('test:') && k !== 'test:smoke')
   .sort();
 
 if (includeSmoke) suites.push('smoke');
